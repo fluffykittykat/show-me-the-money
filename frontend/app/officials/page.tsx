@@ -36,10 +36,10 @@ function OfficialsPageInner() {
     setError(null);
     try {
       const data = await listEntities('person', 600);
-      // Filter to only actual officials (have chamber in metadata)
+      // Filter to only actual officials (have chamber or party in metadata)
       const actualOfficials = data.results.filter((e: Entity) => {
         const meta = e.metadata as Record<string, unknown>;
-        return meta?.chamber;
+        return meta?.chamber || meta?.party;
       });
       setOfficials(actualOfficials);
     } catch {
@@ -68,8 +68,10 @@ function OfficialsPageInner() {
     if (partyFilter !== 'All' && !party.toLowerCase().includes(partyFilter.toLowerCase())) {
       return false;
     }
-    if (chamberFilter !== 'All' && !chamber.toLowerCase().includes(chamberFilter.toLowerCase())) {
-      return false;
+    if (chamberFilter !== 'All') {
+      const chamberLower = chamber.toLowerCase();
+      if (chamberFilter === 'Senate' && chamberLower !== 'senate') return false;
+      if (chamberFilter === 'House' && !chamberLower.includes('house')) return false;
     }
     if (stateFilter !== 'All' && state !== stateFilter) {
       return false;

@@ -61,7 +61,7 @@ class EntityListResponse(BaseModel):
 class SearchResponse(BaseModel):
     query: str
     entity_type: Optional[str] = None
-    results: list[EntityBrief]
+    results: list[EntityResponse]
     total: int
     limit: int
     offset: int

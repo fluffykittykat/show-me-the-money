@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models import Entity
-from app.schemas import EntityBrief, SearchResponse
+from app.schemas import EntityBrief, EntityResponse, SearchResponse
 
 router = APIRouter(tags=["search"])
 
@@ -78,7 +78,7 @@ async def search_entities(
     return SearchResponse(
         query=q,
         entity_type=type,
-        results=[EntityBrief.model_validate(e) for e in entities],
+        results=[EntityResponse.model_validate(e) for e in entities],
         total=total,
         limit=limit,
         offset=offset,
@@ -112,7 +112,7 @@ async def autocomplete(
 @router.get("/browse")
 async def list_entities(
     type: Optional[str] = Query(None, description="Filter by entity_type"),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
@@ -129,7 +129,7 @@ async def list_entities(
     entities = result.scalars().all()
 
     return {
-        "results": [EntityBrief.model_validate(e) for e in entities],
+        "results": [EntityResponse.model_validate(e) for e in entities],
         "total": total,
         "limit": limit,
         "offset": offset,
