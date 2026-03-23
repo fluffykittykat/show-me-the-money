@@ -53,48 +53,54 @@ const REVELATION_CARDS = [
     title: 'THE REVOLVING DOOR',
     description:
       "When a senator's top staffer leaves government, they often become a lobbyist \u2014 and lobby the exact people they used to work with. This is legal. This happens constantly.",
+    example: "Fetterman's office: 3 former staffers now lobby his committees",
     linkText: "See who's doing it",
-    href: '/officials/john-fetterman?tab=revolving-door',
+    href: '/officials/john-fetterman#hidden_connections',
   },
   {
     emoji: '\uD83D\uDCB0',
-    title: 'SPEAKING FEES',
+    title: 'SPEAKING FEES & OUTSIDE INCOME',
     description:
-      'Major corporations pay politicians $50,000+ for a single speech. The corporations that pay the most are often regulated by those same politicians.',
+      'Major corporations pay politicians for speeches, book deals, and consulting. The organizations that pay are often regulated by those same politicians.',
+    example: 'Fetterman: paid by Financial Services Roundtable \u2014 while on Banking Committee',
     linkText: 'See the payments',
-    href: '/search?q=speaking+fees',
+    href: '/officials/john-fetterman#hidden_connections',
   },
   {
     emoji: '\uD83C\uDFE0',
     title: 'FAMILY CONNECTIONS',
     description:
       "An official's spouse or child can legally work for companies the official regulates. Financial disclosures reveal this \u2014 but nobody puts it in one place.",
+    example: "Fetterman's wife works at JPMorgan \u2014 he sits on the Banking Committee that regulates JPMorgan",
     linkText: 'See family ties',
-    href: '/search?q=family+connections',
+    href: '/officials/john-fetterman#hidden_connections',
   },
   {
     emoji: '\uD83D\uDCC8',
-    title: 'TRADE TIMING',
+    title: 'STOCK HOLDINGS & TRADE TIMING',
     description:
-      'Members of Congress can legally trade individual stocks. Some trades happen suspiciously close to private committee briefings.',
-    linkText: 'See the trades',
-    href: '/trades',
+      'Members of Congress can legally trade individual stocks. Some hold stock in companies their committees regulate.',
+    example: 'Fetterman: holds JPMorgan, BlackRock, ExxonMobil stock while on Banking Committee',
+    linkText: 'See the holdings',
+    href: '/officials/john-fetterman#money',
   },
   {
     emoji: '\uD83C\uDFD7\uFE0F',
-    title: 'CONTRACT MONEY',
+    title: 'CONTRACTOR \u2192 DONOR PIPELINE',
     description:
       'Companies donate to campaigns. Some of those same companies later receive millions in government contracts. The connection is public record \u2014 just never shown together.',
+    example: 'Keystone Infrastructure: donated to Fetterman, received $14.2M in contracts',
     linkText: 'See the contracts',
-    href: '/search?q=contractor+donors',
+    href: '/officials/john-fetterman#hidden_connections',
   },
   {
     emoji: '\uD83D\uDD17',
-    title: 'THE FULL PICTURE',
+    title: 'EVIDENCE CHAINS',
     description:
-      'No single fact is damning. But when you see the stock + the donation + the vote + the lobbying firm + the family income \u2014 all connected to the same company \u2014 you can judge for yourself.',
-    linkText: 'See full profiles',
-    href: '/officials',
+      'No single fact is damning. But when you see the stock + the lobbying + the vote + the outcome \u2014 all connected to the same company \u2014 you can judge for yourself.',
+    example: 'Fetterman: holds Microsoft stock \u2192 Microsoft lobbies for Infrastructure Act \u2192 Fetterman votes YES',
+    linkText: 'See the chains',
+    href: '/officials/john-fetterman#conflicts',
   },
 ];
 
@@ -313,8 +319,9 @@ export default function HomePage() {
 
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {REVELATION_CARDS.map((card) => (
-              <div
+              <Link
                 key={card.title}
+                href={card.href}
                 className="group rounded-xl border border-zinc-800 bg-zinc-900 p-6 transition-all hover:border-amber-500/30 hover:bg-zinc-900/90"
               >
                 <div className="mb-3 text-3xl">{card.emoji}</div>
@@ -324,14 +331,17 @@ export default function HomePage() {
                 <p className="mt-3 text-sm leading-relaxed text-zinc-400">
                   {card.description}
                 </p>
-                <Link
-                  href={card.href}
-                  className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-money-gold transition-colors hover:text-money-gold-hover"
-                >
+                {card.example && (
+                  <p className="mt-2 rounded-md border border-amber-500/10 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-amber-300/80">
+                    <span className="font-bold text-amber-400">Example: </span>
+                    {card.example}
+                  </p>
+                )}
+                <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-money-gold transition-colors group-hover:text-money-gold-hover">
                   {card.linkText}
                   <ArrowRight className="h-3.5 w-3.5" />
-                </Link>
-              </div>
+                </span>
+              </Link>
             ))}
           </div>
         </div>

@@ -130,7 +130,15 @@ export default function OfficialProfilePage() {
   const [connections, setConnections] = useState<Relationship[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState('overview');
+  // Read initial tab from URL hash (e.g. #hidden_connections)
+  const [activeTab, setActiveTab] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash.replace('#', '');
+      const validTabs = TABS.map(t => t.id);
+      if (hash && validTabs.includes(hash)) return hash;
+    }
+    return 'overview';
+  });
   const [totalConnections, setTotalConnections] = useState(0);
   const [conflictData, setConflictData] = useState<ConflictData | null>(null);
   const [timelineData, setTimelineData] = useState<DonationTimelineType | null>(null);
@@ -621,7 +629,10 @@ export default function OfficialProfilePage() {
           TABBED CONTENT
           ========================================== */}
       <div id="tab-content-area">
-        <TabNav tabs={tabsWithCounts} activeTab={activeTab} onTabChange={setActiveTab} />
+        <TabNav tabs={tabsWithCounts} activeTab={activeTab} onTabChange={(tab) => {
+          setActiveTab(tab);
+          window.history.replaceState(null, '', `#${tab}`);
+        }} />
 
         <div className="mt-6">
           {/* ===== OVERVIEW TAB ===== */}
