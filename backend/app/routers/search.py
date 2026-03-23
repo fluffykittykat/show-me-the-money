@@ -37,11 +37,13 @@ async def search_entities(
     # Prefix match on name — uses ix_entities_name_lower btree index (O log n)
     prefix_match = func.lower(Entity.name).like(f"{q_clean.lower()}%")
 
-    # Substring/contains match — finds "fett" inside "John Fetterman"
-    contains_match = func.lower(Entity.name).contains(q_clean.lower())
-
-    # Combine: FTS OR prefix OR contains — covers all search patterns
-    where_clause = or_(fts_match, prefix_match, contains_match)
+    # Substring/contains match — only for short queries where FTS won't help
+    # For longer queries (3+ words), FTS handles it; contains is too slow on large tables
+    if len(q_clean.split()) <= 2:
+        contains_match = func.lower(Entity.name).contains(q_clean.lower())
+        where_clause = or_(fts_match, prefix_match, contains_match)
+    else:
+        where_clause = or_(fts_match, prefix_match)
     if type:
         where_clause = where_clause.where(Entity.entity_type == type) if False else where_clause
 

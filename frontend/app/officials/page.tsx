@@ -22,11 +22,11 @@ export default function OfficialsPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await listEntities('person', 200);
-      // Filter to only actual officials (have chamber/party in metadata)
+      const data = await listEntities('person', 600);
+      // Filter to only actual officials (have chamber in metadata)
       const actualOfficials = data.results.filter((e: Entity) => {
         const meta = e.metadata as Record<string, unknown>;
-        return meta?.chamber || meta?.party || meta?.bioguideId;
+        return meta?.chamber;
       });
       setOfficials(actualOfficials);
     } catch {

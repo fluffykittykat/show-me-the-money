@@ -24,28 +24,78 @@ def _sanitize(s: str) -> str:
 
 
 async def _gather_entity_context(session: AsyncSession, entity: Entity) -> dict:
-    """Gather all relevant data for an entity to feed into the briefing prompt."""
+    """Gather all relevant data for an entity to feed into the briefing prompt.
+
+    Prioritizes high-value relationships (stocks, family, revolving door)
+    over bulk data (cosponsored bills) to stay within prompt size limits.
+    """
     from sqlalchemy import and_
 
-    # Get all outgoing connections
-    from_rels = (
+    # Priority relationship types — these MUST be included
+    priority_types = [
+        "holds_stock", "family_employed_by", "spouse_income_from",
+        "committee_member", "sponsored", "voted_yes", "voted_no",
+    ]
+    priority_incoming = [
+        "donated_to", "revolving_door_lobbyist", "contractor_donor",
+        "outside_income_from", "speaking_fee_from", "book_deal_with",
+    ]
+
+    # Get priority outgoing connections first
+    priority_out = (
         await session.execute(
             select(Relationship, Entity)
             .join(Entity, Entity.id == Relationship.to_entity_id)
-            .where(Relationship.from_entity_id == entity.id)
+            .where(and_(
+                Relationship.from_entity_id == entity.id,
+                Relationship.relationship_type.in_(priority_types),
+            ))
             .limit(50)
         )
     ).all()
 
-    # Get all incoming connections
-    to_rels = (
+    # Then get remaining outgoing (cosponsored, etc) up to a limit
+    remaining_out = (
+        await session.execute(
+            select(Relationship, Entity)
+            .join(Entity, Entity.id == Relationship.to_entity_id)
+            .where(and_(
+                Relationship.from_entity_id == entity.id,
+                ~Relationship.relationship_type.in_(priority_types),
+            ))
+            .limit(20)
+        )
+    ).all()
+
+    from_rels = priority_out + remaining_out
+
+    # Get priority incoming connections first
+    priority_in = (
         await session.execute(
             select(Relationship, Entity)
             .join(Entity, Entity.id == Relationship.from_entity_id)
-            .where(Relationship.to_entity_id == entity.id)
+            .where(and_(
+                Relationship.to_entity_id == entity.id,
+                Relationship.relationship_type.in_(priority_incoming),
+            ))
             .limit(50)
         )
     ).all()
+
+    # Then remaining incoming
+    remaining_in = (
+        await session.execute(
+            select(Relationship, Entity)
+            .join(Entity, Entity.id == Relationship.from_entity_id)
+            .where(and_(
+                Relationship.to_entity_id == entity.id,
+                ~Relationship.relationship_type.in_(priority_incoming),
+            ))
+            .limit(10)
+        )
+    ).all()
+
+    to_rels = priority_in + remaining_in
 
     # Build evidence chains for persons — trace money → lobbying → vote → outcome
     evidence_chains = []
