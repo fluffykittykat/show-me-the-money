@@ -13,6 +13,7 @@ import httpx
 import psutil
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.database import async_session
 from app.models import DataSource, Entity, IngestionJob
@@ -42,6 +43,17 @@ def _slugify(name: str) -> str:
     slug = re.sub(r"[\s]+", "-", slug)
     slug = re.sub(r"-+", "-", slug)
     return slug.strip("-")
+
+
+def _ascii_safe(obj):
+    """Recursively strip non-ASCII characters for SQL_ASCII database."""
+    if isinstance(obj, str):
+        return obj.encode("ascii", "replace").decode("ascii")
+    if isinstance(obj, dict):
+        return {k: _ascii_safe(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_ascii_safe(i) for i in obj]
+    return obj
 
 
 async def _fetch_all_current_members(api_key: str, limiter: SmartRateLimiter) -> list:
@@ -199,14 +211,8 @@ async def _upsert_member_data(member_data: dict) -> None:
     name = member_data["name"]
     bioguide_id = member_data["bioguide_id"]
 
-    # Determine entity type
-    chamber = member_data.get("chamber", "").lower()
-    if "senate" in chamber:
-        entity_type = "senator"
-    elif "house" in chamber:
-        entity_type = "representative"
-    else:
-        entity_type = "official"
+    # All Congress members are entity_type "person" — chamber is in metadata
+    entity_type = "person"
 
     metadata = {
         "bioguide_id": bioguide_id,
@@ -233,27 +239,34 @@ async def _upsert_member_data(member_data: dict) -> None:
     state = member_data.get("state", "")
     summary = f"{party} {entity_type.title()} from {state}" if party and state else None
 
+    logger.info("Storing member: %s (%s, %s)", name, entity_type, slug)
     async with async_session() as session:
         async with session.begin():
             # Upsert entity
-            stmt = pg_insert(Entity).values(
-                slug=slug,
-                entity_type=entity_type,
-                name=name,
-                summary=summary,
-                metadata_=metadata,
-            )
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["slug"],
-                set_={
-                    "name": stmt.excluded.name,
-                    "entity_type": stmt.excluded.entity_type,
-                    "summary": stmt.excluded.summary,
-                    "metadata_": stmt.excluded.metadata_,
-                    "updated_at": datetime.now(timezone.utc),
-                },
-            )
-            await session.execute(stmt)
+            # Use ORM upsert to avoid metadata column name clash
+            existing = (await session.execute(
+                select(Entity).where(Entity.slug == slug)
+            )).scalar_one_or_none()
+
+            safe_name = _ascii_safe(name)
+            safe_summary = _ascii_safe(summary) if summary else None
+            safe_metadata = _ascii_safe(metadata)
+
+            if existing:
+                existing.name = safe_name
+                existing.entity_type = entity_type
+                existing.summary = safe_summary
+                existing.metadata_ = safe_metadata
+            else:
+                existing = Entity(
+                    slug=slug,
+                    entity_type=entity_type,
+                    name=safe_name,
+                    summary=safe_summary,
+                    metadata_=safe_metadata,
+                )
+                session.add(existing)
+            await session.flush()
 
             # Get the entity id
             entity_row = await session.execute(
@@ -272,7 +285,7 @@ async def _upsert_member_data(member_data: dict) -> None:
                 entity_id=entity_id,
                 source_type="congress_gov",
                 external_id=bioguide_id,
-                raw_payload=raw_payload,
+                raw_payload=_ascii_safe(raw_payload),
                 fetched_at=datetime.now(timezone.utc),
             )
             # If data_source already exists for this entity+source_type, update it
@@ -285,7 +298,7 @@ async def _upsert_member_data(member_data: dict) -> None:
                     entity_id=entity_id,
                     source_type="fec",
                     external_id=member_data["fec_data"].get("candidate_id", ""),
-                    raw_payload=member_data["fec_data"],
+                    raw_payload=_ascii_safe(member_data["fec_data"]),
                     fetched_at=datetime.now(timezone.utc),
                 )
                 await session.execute(fec_ds_stmt)
@@ -314,11 +327,18 @@ async def run_batch_ingestion(force: bool = False) -> uuid.UUID:
     Creates an IngestionJob record and processes members in batches.
     Returns the job ID.
     """
+    # Try env vars first, then fall back to DB config
     congress_api_key = os.getenv("CONGRESS_GOV_API_KEY", "")
     fec_api_key = os.getenv("FEC_API_KEY", "")
 
     if not congress_api_key:
-        raise ValueError("CONGRESS_GOV_API_KEY environment variable is required")
+        from app.services.config_service import get_config_value
+        async with async_session() as cfg_session:
+            congress_api_key = await get_config_value(cfg_session, "CONGRESS_GOV_API_KEY") or ""
+            fec_api_key = fec_api_key or await get_config_value(cfg_session, "FEC_API_KEY") or ""
+
+    if not congress_api_key:
+        raise ValueError("CONGRESS_GOV_API_KEY not set (env var or DB config)")
 
     # Create ingestion job
     job_id: uuid.UUID

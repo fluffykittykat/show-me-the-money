@@ -191,6 +191,22 @@ async def admin_ingest(slug: str):
     return {"status": "ok", "message": f"Ingestion complete for {slug}"}
 
 
+@admin_router.post("/enrich/senators")
+async def admin_enrich_senators():
+    """Phase 2: Enrich all senators with LDA lobbying data."""
+    import asyncio
+    from app.services.ingestion.enrich_senators import enrich_all_senators
+
+    async def _run():
+        try:
+            return await enrich_all_senators()
+        except Exception as exc:
+            print(f"[enrich] Error: {exc}")
+
+    asyncio.create_task(_run())
+    return {"status": "started", "message": "Senator enrichment started in background (LDA lobbying data)"}
+
+
 @admin_router.post("/briefings/generate")
 async def admin_generate_briefings(entity_type: str = "person", force: bool = False):
     """Pre-generate FBI briefings for all entities of a given type."""
