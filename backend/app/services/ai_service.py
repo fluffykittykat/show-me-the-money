@@ -291,6 +291,24 @@ def _build_briefing_prompt(context: dict) -> str:
             prompt += f" (Source: {rel['source']})"
         prompt += "\n"
 
+    # Highlight family/hidden connections — these are KEY for the briefing
+    family_rels = [r for r in context.get("outgoing", []) if r["type"] in ("family_employed_by", "spouse_income_from")]
+    family_rels += [r for r in context.get("incoming", []) if r["type"] in ("revolving_door_lobbyist", "contractor_donor", "outside_income_from", "speaking_fee_from", "book_deal_with")]
+    if family_rels:
+        prompt += "\n\n*** CRITICAL: FAMILY & HIDDEN CONNECTIONS ***\n"
+        prompt += "These are MUST-MENTION findings. A family member working for a regulated company is a TOP finding.\n\n"
+        for rel in family_rels:
+            if "to" in rel:
+                meta_str = ""
+                prompt += f"  - {rel['type']}: this official -> {rel['to']} ({rel['to_type']})"
+            else:
+                prompt += f"  - {rel['type']}: {rel['from']} ({rel['from_type']}) -> this official"
+            if rel.get("amount_label"):
+                prompt += f" [{rel['amount_label']}]"
+            if rel.get("amount_usd"):
+                prompt += f" [${rel['amount_usd']/100:,.0f}]" if rel['amount_usd'] > 100 else f" [${rel['amount_usd']:,}]"
+            prompt += "\n"
+
     # Evidence chains — the connected dots
     chains = context.get("evidence_chains", [])
     if chains:
