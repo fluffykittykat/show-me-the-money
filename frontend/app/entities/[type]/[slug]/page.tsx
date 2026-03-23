@@ -1425,7 +1425,8 @@ export default function EntityPage() {
           {Object.keys(metadata).length > 0 && (
             <div className="mt-4 flex flex-wrap gap-4">
               {Object.entries(metadata)
-                .filter(([key]) => !['id', 'slug'].includes(key))
+                .filter(([key]) => !['id', 'slug', 'fbi_briefing', 'fbi_briefing_fingerprint', 'mock_briefing'].includes(key))
+                .filter(([, value]) => typeof value === 'string' || typeof value === 'number')
                 .slice(0, 6)
                 .map(([key, value]) => (
                   <div key={key} className="text-sm">
