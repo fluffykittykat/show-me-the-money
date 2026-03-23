@@ -232,6 +232,22 @@ async def admin_enrich_senators():
     return {"status": "started", "message": "Senator enrichment started in background (LDA lobbying data)"}
 
 
+@admin_router.post("/enrich/bills")
+async def admin_enrich_bills(force: bool = False):
+    """Enrich all bill entities with CRS summaries and full text URLs from Congress.gov."""
+    import asyncio
+    from app.services.ingestion.enrich_bills import run_bill_enrichment
+
+    async def _run():
+        try:
+            return await run_bill_enrichment(force=force)
+        except Exception as exc:
+            print(f"[enrich_bills] Error: {exc}")
+
+    asyncio.create_task(_run())
+    return {"status": "started", "message": "Bill enrichment started in background (CRS summaries + text URLs)"}
+
+
 @admin_router.post("/briefings/generate")
 async def admin_generate_briefings(entity_type: str = "person", force: bool = False):
     """Pre-generate FBI briefings for all entities of a given type."""
