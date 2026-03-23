@@ -283,20 +283,31 @@ function BriefingContent({ text }: { text: string }) {
   return <>{elements}</>;
 }
 
+// In-memory cache so tab switches don't re-fetch
+const briefingCache = new Map<string, BriefingResponse>();
+
 export default function FBIBriefing({
   entitySlug,
   entityName,
   entityType,
 }: FBIBriefingProps) {
-  const [briefing, setBriefing] = useState<BriefingResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cached = briefingCache.get(entitySlug);
+  const [briefing, setBriefing] = useState<BriefingResponse | null>(cached || null);
+  const [loading, setLoading] = useState(!cached);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Already have it cached in memory — skip fetch
+    if (briefingCache.has(entitySlug)) {
+      setBriefing(briefingCache.get(entitySlug)!);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     getBriefing(entitySlug)
       .then((data) => {
+        briefingCache.set(entitySlug, data);
         setBriefing(data);
       })
       .catch(() => {

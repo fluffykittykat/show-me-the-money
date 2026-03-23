@@ -371,19 +371,22 @@ class AIBriefingService:
         if not entity:
             return "Entity not found."
 
-        # Gather context (needed for both fingerprint check and generation)
+        # Fast path: return cached briefing immediately (no DB queries beyond entity lookup)
+        if not force_refresh:
+            cached = (entity.metadata_ or {}).get("fbi_briefing")
+            if cached:
+                return cached
+
+        # Slow path: gather context and generate (only on first visit or force refresh)
         context = await _gather_entity_context(session, entity)
         current_fingerprint = _compute_data_fingerprint(context)
 
-        # Check cache — serve if data hasn't changed
-        if not force_refresh:
+        # On force_refresh, check if data actually changed — skip regen if not
+        if force_refresh:
             cached = (entity.metadata_ or {}).get("fbi_briefing")
             cached_fingerprint = (entity.metadata_ or {}).get("fbi_briefing_fingerprint")
             if cached and cached_fingerprint == current_fingerprint:
                 return cached
-            # If fingerprint mismatch, data changed — regenerate
-            if cached and cached_fingerprint != current_fingerprint:
-                print(f"[AIService] Data changed for {entity_slug}, regenerating briefing")
 
         # Generate via AI
         system_prompt = _build_system_prompt(entity.entity_type)
