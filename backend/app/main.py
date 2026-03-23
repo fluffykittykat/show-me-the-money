@@ -68,6 +68,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+
+
+class CacheMiddleware(BaseHTTPMiddleware):
+    """Add Cache-Control headers to GET requests for fast responses."""
+
+    async def dispatch(self, request: Request, call_next):
+        response: Response = await call_next(request)
+        if request.method == "GET" and response.status_code == 200:
+            path = request.url.path
+            # Long cache for entity data (changes rarely)
+            if path.startswith("/entities/") or path.startswith("/browse"):
+                response.headers["Cache-Control"] = "public, max-age=300"  # 5 min
+            elif path.startswith("/dashboard/"):
+                response.headers["Cache-Control"] = "public, max-age=120"  # 2 min
+            elif path.startswith("/search"):
+                response.headers["Cache-Control"] = "public, max-age=60"  # 1 min
+        return response
+
+
+app.add_middleware(CacheMiddleware)
+
 # Include routers
 app.include_router(entities.router)
 app.include_router(search.router)

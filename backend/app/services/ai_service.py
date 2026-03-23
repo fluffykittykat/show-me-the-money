@@ -393,19 +393,23 @@ def _generate_via_sdk(system_prompt: str, data_prompt: str) -> Optional[str]:
         return None
 
 
-def _generate_via_cli(system_prompt: str, data_prompt: str) -> Optional[str]:
-    """Fall back to claude CLI (uses existing auth token)."""
+async def _generate_via_cli(system_prompt: str, data_prompt: str) -> Optional[str]:
+    """Fall back to claude CLI (uses existing auth token). Runs async to not block."""
+    import asyncio
     full_prompt = f"{system_prompt}\n\n{data_prompt}"
     try:
-        result = subprocess.run(
-            ["claude", "-p", "--dangerously-skip-permissions", full_prompt],
-            capture_output=True,
-            text=True,
-            timeout=120,
+        proc = await asyncio.create_subprocess_exec(
+            "claude", "-p", "--dangerously-skip-permissions", full_prompt,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-        if result.returncode == 0 and result.stdout.strip():
-            return _sanitize(result.stdout.strip())
-        print(f"[AIService] CLI returned code {result.returncode}: {result.stderr[:200]}")
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+        if proc.returncode == 0 and stdout.strip():
+            return _sanitize(stdout.decode("utf-8", errors="ignore").strip())
+        print(f"[AIService] CLI returned code {proc.returncode}: {stderr.decode()[:200]}")
+        return None
+    except asyncio.TimeoutError:
+        print("[AIService] CLI timeout after 120s")
         return None
     except Exception as e:
         print(f"[AIService] CLI error: {e}")
@@ -449,15 +453,15 @@ def _clean_briefing(text: str) -> str:
     return '\n'.join(cleaned).strip()
 
 
-def _generate_via_claude(system_prompt: str, data_prompt: str) -> str:
+async def _generate_via_claude(system_prompt: str, data_prompt: str) -> str:
     """Generate briefing via SDK (preferred) or CLI (fallback)."""
-    # Try SDK first
+    # Try SDK first (sync but fast if API key is set)
     result = _generate_via_sdk(system_prompt, data_prompt)
     if result:
         return _clean_briefing(result)
 
-    # Fall back to CLI
-    result = _generate_via_cli(system_prompt, data_prompt)
+    # Fall back to CLI (async, non-blocking)
+    result = await _generate_via_cli(system_prompt, data_prompt)
     if result:
         return _clean_briefing(result)
 
@@ -534,7 +538,7 @@ class AIBriefingService:
         system_prompt = _build_system_prompt(entity.entity_type)
         data_prompt = _build_briefing_prompt(context)
 
-        briefing = _generate_via_claude(system_prompt, data_prompt)
+        briefing = await _generate_via_claude(system_prompt, data_prompt)
 
         # If AI failed, fall back to cached or mock briefing
         if briefing.startswith("BRIEFING GENERATION UNAVAILABLE"):

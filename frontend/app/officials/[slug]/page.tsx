@@ -161,9 +161,18 @@ export default function OfficialProfilePage() {
     setHiddenSummaryLoading(true);
     setError(null);
     try {
-      const [entityData, connectionsData, conflicts, timeline, network, interests, spotlights, summary, hiddenSum, chains] = await Promise.all([
+      // FAST PATH: Load entity + connections first (2 calls, renders page immediately)
+      const [entityData, connectionsData] = await Promise.all([
         getEntity(slug),
         getConnections(slug, { limit: 500 }),
+      ]);
+      setEntity(entityData);
+      setConnections(connectionsData.connections);
+      setTotalConnections(connectionsData.total);
+      setLoading(false); // Page renders NOW with basic data
+
+      // LAZY PATH: Load enrichment data in background (non-blocking)
+      Promise.all([
         getConflicts(slug).catch(() => null),
         getDonationTimeline(slug).catch(() => null),
         getSharedDonorNetwork(slug).catch(() => null),
@@ -172,19 +181,17 @@ export default function OfficialProfilePage() {
         getEntitySummary(slug).catch(() => null),
         getHiddenConnectionsSummary(slug).catch(() => null),
         getAllChains(slug).then(r => Array.isArray(r) ? r : (r as { chains: EvidenceChainResponse[] }).chains || []).catch(() => [] as EvidenceChainResponse[]),
-      ]);
-      setEntity(entityData);
-      setConnections(connectionsData.connections);
-      setTotalConnections(connectionsData.total);
-      setConflictData(conflicts);
-      setTimelineData(timeline);
-      setNetworkData(network);
-      setSharedInterests(interests);
-      setSpotlightData(spotlights);
-      setEntitySummary(summary);
-      setHiddenSummary(hiddenSum);
-      setHiddenSummaryLoading(false);
-      setEvidenceChains(chains);
+      ]).then(([conflicts, timeline, network, interests, spotlights, summary, hiddenSum, chains]) => {
+        setConflictData(conflicts);
+        setTimelineData(timeline);
+        setNetworkData(network);
+        setSharedInterests(interests);
+        setSpotlightData(spotlights);
+        setEntitySummary(summary);
+        setHiddenSummary(hiddenSum);
+        setHiddenSummaryLoading(false);
+        setEvidenceChains(chains as EvidenceChainResponse[]);
+      });
     } catch (err) {
       if (err instanceof Error && 'status' in err && (err as Record<string, unknown>).status === 404) {
         setError('Official not found. They may not be in our database yet.');
