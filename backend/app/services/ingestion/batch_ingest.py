@@ -243,14 +243,8 @@ async def _process_member(
         except Exception as exc:
             logger.warning("Failed to fetch cosponsored bills for %s: %s", name, exc)
 
-    # Fetch member votes
-    async with limiter.acquire("congress_gov"):
-        try:
-            result["votes"] = await congress_client.fetch_member_votes(
-                bioguide_id, limit=20
-            )
-        except Exception as exc:
-            logger.warning("Failed to fetch votes for %s: %s", name, exc)
+    # Note: Congress.gov API v3 does not support /member/{id}/votes endpoint.
+    # Votes would require parsing Senate.gov XML feeds — skipped for now.
 
     # Try to resolve FEC data
     if fec_client:

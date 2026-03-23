@@ -154,72 +154,84 @@ class FECClient:
 
         return result
 
-    async def search_candidate(self, name: str, state: str = "") -> dict | None:
-        """Search FEC for a candidate by name. Returns candidate info with FEC IDs.
+    def _extract_candidate(self, candidate: dict) -> dict:
+        """Extract standardized candidate info from FEC result."""
+        return {
+            "candidate_id": candidate.get("candidate_id", ""),
+            "name": candidate.get("name", ""),
+            "party": candidate.get("party_full", ""),
+            "state": candidate.get("state", ""),
+            "office": candidate.get("office_full", ""),
+            "election_years": candidate.get("election_years", []),
+            "principal_committees": candidate.get("principal_committees", []),
+        }
 
-        Searches for Senate candidates matching the given name and optionally
-        filtered by state. Returns the first matching result or None.
-        """
+    async def _fec_search(self, query: str, state: str = "") -> list:
+        """Execute a single FEC candidate search and return results."""
         url = f"{self.base_url}/candidates/search/"
         params = {
             "api_key": self.api_key,
-            "q": name,
+            "q": query,
             "sort": "-first_file_date",
             "per_page": 5,
         }
         if state:
             params["state"] = state
 
+        await asyncio.sleep(0.5)  # Rate limit
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            return response.json().get("results", [])
+
+    async def search_candidate(self, name: str, state: str = "") -> dict | None:
+        """Search FEC for a candidate by name. Returns candidate info with FEC IDs.
+
+        Tries full name first, then falls back to last name only if no results.
+        FEC uses formal names (MICHAEL vs Mike, THOMAS vs Tom) so fallback helps.
+        """
         print(f"[FEC] Searching for candidate: {name}" + (f" ({state})" if state else ""))
         try:
-            await asyncio.sleep(0.5)  # Rate limit
-            async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-                response = await client.get(url, params=params)
-                response.raise_for_status()
-                data = response.json()
+            results = await self._fec_search(name, state)
 
-                results = data.get("results", [])
-                if not results:
-                    print(f"[FEC] No candidates found for: {name}")
-                    return None
+            # If no results, retry with last name only (handles nickname mismatches)
+            if not results:
+                last_name = name.split()[-1] if " " in name else name
+                if last_name != name:
+                    print(f"[FEC] Retrying with last name: {last_name}")
+                    results = await self._fec_search(last_name, state)
 
-                # Prefer Senate candidates
-                for candidate in results:
-                    office = (candidate.get("office_full") or "").lower()
-                    if "senate" in office:
-                        print(
-                            f"[FEC] Found Senate candidate: {candidate.get('name')} "
-                            f"(ID: {candidate.get('candidate_id')})"
-                        )
-                        return {
-                            "candidate_id": candidate.get("candidate_id", ""),
-                            "name": candidate.get("name", ""),
-                            "party": candidate.get("party_full", ""),
-                            "state": candidate.get("state", ""),
-                            "office": candidate.get("office_full", ""),
-                            "election_years": candidate.get("election_years", []),
-                            "principal_committees": candidate.get(
-                                "principal_committees", []
-                            ),
-                        }
+            if not results:
+                print(f"[FEC] No candidates found for: {name}")
+                return None
 
-                # Fall back to first result if no Senate match
-                candidate = results[0]
-                print(
-                    f"[FEC] Found candidate (non-Senate): {candidate.get('name')} "
-                    f"(ID: {candidate.get('candidate_id')})"
-                )
-                return {
-                    "candidate_id": candidate.get("candidate_id", ""),
-                    "name": candidate.get("name", ""),
-                    "party": candidate.get("party_full", ""),
-                    "state": candidate.get("state", ""),
-                    "office": candidate.get("office_full", ""),
-                    "election_years": candidate.get("election_years", []),
-                    "principal_committees": candidate.get(
-                        "principal_committees", []
-                    ),
-                }
+            # Prefer current members (recent election years)
+            # Then prefer matching office type
+            for candidate in results:
+                office = (candidate.get("office_full") or "").lower()
+                if "senate" in office:
+                    print(
+                        f"[FEC] Found Senate candidate: {candidate.get('name')} "
+                        f"(ID: {candidate.get('candidate_id')})"
+                    )
+                    return self._extract_candidate(candidate)
+
+            for candidate in results:
+                office = (candidate.get("office_full") or "").lower()
+                if "house" in office:
+                    print(
+                        f"[FEC] Found House candidate: {candidate.get('name')} "
+                        f"(ID: {candidate.get('candidate_id')})"
+                    )
+                    return self._extract_candidate(candidate)
+
+            # Fall back to first result
+            candidate = results[0]
+            print(
+                f"[FEC] Found candidate: {candidate.get('name')} "
+                f"(ID: {candidate.get('candidate_id')})"
+            )
+            return self._extract_candidate(candidate)
 
         except httpx.HTTPStatusError as e:
             print(f"[FEC] HTTP error searching for candidate {name}: {e}")
