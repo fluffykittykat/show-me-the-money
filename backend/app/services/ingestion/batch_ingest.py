@@ -16,7 +16,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.database import async_session
-from app.models import DataSource, Entity, IngestionJob
+from app.models import DataSource, Entity, IngestionJob, Relationship
 from app.services.ingestion.congress_client import CongressClient
 from app.services.ingestion.fec_client import FECClient
 from app.services.rate_limiter import SmartRateLimiter
@@ -302,6 +302,112 @@ async def _upsert_member_data(member_data: dict) -> None:
                     fetched_at=datetime.now(timezone.utc),
                 )
                 await session.execute(fec_ds_stmt)
+
+            # ---- Create bill entities and relationships ----
+            for bill_list, rel_type in [
+                (member_data.get("sponsored_bills", []), "sponsored"),
+                (member_data.get("cosponsored_bills", []), "cosponsored"),
+            ]:
+                for bill in bill_list[:50]:  # Cap at 50 per type
+                    bill_number = bill.get("number", "") or ""
+                    bill_title = bill.get("title", "") or bill_number
+                    bill_congress = bill.get("congress", "")
+                    if not bill_title:
+                        continue
+                    bill_slug = _slugify(f"{bill_number}-{bill_congress}" if bill_number else bill_title)
+                    if not bill_slug:
+                        continue
+
+                    # Upsert bill entity
+                    bill_ent = (await session.execute(
+                        select(Entity).where(Entity.slug == bill_slug)
+                    )).scalar_one_or_none()
+                    if not bill_ent:
+                        bill_ent = Entity(
+                            slug=bill_slug,
+                            entity_type="bill",
+                            name=_ascii_safe(bill_title)[:500],
+                            summary=_ascii_safe(bill.get("latestAction", {}).get("text", ""))[:500] if bill.get("latestAction") else None,
+                            metadata_=_ascii_safe({
+                                "bill_number": bill_number,
+                                "congress": bill_congress,
+                                "policy_area": bill.get("policyArea", {}).get("name", "") if bill.get("policyArea") else "",
+                                "status": bill.get("latestAction", {}).get("text", "")[:200] if bill.get("latestAction") else "",
+                                "introduced_date": bill.get("introducedDate", ""),
+                                "url": bill.get("url", ""),
+                            }),
+                        )
+                        session.add(bill_ent)
+                        await session.flush()
+
+                    # Create member -> bill relationship (avoid duplicates)
+                    existing_rel = (await session.execute(
+                        select(Relationship).where(
+                            Relationship.from_entity_id == entity_id,
+                            Relationship.to_entity_id == bill_ent.id,
+                            Relationship.relationship_type == rel_type,
+                        ).limit(1)
+                    )).scalar_one_or_none()
+                    if not existing_rel:
+                        session.add(Relationship(
+                            from_entity_id=entity_id,
+                            to_entity_id=bill_ent.id,
+                            relationship_type=rel_type,
+                            source_label="Congress.gov",
+                            source_url=bill.get("url", ""),
+                        ))
+
+            # ---- Create donor entities and relationships from FEC data ----
+            fec = member_data.get("fec_data") or {}
+            for donor in fec.get("top_donors", [])[:30]:
+                donor_name = _ascii_safe(donor.get("contributor_name", "") or "")
+                if not donor_name or len(donor_name) < 2:
+                    continue
+                donor_slug = _slugify(donor_name)
+                if not donor_slug:
+                    continue
+                amount = donor.get("total", 0) or donor.get("contribution_receipt_amount", 0) or 0
+
+                # Detect PACs vs individuals
+                name_upper = donor_name.upper()
+                is_pac = any(kw in name_upper for kw in [
+                    "PAC", "FUND", "VICTORY", "COMMITTEE", "DSCC", "DCCC",
+                    "EMILY", "ACTION", "SENATE", "HOUSE", " FUND",
+                ])
+                donor_type = "pac" if is_pac else "person"
+
+                donor_ent = (await session.execute(
+                    select(Entity).where(Entity.slug == donor_slug)
+                )).scalar_one_or_none()
+                if not donor_ent:
+                    donor_ent = Entity(
+                        slug=donor_slug,
+                        entity_type=donor_type,
+                        name=donor_name,
+                        metadata_=_ascii_safe({
+                            "donor_type": "pac" if is_pac else "individual",
+                        }),
+                    )
+                    session.add(donor_ent)
+                    await session.flush()
+
+                # Create donor -> member relationship
+                existing_rel = (await session.execute(
+                    select(Relationship).where(
+                        Relationship.from_entity_id == donor_ent.id,
+                        Relationship.to_entity_id == entity_id,
+                        Relationship.relationship_type == "donated_to",
+                    ).limit(1)
+                )).scalar_one_or_none()
+                if not existing_rel:
+                    amount_cents = int(float(amount) * 100) if amount else 0
+                    session.add(Relationship(
+                        from_entity_id=donor_ent.id,
+                        to_entity_id=entity_id,
+                        relationship_type="donated_to",
+                        amount_usd=amount_cents,
+                        source_label="FEC",
+                    ))
 
 
 async def _update_job_progress(
