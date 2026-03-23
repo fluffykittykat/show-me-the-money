@@ -5,15 +5,19 @@ import Link from 'next/link';
 import SearchBar from '@/components/SearchBar';
 import ConflictBadge from '@/components/ConflictBadge';
 import PartyBadge from '@/components/PartyBadge';
+import USMap from '@/components/USMap';
+import type { StateData } from '@/components/USMap';
 import { formatMoney, formatDate, truncate } from '@/lib/utils';
 import {
   getDashboardStats,
+  getDashboardStates,
   getActiveBills,
   getTopConflicts,
   getHiddenConnectionsFeed,
 } from '@/lib/api';
 import type {
   DashboardStats,
+  StateMapData,
   ActiveBill,
   TopConflict,
 } from '@/lib/api';
@@ -181,6 +185,7 @@ export default function HomePage() {
   const [hiddenFeed, setHiddenFeed] = useState<HiddenConnectionsFeedItem[]>(
     []
   );
+  const [stateData, setStateData] = useState<StateData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
@@ -196,18 +201,26 @@ export default function HomePage() {
   useEffect(() => {
     async function fetchAll() {
       try {
-        const [s, ab, tc, hf] = await Promise.all([
+        const [s, ab, tc, hf, sd] = await Promise.all([
           getDashboardStats().catch(() => defaultStats),
           getActiveBills().catch(() => []),
           getTopConflicts().catch(() => []),
           getHiddenConnectionsFeed().catch(
             () => [] as HiddenConnectionsFeedItem[]
           ),
+          getDashboardStates().catch(() => [] as StateMapData[]),
         ]);
         setStats(s);
         setActiveBills(ab);
         setTopConflicts(tc);
         setHiddenFeed(hf);
+        // Map API data to USMap component format
+        setStateData((sd || []).map((s: StateMapData) => ({
+          state: s.state,
+          abbreviation: '',
+          senators: s.senators,
+          dominantParty: s.dominantParty,
+        })));
       } catch {
         setError(true);
       } finally {
@@ -303,7 +316,27 @@ export default function HomePage() {
       </section>
 
       {/* ================================================================
-          2. "WHAT MOST PEOPLE DON'T KNOW" — Revelation Cards
+          2. BROWSE BY STATE — Interactive US Map
+          ================================================================ */}
+      {stateData.length > 0 && (
+        <section className="border-t border-zinc-800 bg-zinc-950">
+          <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+            <div className="mb-8 text-center">
+              <h2 className="font-mono text-2xl font-bold uppercase tracking-wider text-zinc-100 sm:text-3xl">
+                Browse by State
+              </h2>
+              <p className="mx-auto mt-3 max-w-xl text-sm text-zinc-500">
+                Click any state to see its senators and their financial connections.
+                Colors show the dominant party.
+              </p>
+            </div>
+            <USMap stateData={stateData} />
+          </div>
+        </section>
+      )}
+
+      {/* ================================================================
+          3. "WHAT MOST PEOPLE DON'T KNOW" — Revelation Cards
           ================================================================ */}
       <section className="border-t border-zinc-800 bg-zinc-950">
         <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">

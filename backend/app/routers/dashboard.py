@@ -161,7 +161,55 @@ async def top_conflicts(db: AsyncSession = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
-# 3. Stats — quick DB stats for the homepage
+# 3. States — senator data grouped by state for the map
+# ---------------------------------------------------------------------------
+
+
+@router.get("/states")
+async def dashboard_states(db: AsyncSession = Depends(get_db)):
+    """Return senators grouped by state for the interactive map."""
+    result = await db.execute(
+        select(Entity)
+        .where(Entity.entity_type == "person")
+        .where(Entity.metadata_["chamber"].astext == "Senate")
+    )
+    senators = result.scalars().all()
+
+    state_map: dict[str, list] = {}
+    for s in senators:
+        meta = s.metadata_ or {}
+        state = meta.get("state", "Unknown")
+        party = meta.get("party", "Unknown")
+        if state not in state_map:
+            state_map[state] = []
+        state_map[state].append({
+            "name": s.name,
+            "slug": s.slug,
+            "party": party,
+        })
+
+    states = []
+    for state_name, senators_list in sorted(state_map.items()):
+        parties = set(s["party"] for s in senators_list)
+        if len(parties) == 1:
+            dominant = list(parties)[0]
+        elif "Independent" in parties:
+            other = parties - {"Independent"}
+            dominant = "Split" if len(other) > 0 else "Independent"
+        else:
+            dominant = "Split"
+
+        states.append({
+            "state": state_name,
+            "senators": senators_list,
+            "dominantParty": dominant,
+        })
+
+    return states
+
+
+# ---------------------------------------------------------------------------
+# 4. Stats — quick DB stats for the homepage
 # ---------------------------------------------------------------------------
 
 

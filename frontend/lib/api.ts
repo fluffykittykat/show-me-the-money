@@ -468,6 +468,16 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   return apiFetch<DashboardStats>('/dashboard/stats');
 }
 
+export interface StateMapData {
+  state: string;
+  senators: Array<{ name: string; slug: string; party: string }>;
+  dominantParty: 'Democratic' | 'Republican' | 'Split' | 'Independent';
+}
+
+export async function getDashboardStates(): Promise<StateMapData[]> {
+  return apiFetch<StateMapData[]>('/dashboard/states');
+}
+
 export async function getActiveBills(): Promise<ActiveBill[]> {
   return apiFetch<ActiveBill[]>('/dashboard/active-bills');
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { listEntities } from '@/lib/api';
 import type { Entity } from '@/lib/types';
 import EntityCard from '@/components/EntityCard';
@@ -12,11 +13,15 @@ const PARTY_FILTERS = ['All', 'Democrat', 'Republican', 'Independent'] as const;
 const CHAMBER_FILTERS = ['All', 'Senate', 'House'] as const;
 
 export default function OfficialsPage() {
+  const searchParams = useSearchParams();
+  const stateParam = searchParams.get('state');
+
   const [officials, setOfficials] = useState<Entity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [partyFilter, setPartyFilter] = useState<string>('All');
-  const [chamberFilter, setChamberFilter] = useState<string>('All');
+  const [chamberFilter, setChamberFilter] = useState<string>(stateParam ? 'Senate' : 'All');
+  const [stateFilter, setStateFilter] = useState<string>(stateParam || 'All');
 
   const fetchOfficials = useCallback(async () => {
     setLoading(true);
@@ -40,15 +45,25 @@ export default function OfficialsPage() {
     fetchOfficials();
   }, [fetchOfficials]);
 
+  // Get unique states for the state filter dropdown
+  const allStates = Array.from(new Set(
+    officials.map((o) => ((o.metadata as Record<string, unknown>)?.state as string) || '')
+      .filter(Boolean)
+  )).sort();
+
   const filtered = officials.filter((official) => {
     const meta = official.metadata as Record<string, unknown>;
     const party = (meta?.party as string) || '';
     const chamber = (meta?.chamber as string) || '';
+    const state = (meta?.state as string) || '';
 
     if (partyFilter !== 'All' && !party.toLowerCase().includes(partyFilter.toLowerCase())) {
       return false;
     }
     if (chamberFilter !== 'All' && !chamber.toLowerCase().includes(chamberFilter.toLowerCase())) {
+      return false;
+    }
+    if (stateFilter !== 'All' && state !== stateFilter) {
       return false;
     }
     return true;
@@ -71,6 +86,23 @@ export default function OfficialsPage() {
 
       {/* Filters */}
       <div className="mb-6 flex flex-wrap gap-6">
+        {/* State filter */}
+        <div>
+          <span className="mb-2 block text-xs font-medium uppercase tracking-wider text-zinc-500">
+            State
+          </span>
+          <select
+            value={stateFilter}
+            onChange={(e) => setStateFilter(e.target.value)}
+            className="rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 focus:border-money-gold focus:outline-none"
+          >
+            <option value="All">All States</option>
+            {allStates.map((state) => (
+              <option key={state} value={state}>{state}</option>
+            ))}
+          </select>
+        </div>
+
         {/* Party filter */}
         <div>
           <span className="mb-2 block text-xs font-medium uppercase tracking-wider text-zinc-500">
