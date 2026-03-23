@@ -11,7 +11,7 @@ interface MoneyAmountProps {
 export default function MoneyAmount({
   amount,
   label,
-  fromCents = false,
+  fromCents = true,
   className,
 }: MoneyAmountProps) {
   const display = label || (amount != null ? formatMoney(amount, { fromCents }) : '$0');

@@ -1,13 +1,15 @@
 /**
  * Format a number of cents as a USD currency string.
- * If the value is already in dollars (not cents), pass `fromCents: false`.
+ * amount_usd in the DB is always stored in cents.
+ * Pass `fromCents: false` only if the value is already in dollars.
  */
 export function formatMoney(
   amount: number | null | undefined,
   options?: { fromCents?: boolean }
 ): string {
   if (amount == null) return '$0';
-  const dollars = options?.fromCents ? amount / 100 : amount;
+  const fromCents = options?.fromCents ?? true;
+  const dollars = fromCents ? amount / 100 : amount;
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
