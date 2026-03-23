@@ -1,0 +1,55 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-jerry}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-maguire}
+      POSTGRES_DB: ${POSTGRES_DB:-followthemoney}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - jerry-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jerry -d followthemoney"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-jerry}:${POSTGRES_PASSWORD:-maguire}@db:5432/${POSTGRES_DB:-followthemoney}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AUTO_SEED: ${AUTO_SEED:-true}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    networks:
+      - jerry-network
+
+  # Frontend runs on host via pm2 (LXC sysctl compatibility)
+  # See: scripts/start-frontend.sh
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8060:8060"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+    networks:
+      - jerry-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  postgres_data:
+
+networks:
+  jerry-network:
+    driver: bridge
