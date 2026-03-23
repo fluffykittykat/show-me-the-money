@@ -35,6 +35,26 @@ BATCH_SIZE = 10
 CONGRESS_API_BASE = "https://api.congress.gov/v3"
 TIMEOUT = 30.0
 
+_STATE_ABBREV = {
+    "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR",
+    "California": "CA", "Colorado": "CO", "Connecticut": "CT", "Delaware": "DE",
+    "Florida": "FL", "Georgia": "GA", "Hawaii": "HI", "Idaho": "ID",
+    "Illinois": "IL", "Indiana": "IN", "Iowa": "IA", "Kansas": "KS",
+    "Kentucky": "KY", "Louisiana": "LA", "Maine": "ME", "Maryland": "MD",
+    "Massachusetts": "MA", "Michigan": "MI", "Minnesota": "MN",
+    "Mississippi": "MS", "Missouri": "MO", "Montana": "MT", "Nebraska": "NE",
+    "Nevada": "NV", "New Hampshire": "NH", "New Jersey": "NJ",
+    "New Mexico": "NM", "New York": "NY", "North Carolina": "NC",
+    "North Dakota": "ND", "Ohio": "OH", "Oklahoma": "OK", "Oregon": "OR",
+    "Pennsylvania": "PA", "Rhode Island": "RI", "South Carolina": "SC",
+    "South Dakota": "SD", "Tennessee": "TN", "Texas": "TX", "Utah": "UT",
+    "Vermont": "VT", "Virginia": "VA", "Washington": "WA",
+    "West Virginia": "WV", "Wisconsin": "WI", "Wyoming": "WY",
+    "District of Columbia": "DC", "American Samoa": "AS", "Guam": "GU",
+    "Northern Mariana Islands": "MP", "Puerto Rico": "PR",
+    "U.S. Virgin Islands": "VI",
+}
+
 
 def _slugify(name: str) -> str:
     """Convert a name to a URL-friendly slug."""
@@ -54,6 +74,71 @@ def _ascii_safe(obj):
     if isinstance(obj, list):
         return [_ascii_safe(i) for i in obj]
     return obj
+
+
+def _generate_fallback_briefing(member_data: dict) -> str:
+    """Generate a fallback briefing from available member data (no AI needed)."""
+    name = member_data.get("name", "Unknown")
+    party = member_data.get("party", "Unknown")
+    state = member_data.get("state", "Unknown")
+    chamber = member_data.get("chamber", "")
+
+    role = "Senator" if chamber == "Senate" else "Representative" if chamber == "House of Representatives" else "Member of Congress"
+
+    # Extract committee names from member_detail
+    member_detail = member_data.get("member_detail", {})
+    committees = []
+    if isinstance(member_detail, dict):
+        committees = member_detail.get("committees", [])
+        if not committees:
+            terms = member_detail.get("terms", [])
+            if isinstance(terms, dict):
+                terms = terms.get("item", [])
+            for term in (terms if isinstance(terms, list) else []):
+                if isinstance(term, dict):
+                    committees.extend(term.get("committees", []))
+    comm_names = [c.get("name", c) if isinstance(c, dict) else str(c) for c in committees[:5]]
+    committee_str = ", ".join(comm_names) if comm_names else "no listed committee assignments"
+
+    para1 = f"{name} ({party}-{state}) serves as a United States {role} with assignments on {committee_str}."
+
+    # Campaign finance
+    fec = member_data.get("fec_data") or {}
+    totals = fec.get("totals", {})
+    total_raised = totals.get("receipts", 0) or 0
+    total_spent = totals.get("disbursements", 0) or 0
+    donors = fec.get("top_donors", [])
+
+    if total_raised or total_spent:
+        donor_str = ""
+        if donors:
+            top_names = ", ".join(
+                d.get("contributor_name", "Unknown") for d in donors[:5]
+            )
+            donor_str = f" Top contributors include {top_names}."
+        para2 = f"Campaign finance records show ${total_raised:,.2f} raised and ${total_spent:,.2f} spent.{donor_str}"
+    else:
+        para2 = "No campaign finance data is currently available for this member."
+
+    # Legislative record
+    sponsored = member_data.get("sponsored_bills", [])
+    cosponsored = member_data.get("cosponsored_bills", [])
+    if sponsored:
+        bill_titles = "; ".join(b.get("title", "Untitled") for b in sponsored[:3])
+        para3 = f"Sponsored {len(sponsored)} bills including: {bill_titles}."
+    else:
+        para3 = "No sponsored legislation is recorded in the available data."
+    if cosponsored:
+        para3 += f" Also cosponsored {len(cosponsored)} bills."
+
+    # Votes
+    votes = member_data.get("votes", [])
+    if votes:
+        para4 = f"Recent voting record includes {len(votes)} recorded votes."
+    else:
+        para4 = "No recent voting data is available."
+
+    return f"{para1}\n\n{para2}\n\n{para3}\n\n{para4}"
 
 
 async def _fetch_all_current_members(api_key: str, limiter: SmartRateLimiter) -> list:
@@ -115,6 +200,7 @@ async def _process_member(
         "member_detail": {},
         "sponsored_bills": [],
         "cosponsored_bills": [],
+        "votes": [],
         "fec_data": None,
     }
 
@@ -157,12 +243,30 @@ async def _process_member(
         except Exception as exc:
             logger.warning("Failed to fetch cosponsored bills for %s: %s", name, exc)
 
+    # Fetch member votes
+    async with limiter.acquire("congress_gov"):
+        try:
+            result["votes"] = await congress_client.fetch_member_votes(
+                bioguide_id, limit=20
+            )
+        except Exception as exc:
+            logger.warning("Failed to fetch votes for %s: %s", name, exc)
+
     # Try to resolve FEC data
     if fec_client:
         try:
+            # Convert "Last, First M." to "First Last" for FEC search
+            fec_search_name = name
+            if "," in name:
+                parts = name.split(",", 1)
+                fec_search_name = f"{parts[1].strip()} {parts[0].strip()}"
+
+            # Convert full state name to abbreviation for FEC API
+            fec_state = _STATE_ABBREV.get(state, state) if len(state) > 2 else state
+
             async with limiter.acquire("fec"):
                 fec_candidate = await fec_client.search_candidate(
-                    name, state=state
+                    fec_search_name, state=fec_state
                 )
             if fec_candidate:
                 candidate_id = fec_candidate.get("candidate_id", "")
@@ -237,7 +341,16 @@ async def _upsert_member_data(member_data: dict) -> None:
 
     party = member_data.get("party", "")
     state = member_data.get("state", "")
-    summary = f"{party} {entity_type.title()} from {state}" if party and state else None
+    chamber = member_data.get("chamber", "")
+
+    # Generate a descriptive summary
+    role = "Senator" if chamber == "Senate" else "Representative" if chamber == "House of Representatives" else "Member of Congress"
+    summary = f"United States {role} from {state} ({party[0] if party else '?'})" if party and state else None
+
+    # Generate a fallback briefing from available data
+    briefing = _generate_fallback_briefing(member_data)
+    if briefing:
+        metadata["mock_briefing"] = briefing
 
     logger.info("Storing member: %s (%s, %s)", name, entity_type, slug)
     async with async_session() as session:
@@ -408,6 +521,296 @@ async def _upsert_member_data(member_data: dict) -> None:
                         amount_usd=amount_cents,
                         source_label="FEC",
                     ))
+
+            # ---- Create committee entities and relationships ----
+            member_detail = member_data.get("member_detail", {})
+            committees = []
+            if isinstance(member_detail, dict):
+                # Congress.gov API v3 may have committees in different locations
+                committees = member_detail.get("committees", [])
+                if not committees:
+                    terms = member_detail.get("terms", [])
+                    if isinstance(terms, dict):
+                        terms = terms.get("item", [])
+                    for term in (terms if isinstance(terms, list) else []):
+                        if isinstance(term, dict):
+                            committees.extend(term.get("committees", []))
+
+            for comm in committees[:10]:  # Cap at 10 committees
+                comm_name = ""
+                if isinstance(comm, dict):
+                    comm_name = comm.get("name", "")
+                elif isinstance(comm, str):
+                    comm_name = comm
+                if not comm_name or len(comm_name) < 3:
+                    continue
+                comm_slug = _slugify(comm_name)
+                if not comm_slug:
+                    continue
+
+                comm_ent = (await session.execute(
+                    select(Entity).where(Entity.slug == comm_slug)
+                )).scalar_one_or_none()
+                if not comm_ent:
+                    comm_ent = Entity(
+                        slug=comm_slug,
+                        entity_type="committee",
+                        name=_ascii_safe(comm_name)[:500],
+                        metadata_=_ascii_safe({
+                            "chamber": member_data.get("chamber", ""),
+                            "code": comm.get("code", "") if isinstance(comm, dict) else "",
+                        }),
+                    )
+                    session.add(comm_ent)
+                    await session.flush()
+
+                # Create member -> committee relationship (avoid duplicates)
+                existing_rel = (await session.execute(
+                    select(Relationship).where(
+                        Relationship.from_entity_id == entity_id,
+                        Relationship.to_entity_id == comm_ent.id,
+                        Relationship.relationship_type == "committee_member",
+                    ).limit(1)
+                )).scalar_one_or_none()
+                if not existing_rel:
+                    session.add(Relationship(
+                        from_entity_id=entity_id,
+                        to_entity_id=comm_ent.id,
+                        relationship_type="committee_member",
+                        source_label="Congress.gov",
+                    ))
+
+            # ---- Create vote entities and relationships ----
+            for vote in member_data.get("votes", [])[:20]:  # Cap at 20 votes
+                question = vote.get("question", "") or vote.get("description", "")
+                if not question:
+                    continue
+                roll_num = vote.get("rollNumber", "")
+                congress_num = vote.get("congress", "")
+                session_num = vote.get("session", "")
+                vote_slug = _slugify(f"vote-{roll_num}-{congress_num}-{session_num}")
+                if not vote_slug or len(vote_slug) < 3:
+                    continue
+
+                vote_ent = (await session.execute(
+                    select(Entity).where(Entity.slug == vote_slug)
+                )).scalar_one_or_none()
+                if not vote_ent:
+                    vote_ent = Entity(
+                        slug=vote_slug,
+                        entity_type="bill",
+                        name=_ascii_safe(question)[:500],
+                        metadata_=_ascii_safe({
+                            "congress": congress_num,
+                            "session": session_num,
+                            "rollNumber": roll_num,
+                            "result": vote.get("result", ""),
+                            "date": vote.get("date", ""),
+                        }),
+                    )
+                    session.add(vote_ent)
+                    await session.flush()
+
+                # Determine vote type
+                member_vote = str(vote.get("memberVote", vote.get("vote", "Yes")))
+                if member_vote.lower() in ("yes", "yea", "aye"):
+                    rel_type = "voted_yes"
+                elif member_vote.lower() in ("no", "nay"):
+                    rel_type = "voted_no"
+                else:
+                    rel_type = "voted_present"
+
+                existing_rel = (await session.execute(
+                    select(Relationship).where(
+                        Relationship.from_entity_id == entity_id,
+                        Relationship.to_entity_id == vote_ent.id,
+                        Relationship.relationship_type == rel_type,
+                    ).limit(1)
+                )).scalar_one_or_none()
+                if not existing_rel:
+                    session.add(Relationship(
+                        from_entity_id=entity_id,
+                        to_entity_id=vote_ent.id,
+                        relationship_type=rel_type,
+                        source_label="Congress.gov",
+                    ))
+
+            # ---- Create hidden connection relationships ----
+            try:
+                await _ingest_hidden_connections(
+                    session, entity_id, name, member_data.get("state", "")
+                )
+            except Exception as exc:
+                logger.warning("Hidden connections failed for %s: %s", name, exc)
+
+
+async def _ingest_hidden_connections(session, entity_id: str, name: str, state: str) -> None:
+    """Create hidden connection entities and relationships from mock clients."""
+    from app.services.ingestion.revolving_door_client import RevolvingDoorClient
+    from app.services.ingestion.family_connections_client import FamilyConnectionsClient
+    from app.services.ingestion.outside_income_client import OutsideIncomeClient
+
+    # --- Revolving Door ---
+    rd = RevolvingDoorClient()
+    registrations = await rd.fetch_revolving_door_registrations(name)
+    for reg in registrations[:3]:
+        for lobbyist_info in reg.get("lobbyists", []):
+            lobbyist_name = lobbyist_info.get("name", "")
+            if not lobbyist_name:
+                continue
+            lobbyist_slug = _slugify(lobbyist_name)
+            if not lobbyist_slug:
+                continue
+
+            lobbyist_ent = (await session.execute(
+                select(Entity).where(Entity.slug == lobbyist_slug)
+            )).scalar_one_or_none()
+            if not lobbyist_ent:
+                lobbyist_ent = Entity(
+                    slug=lobbyist_slug,
+                    entity_type="person",
+                    name=_ascii_safe(lobbyist_name)[:500],
+                    metadata_=_ascii_safe({
+                        "role": "lobbyist",
+                        "former_position": lobbyist_info.get("covered_official_position", ""),
+                        "current_employer": reg.get("registrant", {}).get("name", ""),
+                        "clients": [reg.get("client", {}).get("name", "")],
+                    }),
+                )
+                session.add(lobbyist_ent)
+                await session.flush()
+
+            existing_rel = (await session.execute(
+                select(Relationship).where(
+                    Relationship.from_entity_id == lobbyist_ent.id,
+                    Relationship.to_entity_id == entity_id,
+                    Relationship.relationship_type == "revolving_door_lobbyist",
+                ).limit(1)
+            )).scalar_one_or_none()
+            if not existing_rel:
+                session.add(Relationship(
+                    from_entity_id=lobbyist_ent.id,
+                    to_entity_id=entity_id,
+                    relationship_type="revolving_door_lobbyist",
+                    amount_usd=int(reg.get("income", 0) * 100) if reg.get("income") else None,
+                    source_label="LDA Senate",
+                    source_url=reg.get("url", ""),
+                    metadata_=_ascii_safe({
+                        "former_position": lobbyist_info.get("covered_official_position", ""),
+                        "current_role": "lobbyist",
+                        "current_employer": reg.get("registrant", {}).get("name", ""),
+                        "lobbies_committee": reg.get("specific_lobbying_issues", ""),
+                        "clients": [reg.get("client", {}).get("name", "")],
+                    }),
+                ))
+
+    # --- Family Connections ---
+    fc = FamilyConnectionsClient()
+    family_items = await fc.fetch_family_income(name)
+    for item in family_items[:3]:
+        employer_name = item.get("employer", "")
+        if not employer_name:
+            continue
+        employer_slug = _slugify(employer_name)
+        if not employer_slug:
+            continue
+
+        employer_ent = (await session.execute(
+            select(Entity).where(Entity.slug == employer_slug)
+        )).scalar_one_or_none()
+        if not employer_ent:
+            employer_ent = Entity(
+                slug=employer_slug,
+                entity_type="company",
+                name=_ascii_safe(employer_name)[:500],
+            )
+            session.add(employer_ent)
+            await session.flush()
+
+        rel_type = "spouse_income_from" if item.get("relationship") == "spouse" else "family_employed_by"
+        existing_rel = (await session.execute(
+            select(Relationship).where(
+                Relationship.from_entity_id == entity_id,
+                Relationship.to_entity_id == employer_ent.id,
+                Relationship.relationship_type == rel_type,
+            ).limit(1)
+        )).scalar_one_or_none()
+        if not existing_rel:
+            income = item.get("income_amount", 0) or 0
+            session.add(Relationship(
+                from_entity_id=entity_id,
+                to_entity_id=employer_ent.id,
+                relationship_type=rel_type,
+                amount_usd=int(income * 100) if income else None,
+                source_label="Senate eFD",
+                source_url=item.get("source_url", ""),
+                metadata_=_ascii_safe({
+                    "family_member": item.get("family_member", ""),
+                    "relationship_to_official": item.get("relationship", "family member"),
+                    "role": item.get("position", ""),
+                    "annual_income": income,
+                }),
+            ))
+
+    # --- Outside Income ---
+    oi = OutsideIncomeClient()
+    income_items = await oi.fetch_outside_income(name)
+    for item in income_items[:3]:
+        payer_name = item.get("payer", "")
+        if not payer_name:
+            continue
+        payer_slug = _slugify(payer_name)
+        if not payer_slug:
+            continue
+
+        payer_ent = (await session.execute(
+            select(Entity).where(Entity.slug == payer_slug)
+        )).scalar_one_or_none()
+        if not payer_ent:
+            payer_ent = Entity(
+                slug=payer_slug,
+                entity_type="organization",
+                name=_ascii_safe(payer_name)[:500],
+                metadata_=_ascii_safe({
+                    "industry": item.get("payer_industry", ""),
+                }),
+            )
+            session.add(payer_ent)
+            await session.flush()
+
+        income_type = item.get("income_type", "outside_income")
+        if income_type == "speaking_fee":
+            rel_type = "speaking_fee_from"
+        elif income_type == "book_advance":
+            rel_type = "book_deal_with"
+        else:
+            rel_type = "outside_income_from"
+
+        existing_rel = (await session.execute(
+            select(Relationship).where(
+                Relationship.from_entity_id == entity_id,
+                Relationship.to_entity_id == payer_ent.id,
+                Relationship.relationship_type == rel_type,
+            ).limit(1)
+        )).scalar_one_or_none()
+        if not existing_rel:
+            amount = item.get("amount", 0) or 0
+            session.add(Relationship(
+                from_entity_id=entity_id,
+                to_entity_id=payer_ent.id,
+                relationship_type=rel_type,
+                amount_usd=int(amount * 100) if amount else None,
+                amount_label=f"${amount:,.0f}" if amount else None,
+                source_label="Senate eFD",
+                source_url=item.get("source_url", ""),
+                metadata_=_ascii_safe({
+                    "income_type": income_type,
+                    "description": item.get("description", ""),
+                    "date": item.get("date", ""),
+                    "payer_industry": item.get("payer_industry", ""),
+                    "is_lobbying_org": item.get("is_lobbying_org", False),
+                }),
+            ))
 
 
 async def _update_job_progress(

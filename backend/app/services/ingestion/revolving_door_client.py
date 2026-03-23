@@ -3,10 +3,56 @@ Revolving Door Client — LDA Senate API
 Real endpoint: https://lda.senate.gov/api/v1/registrations/?covered_official_position=true&format=json
 Currently returns mock data matching real API response shapes.
 """
+import hashlib
 import logging
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+_LOBBYING_FIRMS = [
+    "Capitol Bridge Partners",
+    "Harbour Policy Group",
+    "Meridian Government Affairs",
+    "Crossroads Strategy Group",
+    "Potomac Advocacy Partners",
+    "Summit Public Affairs",
+    "Ironclad Policy Solutions",
+    "Horizon Government Relations",
+    "Cornerstone Policy Advisors",
+    "Pinnacle Strategies LLC",
+]
+
+_LOBBYIST_NAMES = [
+    "Marcus Webb", "Sarah Chen-Watkins", "David Thornton", "Rachel Morrison",
+    "Anthony Graves", "Laura Petrov", "James Whitfield", "Priya Kapoor",
+    "Daniel Reeves", "Monica Sandoval", "Kevin O'Malley", "Yuki Tanaka",
+]
+
+_CLIENTS = [
+    ("JPMorgan Chase", "Financial regulation, banking oversight, capital requirements"),
+    ("Cargill", "Agricultural subsidies, farm bill provisions, nutrition programs"),
+    ("Pfizer", "Drug pricing regulation, pharmaceutical patent reform, FDA approval process"),
+    ("Boeing", "Defense procurement, aerospace regulation, trade policy"),
+    ("Google", "Data privacy, antitrust regulation, Section 230 reform"),
+    ("ExxonMobil", "Energy policy, carbon regulation, offshore drilling permits"),
+    ("Lockheed Martin", "Defense contracts, cybersecurity policy, space program funding"),
+    ("Amazon", "E-commerce regulation, labor policy, antitrust enforcement"),
+    ("UnitedHealth Group", "Healthcare regulation, Medicare policy, insurance reform"),
+    ("Comcast", "Telecommunications policy, broadband access, net neutrality"),
+]
+
+_STAFF_TITLES = [
+    "Chief of Staff", "Legislative Director", "Senior Policy Advisor",
+    "General Counsel", "Communications Director", "Deputy Chief of Staff",
+    "Senior Legislative Aide", "Policy Director",
+]
+
+_COMMITTEE_NAMES = [
+    "Senate Banking Committee", "Senate Finance Committee",
+    "Senate Commerce Committee", "Senate Judiciary Committee",
+    "Senate Armed Services Committee", "Senate Appropriations Committee",
+    "Senate Health Committee", "Senate Energy Committee",
+]
 
 
 class RevolvingDoorClient:
@@ -33,59 +79,58 @@ class RevolvingDoorClient:
 
     def _mock_registrations(self, official_name: str | None = None) -> list[dict[str, Any]]:
         """Mock data matching real LDA API response shape."""
-        registrations = [
-            {
-                "registration_id": "mock-lda-001",
-                "registrant": {"name": "Capitol Bridge Partners", "id": "R-001"},
-                "lobbyists": [
-                    {
-                        "name": "Marcus Webb",
-                        "covered_official_position": "Chief of Staff, Senate Banking Committee (2017-2021)",
-                        "new_lobbyist": False,
-                    }
-                ],
-                "client": {"name": "JPMorgan Chase", "id": "C-001"},
-                "specific_lobbying_issues": "Financial regulation, banking oversight, capital requirements",
-                "filing_year": 2024,
-                "filing_period": "Q4",
-                "income": 420000,
-                "url": "https://lda.senate.gov/filings/mock-001",
-            },
-            {
-                "registration_id": "mock-lda-002",
-                "registrant": {"name": "Harvest Policy Group", "id": "R-002"},
-                "lobbyists": [
-                    {
-                        "name": "Sarah Chen-Watkins",
-                        "covered_official_position": "Legislative Director, Office of Sen. Fetterman (2023-2024)",
-                        "new_lobbyist": True,
-                    }
-                ],
-                "client": {"name": "Cargill", "id": "C-002"},
-                "specific_lobbying_issues": "Agricultural subsidies, farm bill provisions, nutrition programs",
-                "filing_year": 2024,
-                "filing_period": "Q2",
-                "income": 280000,
-                "url": "https://lda.senate.gov/filings/mock-002",
-            },
-            {
-                "registration_id": "mock-lda-003",
-                "registrant": {"name": "PhRMA", "id": "R-003"},
-                "lobbyists": [
-                    {
-                        "name": "David Thornton",
-                        "covered_official_position": "General Counsel, Senate Banking Committee (2019-2022)",
-                        "new_lobbyist": False,
-                    }
-                ],
-                "client": {"name": "Pfizer", "id": "C-003"},
-                "specific_lobbying_issues": "Drug pricing regulation, pharmaceutical patent reform, FDA approval process",
-                "filing_year": 2025,
-                "filing_period": "Q1",
-                "income": 650000,
-                "url": "https://lda.senate.gov/filings/mock-003",
-            },
-        ]
+        seed = official_name or "generic-official"
+        hash_hex = hashlib.md5(seed.encode()).hexdigest()
+        hash_int = int(hash_hex, 16)
+
+        # Generate 1-4 registrations
+        num_registrations = 1 + (hash_int % 4)
+        registrations = []
+
+        for i in range(num_registrations):
+            reg_hash = hash_int + i * 9973  # offset per registration
+
+            firm_idx = reg_hash % len(_LOBBYING_FIRMS)
+            lobbyist_idx = reg_hash % len(_LOBBYIST_NAMES)
+            client_idx = reg_hash % len(_CLIENTS)
+            title_idx = (reg_hash // 7) % len(_STAFF_TITLES)
+            committee_idx = (reg_hash // 11) % len(_COMMITTEE_NAMES)
+
+            client_name, issues = _CLIENTS[client_idx]
+            title = _STAFF_TITLES[title_idx]
+
+            # Build position string — use official_name if available
+            if official_name and (reg_hash % 3 != 0):
+                position = f"{title}, Office of Sen. {official_name.split()[-1]} ({2017 + (reg_hash % 6)}-{2022 + (reg_hash % 3)})"
+            else:
+                committee = _COMMITTEE_NAMES[committee_idx]
+                position = f"{title}, {committee} ({2017 + (reg_hash % 6)}-{2022 + (reg_hash % 3)})"
+
+            year = 2024 + (reg_hash % 2)
+            quarters = ["Q1", "Q2", "Q3", "Q4"]
+            quarter = quarters[reg_hash % 4]
+            income = 150000 + (reg_hash % 20) * 50000
+
+            registrations.append(
+                {
+                    "registration_id": f"mock-lda-{hash_hex[:4]}-{i:03d}",
+                    "registrant": {"name": _LOBBYING_FIRMS[firm_idx], "id": f"R-{firm_idx:03d}"},
+                    "lobbyists": [
+                        {
+                            "name": _LOBBYIST_NAMES[lobbyist_idx],
+                            "covered_official_position": position,
+                            "new_lobbyist": reg_hash % 3 == 0,
+                        }
+                    ],
+                    "client": {"name": client_name, "id": f"C-{client_idx:03d}"},
+                    "specific_lobbying_issues": issues,
+                    "filing_year": year,
+                    "filing_period": quarter,
+                    "income": income,
+                    "url": f"https://lda.senate.gov/filings/mock-{hash_hex[:4]}-{i:03d}",
+                }
+            )
+
         return registrations
 
     def _mock_lobbyist_details(self, registrant_id: str) -> dict[str, Any]:

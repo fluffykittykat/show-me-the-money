@@ -164,7 +164,7 @@ class FECClient:
         params = {
             "api_key": self.api_key,
             "q": name,
-            "sort": "-election_year",
+            "sort": "-first_file_date",
             "per_page": 5,
         }
         if state:
