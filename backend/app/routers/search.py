@@ -37,8 +37,11 @@ async def search_entities(
     # Prefix match on name — uses ix_entities_name_lower btree index (O log n)
     prefix_match = func.lower(Entity.name).like(f"{q_clean.lower()}%")
 
-    # Combine: FTS OR prefix — covers whole-word and leading partial matches
-    where_clause = or_(fts_match, prefix_match)
+    # Substring/contains match — finds "fett" inside "John Fetterman"
+    contains_match = func.lower(Entity.name).contains(q_clean.lower())
+
+    # Combine: FTS OR prefix OR contains — covers all search patterns
+    where_clause = or_(fts_match, prefix_match, contains_match)
     if type:
         where_clause = where_clause.where(Entity.entity_type == type) if False else where_clause
 
@@ -86,10 +89,11 @@ async def autocomplete(
     limit: int = Query(8, ge=1, le=20),
     db: AsyncSession = Depends(get_db),
 ):
-    """Lightning-fast autocomplete — prefix match on name using btree index."""
+    """Lightning-fast autocomplete — substring match on name."""
+    q_clean = q.strip()
     result = await db.execute(
         select(Entity.slug, Entity.name, Entity.entity_type)
-        .where(Entity.name.ilike(f"{q.strip()}%"))
+        .where(Entity.name.ilike(f"%{q_clean}%"))
         .order_by(Entity.name)
         .limit(limit)
     )
