@@ -5,9 +5,13 @@ Generates investigative briefings for every entity type using Claude CLI.
 
 import json
 import os
+import subprocess
 from typing import Optional
 
-import anthropic
+try:
+    import anthropic
+except ImportError:
+    anthropic = None
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -81,51 +85,96 @@ def _build_system_prompt(entity_type: str) -> str:
         "You are an FBI Special Agent assigned to the Financial Crimes & Public "
         "Corruption Unit. You write investigative intelligence briefings about "
         "political figures, organizations, and legislation.\n\n"
+        "YOUR AUDIENCE: Regular citizens who want to understand where political "
+        "money flows. They are NOT lawyers or policy experts. Write so a high "
+        "school student could understand every sentence.\n\n"
+        "VOICE & TONE:\n"
+        "- First-person analyst voice: \"This unit has identified...\", "
+        "\"Our analysis of financial records shows...\"\n"
+        "- Be direct and concrete. Instead of \"potential conflict of interest\" "
+        "say exactly what the conflict IS: \"He sits on the Banking Committee "
+        "which regulates JPMorgan, and his wife works at JPMorgan.\"\n"
+        "- CONNECT THE DOTS. Don't just list facts -- show HOW they connect. "
+        "\"Company X donated $50K to this official. That same company lobbied "
+        "for Bill Y. This official voted YES on Bill Y.\"\n"
+        "- Use dollar amounts. People understand money.\n"
+        "- Name names. Don't say \"several companies\" -- say which ones.\n\n"
         "RULES:\n"
-        "- Write in first-person analyst voice: \"This unit has identified...\", "
-        "\"Analysis of financial records indicates...\"\n"
-        "- EVERY claim must cite a source (FEC filing, Senate eFD, Congress.gov "
-        "vote record, etc.)\n"
-        "- Include analytical conclusions -- interpret the facts, identify patterns, "
-        "flag conflicts of interest\n"
-        "- Be factual but draw investigative conclusions about what the patterns "
-        "suggest\n"
-        "- Do NOT be accusatory -- present findings as warranting further "
-        "investigation\n"
-        "- Keep it concise: KEY FINDINGS (3-5 bullets) + 2 narrative paragraphs + "
-        "INVESTIGATIVE ASSESSMENT (1 paragraph)"
+        "- EVERY claim must cite its source (FEC filing, Senate eFD, Congress.gov, "
+        "LDA filing, etc.)\n"
+        "- Draw investigative conclusions -- what do the patterns SUGGEST?\n"
+        "- Do NOT accuse anyone of crimes. Present findings as \"patterns worth "
+        "investigating\" and \"questions the public should ask.\"\n"
+        "- Be specific: dollar amounts, dates, company names, bill numbers.\n\n"
+        "FORMAT (follow exactly):\n"
+        "KEY FINDINGS:\n"
+        "- [3-5 bullet points. Each one should connect dots, not just state a "
+        "single fact. Bad: \"Holds stock in JPMorgan.\" Good: \"Holds $1K-$15K "
+        "in JPMorgan stock while sitting on the Banking Committee that regulates "
+        "JPMorgan -- and his wife earns $185K/year from JPMorgan.\"]\n\n"
+        "[2 narrative paragraphs. First paragraph: follow the money -- trace the "
+        "flow of dollars from donors through committees to legislation. Second "
+        "paragraph: the hidden connections -- family income, revolving door "
+        "lobbyists, suspicious timing.]\n\n"
+        "INVESTIGATIVE ASSESSMENT:\n"
+        "[1 paragraph: What questions should the public be asking? What warrants "
+        "further investigation? What would you look at next if this were a real "
+        "case? End with a clear, plain-English summary of the overall concern "
+        "level.]"
     )
 
     type_specific = {
         "person": (
-            "\nFocus on: financial conflicts of interest, donation patterns, "
-            "voting record alignment with donor interests, stock holdings vs "
-            "committee assignments, suspicious timing of donations before votes."
+            "\n\nFOR THIS OFFICIAL, CONNECT THESE DOTS:\n"
+            "1. MONEY IN: Who donates to them? What industries? How much?\n"
+            "2. MONEY OUT: What stocks do they hold? Where does their family work?\n"
+            "3. POWER: What committees do they sit on? What do those committees regulate?\n"
+            "4. VOTES: Did they vote in ways that benefit their donors or their stock portfolio?\n"
+            "5. THE QUESTION: Could their financial interests be influencing their votes?\n"
+            "\nIf their spouse works at a bank, and they sit on the Banking Committee, "
+            "and that bank donated to their campaign -- SAY THAT CLEARLY."
         ),
         "company": (
-            "\nFocus on: which officials hold stock in this company, how much "
-            "political money flows from this company's industry, any legislation "
-            "that benefits this company, lobbying connections."
+            "\n\nFOR THIS COMPANY, CONNECT THESE DOTS:\n"
+            "1. Which officials hold stock in this company?\n"
+            "2. Did this company donate to officials who sit on committees that regulate it?\n"
+            "3. Did this company lobby for specific bills? Did those bills pass?\n"
+            "4. Did officials who hold this stock vote YES on bills the company lobbied for?\n"
+            "5. THE QUESTION: Is this company buying political influence?"
         ),
         "organization": (
-            "\nFocus on: political strategy -- who they fund and why, what policy "
-            "outcomes they appear to be purchasing, which committees their "
-            "recipients sit on, legislative influence."
+            "\n\nFOR THIS ORGANIZATION, CONNECT THESE DOTS:\n"
+            "1. Who do they fund? How much?\n"
+            "2. What committees do their recipients sit on?\n"
+            "3. What policy outcomes would benefit this organization?\n"
+            "4. Did their recipients vote in ways that benefit this organization?\n"
+            "5. THE QUESTION: What are they getting for their money?"
         ),
         "bill": (
-            "\nFocus on: who benefits from this legislation, money trail to YES "
-            "voters, whether donor activity suggests the bill's passage was "
-            "influenced, industry lobbying connections."
+            "\n\nFOR THIS BILL, FOLLOW THE MONEY:\n"
+            "1. Who voted YES? Who voted NO?\n"
+            "2. What industries benefit from this bill passing?\n"
+            "3. Did those industries donate to the YES voters?\n"
+            "4. Did companies lobby for this bill? Which ones?\n"
+            "5. Do any YES voters hold stock in companies that benefit?\n"
+            "6. THE QUESTION: Was this bill's passage influenced by money?"
         ),
         "committee": (
-            "\nFocus on: whether jurisdiction creates conflicts for any members, "
-            "overlap between committee oversight industries and member financial "
-            "interests/donors."
+            "\n\nFOR THIS COMMITTEE, FIND THE CONFLICTS:\n"
+            "1. What industries does this committee regulate?\n"
+            "2. Do any members hold stock in companies they regulate?\n"
+            "3. Do any members receive donations from industries they oversee?\n"
+            "4. Are there revolving door lobbyists who used to work here?\n"
+            "5. THE QUESTION: Can this committee be objective when its members "
+            "have financial ties to the industries they oversee?"
         ),
         "industry": (
-            "\nFocus on: total political spending, which officials receive the "
-            "most, committee assignments of recipients, legislative outcomes "
-            "favorable to the industry."
+            "\n\nFOR THIS INDUSTRY, TRACE THE INFLUENCE:\n"
+            "1. How much does this industry spend on political donations?\n"
+            "2. Which officials receive the most from this industry?\n"
+            "3. Do those officials sit on committees relevant to this industry?\n"
+            "4. What legislation benefits this industry? Who voted for it?\n"
+            "5. THE QUESTION: Is this industry getting favorable treatment for its money?"
         ),
     }
 
@@ -140,16 +189,18 @@ def _build_briefing_prompt(context: dict) -> str:
     prompt = (
         "Generate an FBI Financial Crimes & Public Corruption Unit intelligence "
         "briefing for the following subject.\n\n"
-        "FORMAT (follow exactly):\n"
-        f"SUBJECT: {name}\n"
-        "CLASSIFICATION: UNCLASSIFIED // FOR OFFICIAL USE ONLY\n"
-        "PREPARED BY: Financial Crimes & Public Corruption Unit\n\n"
+        "CRITICAL: Start DIRECTLY with 'KEY FINDINGS:' — do NOT include any "
+        "preamble, introduction, 'here is the briefing', or meta-commentary. "
+        "Do NOT include SUBJECT/CLASSIFICATION/PREPARED BY lines (the UI adds those). "
+        "Do NOT use markdown links like [text](url) — just name the source in "
+        "parentheses like (Source: OpenSecrets FEC filings). "
+        "Do NOT use markdown headers like ## — just use the section names.\n\n"
+        "FORMAT (follow exactly, start with KEY FINDINGS):\n\n"
         "KEY FINDINGS:\n"
-        "* [3-5 bullet points of the most important findings]\n\n"
-        "[2 narrative paragraphs analyzing the data]\n\n"
+        "* [3-5 bullet points. Each one CONNECTS DOTS, not just states a fact.]\n\n"
+        "[2 narrative paragraphs. First: follow the money. Second: hidden connections.]\n\n"
         "INVESTIGATIVE ASSESSMENT:\n"
-        "[1 paragraph with the agent's opinion, conclusion, key questions raised, "
-        "and recommended further investigation]\n\n"
+        "[1 paragraph with the agent's conclusion and recommended investigation]\n\n"
         "---\n"
         "ENTITY DATA:\n"
         f"Type: {entity_type}\n"
@@ -181,12 +232,11 @@ def _build_briefing_prompt(context: dict) -> str:
     return prompt
 
 
-def _generate_via_claude(system_prompt: str, data_prompt: str) -> str:
-    """Call Anthropic API to generate the briefing."""
+def _generate_via_sdk(system_prompt: str, data_prompt: str) -> Optional[str]:
+    """Try Anthropic SDK if API key is available."""
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        return _generate_fallback_briefing(data_prompt)
-
+    if not api_key or not anthropic:
+        return None
     try:
         client = anthropic.Anthropic(api_key=api_key)
         message = client.messages.create(
@@ -195,11 +245,81 @@ def _generate_via_claude(system_prompt: str, data_prompt: str) -> str:
             system=system_prompt,
             messages=[{"role": "user", "content": data_prompt}],
         )
-        text = message.content[0].text
-        return _sanitize(text)
+        return _sanitize(message.content[0].text)
     except Exception as e:
-        print(f"[AIService] Anthropic SDK error: {e}")
-        return _generate_fallback_briefing(data_prompt)
+        print(f"[AIService] SDK error: {e}")
+        return None
+
+
+def _generate_via_cli(system_prompt: str, data_prompt: str) -> Optional[str]:
+    """Fall back to claude CLI (uses existing auth token)."""
+    full_prompt = f"{system_prompt}\n\n{data_prompt}"
+    try:
+        result = subprocess.run(
+            ["claude", "-p", "--dangerously-skip-permissions", full_prompt],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return _sanitize(result.stdout.strip())
+        print(f"[AIService] CLI returned code {result.returncode}: {result.stderr[:200]}")
+        return None
+    except Exception as e:
+        print(f"[AIService] CLI error: {e}")
+        return None
+
+
+def _clean_briefing(text: str) -> str:
+    """Strip AI preamble and meta-commentary from briefing output."""
+    import re
+    # Find where the actual briefing starts (KEY FINDINGS or first bullet)
+    markers = ["KEY FINDINGS", "* **", "- **"]
+    for marker in markers:
+        idx = text.find(marker)
+        if idx > 0:
+            # Check if there's preamble before the marker
+            preamble = text[:idx].strip()
+            if preamble and not preamble.upper().startswith("KEY"):
+                text = text[idx:]
+            break
+
+    # Strip markdown-style headers (## ) — the UI handles section styling
+    text = re.sub(r'^##\s+', '', text, flags=re.MULTILINE)
+
+    # Strip SUBJECT/CLASSIFICATION/PREPARED BY/DATE lines (UI adds these)
+    lines = text.split('\n')
+    cleaned = []
+    for line in lines:
+        upper = line.strip().upper()
+        if upper.startswith('**SUBJECT:') or upper.startswith('SUBJECT:'):
+            continue
+        if upper.startswith('**CLASSIFICATION') or upper.startswith('CLASSIFICATION:'):
+            continue
+        if upper.startswith('**PREPARED BY') or upper.startswith('PREPARED BY:'):
+            continue
+        if upper.startswith('**DATE:') or upper.startswith('DATE:'):
+            continue
+        if line.strip() == '---':
+            continue
+        cleaned.append(line)
+
+    return '\n'.join(cleaned).strip()
+
+
+def _generate_via_claude(system_prompt: str, data_prompt: str) -> str:
+    """Generate briefing via SDK (preferred) or CLI (fallback)."""
+    # Try SDK first
+    result = _generate_via_sdk(system_prompt, data_prompt)
+    if result:
+        return _clean_briefing(result)
+
+    # Fall back to CLI
+    result = _generate_via_cli(system_prompt, data_prompt)
+    if result:
+        return _clean_briefing(result)
+
+    return _generate_fallback_briefing(data_prompt)
 
 
 def _generate_fallback_briefing(data_prompt: str) -> str:
@@ -211,14 +331,35 @@ def _generate_fallback_briefing(data_prompt: str) -> str:
     )
 
 
+def _compute_data_fingerprint(context: dict) -> str:
+    """Create a hash of entity relationships so we know when data changes."""
+    import hashlib
+    # Build a stable string from the relationship data
+    parts = []
+    for rel in sorted(context.get("outgoing", []), key=lambda r: (r["type"], r["to"])):
+        parts.append(f'{rel["type"]}:{rel["to"]}:{rel.get("amount_usd","")}')
+    for rel in sorted(context.get("incoming", []), key=lambda r: (r["type"], r["from"])):
+        parts.append(f'{rel["type"]}:{rel["from"]}:{rel.get("amount_usd","")}')
+    return hashlib.md5("|".join(parts).encode()).hexdigest()[:12]
+
+
 class AIBriefingService:
     async def generate_briefing(
         self,
         entity_slug: str,
         context_data: dict,
         session: Optional[AsyncSession] = None,
+        force_refresh: bool = False,
     ) -> str:
-        """Generate an FBI-style briefing for any entity."""
+        """Generate an FBI-style briefing for any entity.
+
+        Caching strategy:
+        1. Generate briefing on first request, cache in entity metadata
+        2. On subsequent requests, serve cached version instantly
+        3. If entity's relationships have changed (new donors, votes, etc),
+           auto-regenerate because the data fingerprint won't match
+        4. ?refresh=true forces regeneration regardless
+        """
         if not session:
             return "Session required for briefing generation."
 
@@ -230,29 +371,46 @@ class AIBriefingService:
         if not entity:
             return "Entity not found."
 
-        # Check if briefing is cached in metadata
-        cached = (entity.metadata_ or {}).get("fbi_briefing")
-        if cached:
-            return cached
-
-        # Check for old mock briefing as fallback
-        mock = (entity.metadata_ or {}).get("mock_briefing")
-        if mock and len(mock) > 200:
-            return mock
-
-        # Gather context and generate
+        # Gather context (needed for both fingerprint check and generation)
         context = await _gather_entity_context(session, entity)
+        current_fingerprint = _compute_data_fingerprint(context)
+
+        # Check cache — serve if data hasn't changed
+        if not force_refresh:
+            cached = (entity.metadata_ or {}).get("fbi_briefing")
+            cached_fingerprint = (entity.metadata_ or {}).get("fbi_briefing_fingerprint")
+            if cached and cached_fingerprint == current_fingerprint:
+                return cached
+            # If fingerprint mismatch, data changed — regenerate
+            if cached and cached_fingerprint != current_fingerprint:
+                print(f"[AIService] Data changed for {entity_slug}, regenerating briefing")
+
+        # Generate via AI
         system_prompt = _build_system_prompt(entity.entity_type)
         data_prompt = _build_briefing_prompt(context)
 
         briefing = _generate_via_claude(system_prompt, data_prompt)
 
-        # Cache in metadata (non-blocking, best effort)
+        # If AI failed, fall back to cached or mock briefing
+        if briefing.startswith("BRIEFING GENERATION UNAVAILABLE"):
+            cached = (entity.metadata_ or {}).get("fbi_briefing")
+            if cached:
+                return cached
+            mock = (entity.metadata_ or {}).get("mock_briefing")
+            if mock and len(mock) > 200:
+                return mock
+            return briefing
+
+        # Cache briefing + fingerprint in metadata
         try:
-            entity.metadata_ = {**(entity.metadata_ or {}), "fbi_briefing": briefing}
+            entity.metadata_ = {
+                **(entity.metadata_ or {}),
+                "fbi_briefing": briefing,
+                "fbi_briefing_fingerprint": current_fingerprint,
+            }
             await session.commit()
         except Exception:
-            pass  # Don't fail if caching fails
+            pass
 
         return briefing
 

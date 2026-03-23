@@ -13,7 +13,47 @@ interface FBIBriefingProps {
 }
 
 /**
+ * Render inline markdown: **bold**, [text](url) links
+ */
+function InlineMarkdown({ text }: { text: string }) {
+  // Split on **bold** and [link](url) patterns
+  const parts = text.split(/(\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g);
+  return (
+    <>
+      {parts.map((part, i) => {
+        // Bold
+        if (part.startsWith('**') && part.endsWith('**')) {
+          return (
+            <strong key={i} className="font-semibold text-zinc-100">
+              {part.slice(2, -2)}
+            </strong>
+          );
+        }
+        // Markdown link [text](url)
+        const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+        if (linkMatch) {
+          return (
+            <a
+              key={i}
+              href={linkMatch[2]}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-money-gold hover:underline"
+            >
+              {linkMatch[1]}
+            </a>
+          );
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </>
+  );
+}
+
+/**
  * Parse the pre-formatted briefing text from the backend into styled sections.
+ * Handles: **bold**, ## headings, bullet points (*, -, •), --- dividers,
+ * KEY FINDINGS, INVESTIGATIVE ASSESSMENT, SUBJECT/CLASSIFICATION lines.
  */
 function BriefingContent({ text }: { text: string }) {
   const lines = text.split('\n');
@@ -25,11 +65,11 @@ function BriefingContent({ text }: { text: string }) {
   function flushBullets() {
     if (bulletGroup.length === 0) return;
     elements.push(
-      <ul key={`bullets-${elements.length}`} className="my-2 space-y-1 pl-4">
+      <ul key={`bullets-${elements.length}`} className="my-3 space-y-2.5 pl-1">
         {bulletGroup.map((b, i) => (
-          <li key={i} className="flex items-start gap-2 text-zinc-300">
-            <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-money-gold" />
-            <span>{b.replace(/^[•\-]\s*/, '')}</span>
+          <li key={i} className="flex items-start gap-2.5 text-zinc-300 text-sm leading-relaxed">
+            <span className="mt-1.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-money-gold" />
+            <span><InlineMarkdown text={b.replace(/^[•\-\*]\s*/, '')} /></span>
           </li>
         ))}
       </ul>
@@ -42,24 +82,24 @@ function BriefingContent({ text }: { text: string }) {
     elements.push(
       <div
         key={`assessment-${elements.length}`}
-        className="mt-4 rounded-md border border-amber-500/20 bg-amber-500/5 p-4"
+        className="mt-5 rounded-lg border border-amber-500/20 bg-amber-500/5 p-5"
       >
-        <h4 className="mb-2 font-mono text-xs font-bold uppercase tracking-wider text-amber-400">
+        <h4 className="mb-3 font-mono text-xs font-bold uppercase tracking-wider text-amber-400">
           Investigative Assessment
         </h4>
-        <div className="space-y-2 text-sm leading-relaxed text-zinc-300">
+        <div className="space-y-3 text-sm leading-relaxed text-zinc-300">
           {assessmentLines.map((line, i) => {
             const trimmed = line.trim();
             if (!trimmed) return null;
-            if (trimmed.startsWith('•') || trimmed.startsWith('- ')) {
+            if (trimmed.startsWith('•') || trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
               return (
-                <div key={i} className="flex items-start gap-2 pl-2">
-                  <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
-                  <span>{trimmed.replace(/^[•\-]\s*/, '')}</span>
+                <div key={i} className="flex items-start gap-2.5 pl-1">
+                  <span className="mt-1.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
+                  <span><InlineMarkdown text={trimmed.replace(/^[•\-\*]\s*/, '')} /></span>
                 </div>
               );
             }
-            return <p key={i}>{trimmed}</p>;
+            return <p key={i}><InlineMarkdown text={trimmed} /></p>;
           })}
         </div>
       </div>
@@ -81,7 +121,45 @@ function BriefingContent({ text }: { text: string }) {
       continue;
     }
 
-    // INVESTIGATIVE ASSESSMENT section
+    // Horizontal rule / divider
+    if (/^-{3,}$/.test(trimmed)) {
+      flushBullets();
+      continue; // Skip dividers — the component has its own visual structure
+    }
+
+    // ## Markdown heading
+    if (trimmed.startsWith('## ')) {
+      flushBullets();
+      const headingText = trimmed.replace(/^##\s*/, '').replace(/\*\*/g, '');
+      // Check if it's the assessment heading
+      if (headingText.toUpperCase().includes('INVESTIGATIVE ASSESSMENT')) {
+        inAssessment = true;
+        continue;
+      }
+      if (headingText.toUpperCase().includes('KEY FINDINGS')) {
+        elements.push(
+          <h4
+            key={`kf-${elements.length}`}
+            className="mb-1 mt-4 font-mono text-xs font-bold uppercase tracking-wider text-money-gold"
+          >
+            KEY FINDINGS
+          </h4>
+        );
+        continue;
+      }
+      // Generic section heading
+      elements.push(
+        <h4
+          key={`h-${elements.length}`}
+          className="mb-1 mt-4 font-mono text-xs font-bold uppercase tracking-wider text-zinc-400"
+        >
+          {headingText}
+        </h4>
+      );
+      continue;
+    }
+
+    // INVESTIGATIVE ASSESSMENT section (plain text variant)
     if (trimmed.toUpperCase().startsWith('INVESTIGATIVE ASSESSMENT')) {
       flushBullets();
       inAssessment = true;
@@ -94,58 +172,104 @@ function BriefingContent({ text }: { text: string }) {
     }
 
     // CLASSIFICATION line
-    if (trimmed.toUpperCase().startsWith('CLASSIFICATION:')) {
+    if (trimmed.toUpperCase().startsWith('CLASSIFICATION:') || trimmed.toUpperCase().startsWith('**CLASSIFICATION')) {
       flushBullets();
       elements.push(
         <p
           key={`class-${elements.length}`}
           className="font-mono text-[11px] uppercase tracking-wider text-zinc-600"
         >
-          {trimmed}
+          {trimmed.replace(/\*\*/g, '')}
         </p>
       );
       continue;
     }
 
     // SUBJECT line
-    if (trimmed.toUpperCase().startsWith('SUBJECT:')) {
+    if (trimmed.toUpperCase().startsWith('SUBJECT:') || trimmed.toUpperCase().startsWith('**SUBJECT')) {
+      flushBullets();
+      continue; // Skip — the component header already shows the subject
+    }
+
+    // PREPARED BY / DATE lines
+    if (trimmed.toUpperCase().startsWith('PREPARED BY') || trimmed.toUpperCase().startsWith('**PREPARED BY') || trimmed.toUpperCase().startsWith('**DATE')) {
       flushBullets();
       elements.push(
         <p
-          key={`subject-${elements.length}`}
-          className="mt-1 font-mono text-xs font-semibold uppercase tracking-wider text-zinc-400"
+          key={`meta-${elements.length}`}
+          className="font-mono text-[11px] uppercase tracking-wider text-zinc-600"
         >
-          {trimmed}
+          {trimmed.replace(/\*\*/g, '')}
         </p>
       );
       continue;
     }
 
-    // KEY FINDINGS header
+    // KEY FINDINGS header (plain text variant)
     if (trimmed.toUpperCase().startsWith('KEY FINDINGS')) {
       flushBullets();
       elements.push(
         <h4
           key={`kf-${elements.length}`}
-          className="mb-1 mt-3 font-mono text-xs font-bold uppercase tracking-wider text-money-gold"
+          className="mb-1 mt-4 font-mono text-xs font-bold uppercase tracking-wider text-money-gold"
         >
-          {trimmed}
+          KEY FINDINGS
         </h4>
       );
       continue;
     }
 
-    // Bullet points
-    if (trimmed.startsWith('•') || trimmed.startsWith('- ')) {
+    // Follow the Money / Hidden Connections section headers
+    if (trimmed.startsWith('**Follow the Money') || trimmed.startsWith('**The Hidden Connections')) {
+      flushBullets();
+      const label = trimmed.replace(/\*\*/g, '').replace(/:$/, '');
+      elements.push(
+        <h4
+          key={`sh-${elements.length}`}
+          className="mb-1 mt-4 font-mono text-xs font-bold uppercase tracking-wider text-zinc-400"
+        >
+          {label}
+        </h4>
+      );
+      continue;
+    }
+
+    // Bullet points (*, -, •)
+    if (trimmed.startsWith('•') || trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
       bulletGroup.push(trimmed);
+      continue;
+    }
+
+    // Sources section header
+    if (trimmed.toUpperCase().startsWith('SOURCES:') || trimmed.toUpperCase() === 'SOURCES') {
+      flushBullets();
+      elements.push(
+        <h4
+          key={`src-h-${elements.length}`}
+          className="mb-1 mt-4 font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-500"
+        >
+          Sources
+        </h4>
+      );
+      continue;
+    }
+
+    // Sources line at the end
+    if (trimmed.startsWith('*Sources consulted') || trimmed.startsWith('*All findings')) {
+      flushBullets();
+      elements.push(
+        <p key={`src-${elements.length}`} className="mt-4 text-[10px] italic text-zinc-600">
+          <InlineMarkdown text={trimmed.replace(/^\*/, '').replace(/\*$/, '')} />
+        </p>
+      );
       continue;
     }
 
     // Regular paragraph
     flushBullets();
     elements.push(
-      <p key={`p-${elements.length}`} className="my-1.5 text-zinc-300">
-        {trimmed}
+      <p key={`p-${elements.length}`} className="my-2 text-sm leading-relaxed text-zinc-300">
+        <InlineMarkdown text={trimmed} />
       </p>
     );
   }

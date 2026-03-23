@@ -398,14 +398,23 @@ async def merge_into_database(congress_data: dict, fec_data: dict,
                 if not donor_name or donor_name == "UNKNOWN":
                     continue
                 donor_slug = slugify(donor_name)
+                # Detect PACs/committees vs individual donors
+                name_upper = donor_name.upper()
+                is_pac = any(kw in name_upper for kw in [
+                    "VICTORY FUND", "ACTION FUND", "SENATE FUND",
+                    "PAC", "COMMITTEE", "VICTORY 2022", "VICTORY 2024",
+                    "CITIZENS UNITED", "FIGHT TO", "EMILY", "DSCC",
+                    "DCCC", "NRSC", "NRCC", " FUND",
+                ])
+                donor_type = "pac" if is_pac else "person"
                 donor_entity = await upsert_entity(
-                    session, donor_slug, "person", donor_name,
+                    session, donor_slug, donor_type, donor_name,
                     metadata={
                         "employer": info["employer"],
                         "occupation": info["occupation"],
                         "city": info["city"],
                         "state": info["state"],
-                        "donor_type": "individual",
+                        "donor_type": "pac" if is_pac else "individual",
                     },
                 )
                 amount_cents = int(info["total"] * 100)

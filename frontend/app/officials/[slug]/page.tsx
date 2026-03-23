@@ -163,7 +163,7 @@ export default function OfficialProfilePage() {
         getRelationshipSpotlight(slug).catch(() => [] as RelationshipSpotlightData[]),
         getEntitySummary(slug).catch(() => null),
         getHiddenConnectionsSummary(slug).catch(() => null),
-        getAllChains(slug).catch(() => [] as EvidenceChainResponse[]),
+        getAllChains(slug).then(r => Array.isArray(r) ? r : (r as { chains: EvidenceChainResponse[] }).chains || []).catch(() => [] as EvidenceChainResponse[]),
       ]);
       setEntity(entityData);
       setConnections(connectionsData.connections);
@@ -278,7 +278,8 @@ export default function OfficialProfilePage() {
     } finally {
       setTabDataLoading((prev) => ({ ...prev, [tabId]: false }));
     }
-  }, [slug, tabDataLoading, revolvingDoorData, familyData, outsideIncomeData, contractorData, tradeTimingData]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug]);
 
   useEffect(() => {
     fetchData();
@@ -626,6 +627,15 @@ export default function OfficialProfilePage() {
           {/* ===== OVERVIEW TAB ===== */}
           {activeTab === 'overview' && (
             <div role="tabpanel" id="tabpanel-overview" aria-labelledby="overview">
+              {/* FBI Briefing — the first thing users see */}
+              <div className="mb-6">
+                <FBIBriefing
+                  entitySlug={slug}
+                  entityName={entity.name}
+                  entityType="person"
+                />
+              </div>
+
               {/* Fast Facts Cards */}
               <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
                 <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">

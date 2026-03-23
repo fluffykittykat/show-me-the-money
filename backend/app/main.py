@@ -191,6 +191,44 @@ async def admin_ingest(slug: str):
     return {"status": "ok", "message": f"Ingestion complete for {slug}"}
 
 
+@admin_router.post("/briefings/generate")
+async def admin_generate_briefings(entity_type: str = "person", force: bool = False):
+    """Pre-generate FBI briefings for all entities of a given type."""
+    import asyncio
+    from app.services.ai_service import ai_briefing_service
+
+    async def _generate():
+        async with async_session() as session:
+            from sqlalchemy import select as sel
+            from app.models import Entity as Ent
+            result = await session.execute(
+                sel(Ent).where(Ent.entity_type == entity_type)
+            )
+            entities = result.scalars().all()
+            generated = 0
+            skipped = 0
+            for ent in entities:
+                meta = ent.metadata_ or {}
+                if not force and meta.get("fbi_briefing") and meta.get("fbi_briefing_fingerprint"):
+                    skipped += 1
+                    continue
+                print(f"[briefings] Generating for {ent.slug}...")
+                try:
+                    await ai_briefing_service.generate_briefing(
+                        entity_slug=ent.slug,
+                        context_data={},
+                        session=session,
+                        force_refresh=force,
+                    )
+                    generated += 1
+                except Exception as e:
+                    print(f"[briefings] Error for {ent.slug}: {e}")
+            return {"generated": generated, "skipped": skipped, "total": len(entities)}
+
+    task = asyncio.create_task(_generate())
+    return {"status": "started", "message": f"Generating briefings for all {entity_type} entities in background"}
+
+
 app.include_router(admin_router)
 
 

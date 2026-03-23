@@ -11,7 +11,11 @@ router = APIRouter(tags=["briefings"])
 
 
 @router.get("/entities/{slug}/briefing", response_model=BriefingResponse)
-async def get_entity_briefing(slug: str, db: AsyncSession = Depends(get_db)):
+async def get_entity_briefing(
+    slug: str,
+    refresh: bool = False,
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(select(Entity).where(Entity.slug == slug))
     entity = result.scalar_one_or_none()
     if not entity:
@@ -21,6 +25,7 @@ async def get_entity_briefing(slug: str, db: AsyncSession = Depends(get_db)):
         entity_slug=slug,
         context_data={"metadata": entity.metadata_},
         session=db,
+        force_refresh=refresh,
     )
 
     return BriefingResponse(
