@@ -1452,6 +1452,58 @@ export default function EntityPage() {
           />
         </div>
 
+        {/* Family Ties Alert — prominently call out family connections */}
+        {connections.filter(c =>
+          ['family_employed_by', 'spouse_income_from'].includes(c.relationship_type)
+        ).length > 0 && (
+          <section>
+            <div className="rounded-xl border-2 border-red-500/30 bg-red-950/20 p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <AlertTriangle className="h-5 w-5 text-red-400" />
+                <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-red-400">
+                  Family Ties Alert
+                </h3>
+              </div>
+              <div className="space-y-2">
+                {connections
+                  .filter(c => ['family_employed_by', 'spouse_income_from'].includes(c.relationship_type))
+                  .map((conn, i) => {
+                    const official = conn.connected_entity;
+                    if (!official) return null;
+                    const meta = conn.metadata as Record<string, unknown>;
+                    const familyMember = (meta?.family_member as string) || 'A family member';
+                    const role = (meta?.role as string) || 'employee';
+                    return (
+                      <div key={i} className="flex items-start gap-3 rounded-lg border border-red-500/10 bg-zinc-900/50 p-3">
+                        <span className="text-lg">&#128104;&#8205;&#128105;&#8205;&#128103;</span>
+                        <div>
+                          <p className="text-sm text-zinc-200">
+                            <Link href={`/officials/${official.slug}`} className="font-semibold text-money-gold hover:underline">
+                              {official.name}
+                            </Link>
+                            {conn.relationship_type === 'spouse_income_from'
+                              ? "'s spouse receives income from this entity"
+                              : "'s family member is employed by this entity"}
+                          </p>
+                          {familyMember && (
+                            <p className="mt-1 text-xs text-zinc-400">
+                              {familyMember} — {role}
+                              {conn.amount_usd ? ` ($${(conn.amount_usd / 100).toLocaleString()}/year)` : ''}
+                            </p>
+                          )}
+                          <p className="mt-1 text-xs text-red-400/80">
+                            This creates a potential conflict of interest if {official.name} has legislative authority
+                            over this entity&apos;s industry.
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          </section>
+        )}
+
         {/* Connected Officials */}
         {connectedOfficials.length > 0 && (
           <section>
