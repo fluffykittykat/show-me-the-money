@@ -25,6 +25,8 @@ def _sanitize(s: str) -> str:
 
 async def _gather_entity_context(session: AsyncSession, entity: Entity) -> dict:
     """Gather all relevant data for an entity to feed into the briefing prompt."""
+    from sqlalchemy import and_
+
     # Get all outgoing connections
     from_rels = (
         await session.execute(
@@ -44,6 +46,65 @@ async def _gather_entity_context(session: AsyncSession, entity: Entity) -> dict:
             .limit(50)
         )
     ).all()
+
+    # Build evidence chains for persons — trace money → lobbying → vote → outcome
+    evidence_chains = []
+    if entity.entity_type == "person":
+        # Get companies this official holds stock in
+        stock_companies = {}
+        for rel, connected in from_rels:
+            if rel.relationship_type == "holds_stock":
+                stock_companies[connected.id] = {
+                    "name": _sanitize(connected.name),
+                    "slug": connected.slug,
+                    "amount": rel.amount_label or "undisclosed",
+                }
+
+        # Get donors
+        donors = {}
+        for rel, connected in to_rels:
+            if rel.relationship_type == "donated_to":
+                donors[connected.id] = {
+                    "name": _sanitize(connected.name),
+                    "amount_usd": rel.amount_usd,
+                    "amount_label": rel.amount_label,
+                }
+
+        # For each stock holding, check if that company lobbied for any bill this official voted on
+        for company_id, company_info in stock_companies.items():
+            # Find bills this company lobbied for
+            lobby_q = await session.execute(
+                select(Relationship, Entity)
+                .join(Entity, Entity.id == Relationship.to_entity_id)
+                .where(and_(
+                    Relationship.from_entity_id == company_id,
+                    Relationship.relationship_type == "lobbies_on_behalf_of",
+                ))
+            )
+            lobbied_bills = lobby_q.all()
+
+            for lobby_rel, bill_entity in lobbied_bills:
+                # Did this official vote on or sponsor this bill?
+                vote_q = await session.execute(
+                    select(Relationship).where(and_(
+                        Relationship.from_entity_id == entity.id,
+                        Relationship.to_entity_id == bill_entity.id,
+                        Relationship.relationship_type.in_(["voted_yes", "voted_no", "sponsored", "cosponsored"]),
+                    ))
+                )
+                votes = vote_q.scalars().all()
+                for vote in votes:
+                    evidence_chains.append({
+                        "chain": (
+                            f"Official holds {company_info['amount']} in {company_info['name']} stock -> "
+                            f"{company_info['name']} lobbied for {_sanitize(bill_entity.name)} -> "
+                            f"Official {vote.relationship_type.replace('_', ' ')} {_sanitize(bill_entity.name)}"
+                        ),
+                        "company": company_info["name"],
+                        "bill": _sanitize(bill_entity.name),
+                        "vote": vote.relationship_type,
+                        "stock_amount": company_info["amount"],
+                    })
 
     context = {
         "entity_type": entity.entity_type,
@@ -75,6 +136,7 @@ async def _gather_entity_context(session: AsyncSession, entity: Entity) -> dict:
             }
             for rel, connected in to_rels
         ],
+        "evidence_chains": evidence_chains,
     }
     return context
 
@@ -228,6 +290,18 @@ def _build_briefing_prompt(context: dict) -> str:
         if rel.get("source"):
             prompt += f" (Source: {rel['source']})"
         prompt += "\n"
+
+    # Evidence chains — the connected dots
+    chains = context.get("evidence_chains", [])
+    if chains:
+        prompt += (
+            f"\n\n*** CRITICAL: EVIDENCE CHAINS ({len(chains)} found) ***\n"
+            "These are PROVEN connections from our database. Each chain traces:\n"
+            "Official holds stock -> Company lobbied for bill -> Official voted on bill\n"
+            "You MUST reference these chains in your briefing. These are the dots connected.\n\n"
+        )
+        for i, chain in enumerate(chains, 1):
+            prompt += f"  Chain {i}: {chain['chain']}\n"
 
     return prompt
 
