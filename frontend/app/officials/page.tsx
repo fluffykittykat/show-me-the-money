@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { listEntities } from '@/lib/api';
 import type { Entity } from '@/lib/types';
@@ -13,6 +13,14 @@ const PARTY_FILTERS = ['All', 'Democrat', 'Republican', 'Independent'] as const;
 const CHAMBER_FILTERS = ['All', 'Senate', 'House'] as const;
 
 export default function OfficialsPage() {
+  return (
+    <Suspense fallback={<div className="mx-auto max-w-7xl px-4 py-8"><LoadingState variant="card" count={6} /></div>}>
+      <OfficialsPageInner />
+    </Suspense>
+  );
+}
+
+function OfficialsPageInner() {
   const searchParams = useSearchParams();
   const stateParam = searchParams.get('state');
 
