@@ -22,8 +22,13 @@ export default function OfficialsPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await listEntities('person', 100);
-      setOfficials(data.results);
+      const data = await listEntities('person', 200);
+      // Filter to only actual officials (have chamber/party in metadata)
+      const actualOfficials = data.results.filter((e: Entity) => {
+        const meta = e.metadata as Record<string, unknown>;
+        return meta?.chamber || meta?.party || meta?.bioguideId;
+      });
+      setOfficials(actualOfficials);
     } catch {
       setError('Failed to load officials. Please try again later.');
     } finally {
