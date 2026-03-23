@@ -9,23 +9,33 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_LOBBYING_FIRMS = [
-    "Capitol Bridge Partners",
-    "Harbour Policy Group",
-    "Meridian Government Affairs",
-    "Crossroads Strategy Group",
-    "Potomac Advocacy Partners",
-    "Summit Public Affairs",
-    "Ironclad Policy Solutions",
-    "Horizon Government Relations",
-    "Cornerstone Policy Advisors",
-    "Pinnacle Strategies LLC",
+_FIRST_NAMES = [
+    "Marcus", "Sarah", "David", "Rachel", "Anthony", "Laura", "James", "Priya",
+    "Daniel", "Monica", "Kevin", "Yuki", "Brandon", "Natasha", "Gregory", "Mei",
+    "Theodore", "Camille", "Victor", "Ingrid", "Wesley", "Fatima", "Russell",
+    "Adrienne", "Malcolm", "Renata", "Oscar", "Simone", "Franklin", "Daphne",
+    "Clayton", "Bianca",
 ]
 
-_LOBBYIST_NAMES = [
-    "Marcus Webb", "Sarah Chen-Watkins", "David Thornton", "Rachel Morrison",
-    "Anthony Graves", "Laura Petrov", "James Whitfield", "Priya Kapoor",
-    "Daniel Reeves", "Monica Sandoval", "Kevin O'Malley", "Yuki Tanaka",
+_LAST_NAMES = [
+    "Webb", "Chen", "Thornton", "Morrison", "Graves", "Petrov", "Whitfield",
+    "Kapoor", "Reeves", "Sandoval", "O'Malley", "Tanaka", "Harrington", "Dubois",
+    "Castillo", "Nakamura", "Brennan", "Okonkwo", "Lindqvist", "Patel",
+    "Fitzgerald", "Romanov", "Alvarez", "Johansson", "Whitaker", "Nguyen",
+    "Hartwell", "Bianchi", "Prescott", "Kowalski", "Delgado", "Eriksson",
+]
+
+_LOBBYING_FIRMS = [
+    "Capitol Bridge Partners", "Harbour Policy Group", "Meridian Government Affairs",
+    "Crossroads Strategy Group", "Potomac Advocacy Partners", "Summit Public Affairs",
+    "Ironclad Policy Solutions", "Horizon Government Relations", "Cornerstone Policy Advisors",
+    "Pinnacle Strategies LLC", "Atlas Federal Affairs", "Keystone Advocacy Group",
+    "Constellation Policy Partners", "Ridgeline Government Solutions", "Liberty Hill Advisors",
+    "Trident Public Strategies", "Vanguard Policy Group", "Sterling Government Relations",
+    "Northstar Advocacy LLC", "Sentinel Public Affairs", "Blackstone Policy Partners",
+    "Greystone Government Relations", "Pacific Rim Advisors", "Beltway Strategy Group",
+    "Fulcrum Policy Consultants", "Redwood Government Affairs", "Granite State Advisors",
+    "Ironbridge Public Policy", "Civic Square Partners", "Clearpath Government Solutions",
 ]
 
 _CLIENTS = [
@@ -39,6 +49,26 @@ _CLIENTS = [
     ("Amazon", "E-commerce regulation, labor policy, antitrust enforcement"),
     ("UnitedHealth Group", "Healthcare regulation, Medicare policy, insurance reform"),
     ("Comcast", "Telecommunications policy, broadband access, net neutrality"),
+    ("Chevron", "Oil and gas leasing, environmental compliance, pipeline regulation"),
+    ("Meta Platforms", "Social media regulation, content moderation, digital advertising"),
+    ("Raytheon Technologies", "Missile defense, military procurement, export controls"),
+    ("AT&T", "Spectrum allocation, rural broadband, telecom mergers"),
+    ("General Motors", "EV tax credits, auto emissions standards, trade tariffs"),
+    ("Walmart", "Minimum wage policy, supply chain regulation, trade agreements"),
+    ("Cigna Group", "Pharmacy benefit management, health plan regulation, drug formularies"),
+    ("Northrop Grumman", "Space systems, nuclear modernization, intelligence contracts"),
+    ("Apple", "Digital markets regulation, app store policy, encryption standards"),
+    ("Goldman Sachs", "Securities regulation, capital markets reform, fiduciary standards"),
+    ("Caterpillar", "Infrastructure spending, trade policy, emissions standards"),
+    ("FedEx", "Postal reform, logistics regulation, drone delivery policy"),
+    ("Duke Energy", "Grid modernization, nuclear licensing, clean energy credits"),
+    ("Anthem Blue Cross", "ACA marketplace rules, Medicaid expansion, telehealth policy"),
+    ("Shell USA", "Carbon capture incentives, refinery permits, LNG exports"),
+    ("Microsoft", "Cloud computing procurement, AI regulation, cybersecurity standards"),
+    ("Dow Chemical", "Chemical safety rules, PFAS regulation, trade policy"),
+    ("Delta Air Lines", "FAA reauthorization, airport slot allocation, fuel tax policy"),
+    ("Humana", "Medicare Advantage, home health regulation, senior care policy"),
+    ("Koch Industries", "Regulatory reform, energy deregulation, labor policy"),
 ]
 
 _STAFF_TITLES = [
@@ -88,10 +118,17 @@ class RevolvingDoorClient:
         registrations = []
 
         for i in range(num_registrations):
-            reg_hash = hash_int + i * 9973  # offset per registration
+            # Use official_name + index as seed for each registration
+            reg_seed = f"{seed}{i}"
+            reg_hex = hashlib.md5(reg_seed.encode()).hexdigest()
+            reg_hash = int(reg_hex, 16)
+
+            # Pick lobbyist name from independent first/last pools
+            first_idx = reg_hash % len(_FIRST_NAMES)
+            last_idx = (reg_hash // 7919) % len(_LAST_NAMES)
+            lobbyist_name = f"{_FIRST_NAMES[first_idx]} {_LAST_NAMES[last_idx]}"
 
             firm_idx = reg_hash % len(_LOBBYING_FIRMS)
-            lobbyist_idx = reg_hash % len(_LOBBYIST_NAMES)
             client_idx = reg_hash % len(_CLIENTS)
             title_idx = (reg_hash // 7) % len(_STAFF_TITLES)
             committee_idx = (reg_hash // 11) % len(_COMMITTEE_NAMES)
@@ -101,7 +138,8 @@ class RevolvingDoorClient:
 
             # Build position string — use official_name if available
             if official_name and (reg_hash % 3 != 0):
-                position = f"{title}, Office of Sen. {official_name.split()[-1]} ({2017 + (reg_hash % 6)}-{2022 + (reg_hash % 3)})"
+                last_name = official_name.split()[-1]
+                position = f"{title}, Office of Sen. {last_name} ({2017 + (reg_hash % 6)}-{2022 + (reg_hash % 3)})"
             else:
                 committee = _COMMITTEE_NAMES[committee_idx]
                 position = f"{title}, {committee} ({2017 + (reg_hash % 6)}-{2022 + (reg_hash % 3)})"
@@ -117,7 +155,7 @@ class RevolvingDoorClient:
                     "registrant": {"name": _LOBBYING_FIRMS[firm_idx], "id": f"R-{firm_idx:03d}"},
                     "lobbyists": [
                         {
-                            "name": _LOBBYIST_NAMES[lobbyist_idx],
+                            "name": lobbyist_name,
                             "covered_official_position": position,
                             "new_lobbyist": reg_hash % 3 == 0,
                         }

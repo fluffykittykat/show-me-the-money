@@ -629,13 +629,9 @@ async def _upsert_member_data(member_data: dict) -> None:
                         source_label="Congress.gov",
                     ))
 
-            # ---- Create hidden connection relationships ----
-            try:
-                await _ingest_hidden_connections(
-                    session, entity_id, name, member_data.get("state", "")
-                )
-            except Exception as exc:
-                logger.warning("Hidden connections failed for %s: %s", name, exc)
+            # Hidden connections (revolving door, family, outside income) are
+            # no longer generated from mock data. When real LDA/eFD APIs are
+            # integrated, they will be ingested here.
 
 
 async def _ingest_hidden_connections(session, entity_id: str, name: str, state: str) -> None:

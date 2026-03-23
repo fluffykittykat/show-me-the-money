@@ -487,11 +487,8 @@ async def run_bill_enrichment(force: bool = False) -> uuid.UUID:
                                 if updates.get("crs_summary"):
                                     entity.summary = _ascii_safe(updates["crs_summary"])[:2000]
 
-                                # Create lobbying relationships for this bill
-                                try:
-                                    await _create_lobbying_relationships(session, entity)
-                                except Exception as lobby_exc:
-                                    logger.debug("Lobbying rels failed for %s: %s", bill.slug, lobby_exc)
+                                # Lobbying relationships will be created when real
+                                # LDA API data is integrated. No mock data.
 
                         enriched += 1
 

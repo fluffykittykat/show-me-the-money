@@ -9,6 +9,25 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_FIRST_NAMES = [
+    "Sarah", "Michael", "Jennifer", "David", "Maria", "James", "Patricia", "Robert",
+    "Linda", "Thomas", "Elizabeth", "Christopher", "Angela", "William", "Susan",
+    "Richard", "Karen", "Joseph", "Nancy", "Charles", "Margaret", "Daniel",
+    "Barbara", "Matthew", "Dorothy", "Andrew", "Lisa", "Kenneth", "Sandra",
+    "Steven", "Ashley", "Edward", "Kimberly", "Brian", "Donna", "Timothy",
+    "Carol", "Jason", "Michelle", "Jeffrey", "Amanda", "Laura",
+]
+
+_LAST_NAMES = [
+    "Williams", "Chen", "Martinez", "O'Brien", "Patel", "Thompson", "Rivera",
+    "Nakamura", "Kowalski", "Hassan", "Bergström", "Okafor", "Fitzgerald",
+    "Dubois", "Castillo", "Johansson", "Brennan", "Alvarez", "Whitaker",
+    "Nguyen", "Hartwell", "Bianchi", "Prescott", "Delgado", "Eriksson",
+    "Sullivan", "Kim", "Moreau", "Andersen", "Gupta", "Romano", "Weber",
+    "Larsson", "Takahashi", "Müller", "Santos", "Park", "Ivanova", "Campbell",
+    "Mitchell", "Reeves", "Foster",
+]
+
 _EMPLOYERS = [
     ("JPMorgan Chase & Co.", "Senior Community Development Consultant", 185000),
     ("Goldman Sachs Group", "Vice President, Public Affairs", 210000),
@@ -22,6 +41,19 @@ _EMPLOYERS = [
     ("UnitedHealth Group", "VP of Community Programs", 200000),
     ("General Electric", "Senior Government Liaison", 160000),
     ("Raytheon Technologies", "Director of Federal Programs", 175000),
+    ("Citigroup Inc.", "Managing Director, Public Sector", 220000),
+    ("Merck & Co.", "Director of Health Policy", 185000),
+    ("Accenture Federal Services", "Senior Managing Director", 205000),
+    ("EY (Ernst & Young)", "Partner, Government Advisory", 240000),
+    ("KPMG LLP", "Director of Public Policy Practice", 195000),
+    ("PricewaterhouseCoopers", "Partner, Federal Practice", 230000),
+    ("Northrop Grumman", "VP of Government Relations", 210000),
+    ("General Dynamics", "Director of Legislative Affairs", 190000),
+    ("Anthem Blue Cross", "VP of Federal Programs", 200000),
+    ("Humana Inc.", "Director of Government Markets", 175000),
+    ("Intel Corporation", "Head of Policy & Government Affairs", 195000),
+    ("Qualcomm Inc.", "VP of Government Affairs", 185000),
+    ("Chevron Corporation", "Director of Public Affairs", 180000),
 ]
 
 _SECONDARY_EMPLOYERS = [
@@ -33,16 +65,6 @@ _SECONDARY_EMPLOYERS = [
     ("Local Hospital Foundation", "Board Director", 50000),
     ("Arts & Culture Council", "Executive Board Member", 40000),
     ("Veterans Support Alliance", "Program Director", 72000),
-]
-
-_SPOUSE_FIRST_NAMES = [
-    "Sarah", "Michael", "Jennifer", "David", "Maria", "James",
-    "Patricia", "Robert", "Linda", "Thomas", "Elizabeth", "Christopher",
-]
-
-_SPOUSE_LAST_SUFFIXES = [
-    "Williams", "Chen", "Martinez", "O'Brien", "Patel", "Thompson",
-    "Rivera", "Nakamura", "Kowalski", "Hassan", "Bergström", "Okafor",
 ]
 
 
@@ -60,17 +82,18 @@ class FamilyConnectionsClient:
 
     def _mock_family_income(self, senator_name: str) -> list[dict[str, Any]]:
         """Mock data matching eFD spouse/dependent income format."""
-        hash_hex = hashlib.md5(senator_name.encode()).hexdigest()
+        seed = f"{senator_name}family"
+        hash_hex = hashlib.md5(seed.encode()).hexdigest()
         hash_int = int(hash_hex, 16)
 
-        # ~60% of officials have family connections
-        if hash_int % 10 >= 6:
+        # ~50% of officials have family connections
+        if hash_int % 10 >= 5:
             return []
 
-        # Pick a spouse name
-        first_idx = hash_int % len(_SPOUSE_FIRST_NAMES)
-        last_idx = (hash_int // 7) % len(_SPOUSE_LAST_SUFFIXES)
-        spouse_name = f"{_SPOUSE_FIRST_NAMES[first_idx]} {_SPOUSE_LAST_SUFFIXES[last_idx]}"
+        # Pick a family member name from independent first/last pools
+        first_idx = hash_int % len(_FIRST_NAMES)
+        last_idx = (hash_int // 7919) % len(_LAST_NAMES)
+        family_member_name = f"{_FIRST_NAMES[first_idx]} {_LAST_NAMES[last_idx]}"
 
         # Pick primary employer
         emp_idx = hash_int % len(_EMPLOYERS)
@@ -81,8 +104,8 @@ class FamilyConnectionsClient:
                 "filer": senator_name,
                 "report_type": "Annual Report",
                 "report_year": 2024,
-                "family_member": spouse_name,
-                "relationship": "spouse",
+                "family_member": family_member_name,
+                "relationship": "family member",
                 "employer": employer,
                 "position": position,
                 "income_amount": income,
@@ -104,8 +127,8 @@ class FamilyConnectionsClient:
                     "filer": senator_name,
                     "report_type": "Annual Report",
                     "report_year": 2024,
-                    "family_member": spouse_name,
-                    "relationship": "spouse",
+                    "family_member": family_member_name,
+                    "relationship": "family member",
                     "employer": sec_employer,
                     "position": sec_position,
                     "income_amount": sec_income,

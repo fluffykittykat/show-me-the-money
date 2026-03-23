@@ -20,6 +20,27 @@ _SPEAKING_PAYERS = [
     ("Council on Foreign Relations", "foreign_policy", False, "Global Affairs Symposium"),
     ("Aspen Institute", "think_tank", False, "Ideas Festival"),
     ("World Economic Forum", "international", False, "Annual Meeting panel"),
+    ("American Enterprise Institute", "think_tank", True, "Economic Policy Conference"),
+    ("Cato Institute", "think_tank", False, "Freedom & Governance Forum"),
+    ("RAND Corporation", "think_tank", False, "National Security Symposium"),
+    ("Peterson Institute for International Economics", "think_tank", False, "Global Trade Summit"),
+    ("Hoover Institution", "think_tank", False, "Policy Retreat keynote"),
+    ("National Association of Realtors", "real_estate", True, "Legislative Conference"),
+    ("American Medical Association", "healthcare", True, "Health Policy Forum"),
+    ("PhRMA Annual Conference", "pharmaceutical", True, "Innovation Summit keynote"),
+    ("American Bar Association", "legal", False, "Annual Convention address"),
+    ("National Governors Association", "government", False, "Winter Meeting keynote"),
+    ("AIPAC Policy Conference", "foreign_policy", True, "Policy Conference address"),
+    ("Business Roundtable", "business", True, "CEO Summit keynote"),
+    ("National League of Cities", "government", False, "Congressional Forum"),
+    ("American Farm Bureau Federation", "agriculture", True, "Annual Convention address"),
+    ("Securities Industry and Financial Markets Association", "financial_services", True, "Annual Meeting keynote"),
+    ("Consumer Technology Association", "technology", True, "CES Policy Forum"),
+    ("American Petroleum Institute", "energy", True, "Energy Summit address"),
+    ("National Mining Association", "energy", True, "Annual Conference keynote"),
+    ("Insurance Information Institute", "insurance", True, "Risk & Policy Forum"),
+    ("National Retail Federation", "retail", True, "Retail Advocacy Summit"),
+    ("U.S.-China Business Council", "international", True, "Trade Policy Forum"),
 ]
 
 _BOOK_PUBLISHERS = [
@@ -28,6 +49,12 @@ _BOOK_PUBLISHERS = [
     ("Penguin Random House", "Bertelsmann", "Book advance: leadership reflections"),
     ("Hachette Book Group", "Lagardère", "Book royalties: political memoir"),
     ("Macmillan Publishers", "Holtzbrinck", "Book advance: public service journey"),
+    ("W.W. Norton & Company", "Employee-owned", "Book advance: American governance"),
+    ("Crown Publishing Group", "Penguin Random House", "Book royalties: personal narrative"),
+    ("Little, Brown and Company", "Hachette Book Group", "Book advance: public policy essays"),
+    ("St. Martin's Press", "Macmillan", "Book advance: political biography"),
+    ("Knopf Doubleday", "Penguin Random House", "Book royalties: national security memoir"),
+    ("Scribner", "Simon & Schuster", "Book advance: leadership principles"),
 ]
 
 _HONORARIA_PAYERS = [
@@ -39,6 +66,20 @@ _HONORARIA_PAYERS = [
     ("Columbia University", "education", "Commencement address"),
     ("Duke University", "education", "Public leadership forum"),
     ("University of Virginia", "education", "Miller Center address"),
+    ("Yale University", "education", "Political leadership lecture"),
+    ("Princeton University", "education", "Woodrow Wilson School address"),
+    ("Northwestern University", "education", "Public affairs lecture"),
+    ("University of Chicago", "education", "Harris School policy forum"),
+    ("Johns Hopkins University", "education", "SAIS Distinguished Lecture"),
+    ("UC Berkeley", "education", "Goldman School policy address"),
+    ("University of Pennsylvania", "education", "Fels Institute keynote"),
+    ("Vanderbilt University", "education", "Chancellor's Lecture Series"),
+    ("Emory University", "education", "Distinguished faculty lecture"),
+    ("Carnegie Mellon University", "education", "Heinz College policy forum"),
+    ("Brown University", "education", "Watson Institute address"),
+    ("George Washington University", "education", "Elliott School keynote"),
+    ("National Constitution Center", "civic", "Liberty Medal Forum"),
+    ("Smithsonian Institution", "civic", "American History Lecture"),
 ]
 
 
@@ -56,11 +97,12 @@ class OutsideIncomeClient:
 
     def _mock_outside_income(self, senator_name: str) -> list[dict[str, Any]]:
         """Mock data matching eFD non-investment income format."""
-        hash_hex = hashlib.md5(senator_name.encode()).hexdigest()
+        seed = f"{senator_name}income"
+        hash_hex = hashlib.md5(seed.encode()).hexdigest()
         hash_int = int(hash_hex, 16)
 
-        # ~70% of officials have outside income
-        if hash_int % 10 >= 7:
+        # ~60% of officials have outside income
+        if hash_int % 10 >= 6:
             return []
 
         mock_id = hash_hex[:6]
