@@ -665,6 +665,51 @@ export default function OfficialProfilePage() {
                 </div>
               </div>
 
+              {/* Top Donors preview — show immediately, not buried in tabs */}
+              {categorized.donations.length > 0 && (
+                <div className="mb-6 rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-zinc-400">Top Donors</h3>
+                    <button
+                      onClick={() => {
+                        setActiveTab('money');
+                        window.history.replaceState(null, '', '#money');
+                      }}
+                      className="text-xs text-money-gold hover:text-money-gold-hover"
+                    >
+                      See all {categorized.donations.length} donors &rarr;
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {[...categorized.donations]
+                      .sort((a, b) => (b.amount_usd ?? 0) - (a.amount_usd ?? 0))
+                      .slice(0, 5)
+                      .map((d) => {
+                        const donor = d.connected_entity;
+                        const href = donor
+                          ? donor.entity_type === 'person'
+                            ? `/officials/${donor.slug}`
+                            : `/entities/${donor.entity_type}/${donor.slug}`
+                          : null;
+                        return (
+                          <div key={d.id} className="flex items-center justify-between">
+                            <div className="truncate text-sm text-zinc-300">
+                              {href && donor ? (
+                                <Link href={href} className="hover:text-money-gold">{donor.name}</Link>
+                              ) : (
+                                donor?.name || 'Unknown'
+                              )}
+                            </div>
+                            <span className="ml-2 shrink-0 text-sm font-semibold text-money-success">
+                              {formatMoney(d.amount_usd)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+
               {/* Bio */}
               {entity.summary && (
                 <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 mb-6">
@@ -938,7 +983,10 @@ export default function OfficialProfilePage() {
                   </div>
                 )}
 
-                <DonorTable donations={categorized.donations} />
+                <DonorTable
+                  donations={categorized.donations}
+                  fecTotalReceipts={(entity.metadata as Record<string, unknown>)?.total_receipts as number | undefined}
+                />
               </div>
             </div>
           )}

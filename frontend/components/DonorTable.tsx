@@ -10,6 +10,7 @@ import DidYouKnow from '@/components/DidYouKnow';
 
 interface DonorTableProps {
   donations: Relationship[];
+  fecTotalReceipts?: number | null;
 }
 
 function slugify(name: string): string {
@@ -29,7 +30,7 @@ function RecipientBadge({ slug }: { slug: string }) {
   );
 }
 
-export default function DonorTable({ donations }: DonorTableProps) {
+export default function DonorTable({ donations, fecTotalReceipts }: DonorTableProps) {
   if (donations.length === 0) {
     return (
       <p className="py-8 text-center text-sm text-zinc-500">
@@ -45,8 +46,10 @@ export default function DonorTable({ donations }: DonorTableProps) {
     return bVal - aVal;
   });
 
-  // Calculate total
-  const totalRaised = sorted.reduce((sum, d) => sum + (d.amount_usd ?? 0), 0);
+  // Use FEC total receipts if available (more accurate), else sum captured donors
+  const capturedTotal = sorted.reduce((sum, d) => sum + (d.amount_usd ?? 0), 0);
+  // fecTotalReceipts is in dollars from the API, convert to cents for consistency
+  const totalRaised = fecTotalReceipts ? Math.round(fecTotalReceipts * 100) : capturedTotal;
 
   // Top 10 for the bar chart
   const top10 = sorted.slice(0, 10);
