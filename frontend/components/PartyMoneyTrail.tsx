@@ -9,6 +9,7 @@ import { ArrowRight, Building2 } from 'lucide-react';
 
 interface PartyMoneyTrailProps {
   slug: string;
+  officialName: string;
   donations: Relationship[];
 }
 
@@ -21,7 +22,7 @@ interface CommitteeChain {
   topDonors: { name: string; slug: string; amount: number }[];
 }
 
-export default function PartyMoneyTrail({ slug, donations }: PartyMoneyTrailProps) {
+export default function PartyMoneyTrail({ slug, officialName, donations }: PartyMoneyTrailProps) {
   const [chains, setChains] = useState<CommitteeChain[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -91,8 +92,8 @@ export default function PartyMoneyTrail({ slug, donations }: PartyMoneyTrailProp
         </h3>
         <p className="mt-1 mb-4 text-sm text-zinc-400">
           These companies and organizations fund the party committee, which then distributes
-          money to this official. The party committee is the middleman that launders the
-          transactional relationship into what looks like ordinary party support.
+          money to {officialName}. The party committee is the middleman that makes a
+          transactional relationship look like ordinary party support.
         </p>
 
         {chains.map((chain) => (
@@ -136,7 +137,7 @@ export default function PartyMoneyTrail({ slug, donations }: PartyMoneyTrailProp
                     {chain.committeeName}
                   </Link>
                   <ArrowRight className="h-3 w-3 text-zinc-600" />
-                  <span className="text-zinc-300">This Official</span>
+                  <span className="text-zinc-300">{officialName}</span>
                 </div>
               ))}
             </div>

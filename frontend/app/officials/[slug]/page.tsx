@@ -684,7 +684,7 @@ export default function OfficialProfilePage() {
               <MoneyToBills slug={slug} />
 
               {/* PARTY COMMITTEE MONEY TRAIL — who funds the middleman */}
-              <PartyMoneyTrail slug={slug} donations={categorized.donations} />
+              <PartyMoneyTrail slug={slug} officialName={entity.name} donations={categorized.donations} />
 
               {/* Investigator Summary — conflict analysis */}
               <div className="mb-6">
