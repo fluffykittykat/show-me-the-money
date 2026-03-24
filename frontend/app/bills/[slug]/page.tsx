@@ -478,92 +478,59 @@ export default function BillInvestigationPage() {
         </div>
       )}
 
-      {/* THE MONEY BEHIND THIS BILL — the key question */}
-      {sponsors.length > 0 && Object.keys(sponsorDonors).length > 0 && (
+      {/* WHO SUPPORTS THIS BILL AND WHO FUNDS THEM */}
+      {(sponsors.length > 0 || cosponsors.length > 0) && (
         <div className="mb-8 rounded-xl border-2 border-money-gold/30 bg-zinc-900/80 p-6">
           <h2 className="flex items-center gap-2 text-lg font-bold text-money-gold mb-2">
             <DollarSign className="h-5 w-5" />
-            The Money Behind This Bill
+            Who Supports This Bill — And Who Funds Them
           </h2>
           <p className="text-sm text-zinc-400 mb-4">
-            Who funds the officials who wrote this bill? And does their money align with
-            what this {policyArea || 'legislation'} bill does?
+            These officials {statusBadge.label === 'BECAME LAW' ? 'passed' : 'sponsored'} this
+            {policyArea ? ` ${policyArea}` : ''} bill. Click any name to see their full donor profile
+            and investigate whether their funding sources benefit from this legislation.
           </p>
-          <div className="space-y-3">
+          <div className="space-y-2">
             {sponsors.concat(cosponsors).map((rel) => {
               const ce = rel.connected_entity;
               if (!ce) return null;
               const ceMeta = getMeta(ce);
               const party = (ceMeta?.party as string) || '';
+              const state = (ceMeta?.state as string) || '';
               const donors = ce.slug ? sponsorDonors[ce.slug] : undefined;
-              if (!donors || donors.length === 0) return null;
 
               return (
-                <div key={rel.id} className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Link
-                      href={`/officials/${ce.slug}`}
-                      className="text-sm font-semibold text-zinc-200 hover:text-money-gold"
-                    >
+                <Link
+                  key={rel.id}
+                  href={`/officials/${ce.slug}`}
+                  className="group flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3 hover:border-money-gold/30 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-zinc-200 group-hover:text-money-gold">
                       {ce.name}
-                    </Link>
+                    </span>
                     <PartyBadge party={party} />
-                    <span className="text-xs text-zinc-500">
+                    {state && <span className="text-xs text-zinc-500">{state}</span>}
+                    <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">
                       {rel.relationship_type === 'sponsored' ? 'Sponsor' : 'Cosponsor'}
                     </span>
                   </div>
-                  <div className="ml-2 space-y-1">
-                    {donors.map((d, i) => (
-                      <div key={i} className="flex items-center gap-2 text-xs">
-                        <span className="text-zinc-500">funded by</span>
-                        <span className="text-zinc-300">{d.name}</span>
-                        <span className="text-money-success font-semibold">{formatMoney(d.amount)}</span>
-                      </div>
-                    ))}
+                  <div className="flex items-center gap-2">
+                    {donors && donors.length > 0 && (
+                      <span className="text-xs text-zinc-500">
+                        Top donor: {donors[0].name} ({formatMoney(donors[0].amount)})
+                      </span>
+                    )}
+                    <ChevronRight className="h-4 w-4 text-zinc-600 group-hover:text-money-gold" />
                   </div>
-                </div>
+                </Link>
               );
             })}
           </div>
         </div>
       )}
 
-      {/* Sponsors & Cosponsors with top donors */}
-      {(sponsors.length > 0 || cosponsors.length > 0) && (
-        <div className="mb-8 rounded-xl border border-zinc-800 bg-money-surface p-6">
-          <div className="mb-4 flex items-center gap-2">
-            <Users className="h-5 w-5 text-zinc-400" />
-            <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-400">
-              Sponsors & Their Money
-            </h2>
-          </div>
-
-          {sponsors.length > 0 && (
-            <div className="mb-4">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                Sponsored by:
-              </p>
-              <div className="space-y-1">
-                {sponsors.map((s) => renderSponsorRow(s))}
-              </div>
-            </div>
-          )}
-
-          {cosponsors.length > 0 && (
-            <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                Cosponsored by:{' '}
-                <span className="normal-case text-zinc-400">
-                  {cosponsors.length} official{cosponsors.length !== 1 ? 's' : ''}
-                </span>
-              </p>
-              <div className="space-y-1">
-                {cosponsors.map((c) => renderSponsorRow(c))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+      {/* Sponsors section consolidated above — no duplicate */}
 
       {/* THE FULL PICTURE — everything we know about this bill's money */}
       <div className="mb-8 rounded-xl border-2 border-money-gold/30 bg-zinc-900/80 p-6">
