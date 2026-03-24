@@ -371,8 +371,8 @@ def _generate_via_sdk(system_prompt: str, data_prompt: str) -> Optional[str]:
     try:
         client = anthropic.Anthropic(api_key=api_key)
         message = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=2000,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1500,
             system=system_prompt,
             messages=[{"role": "user", "content": data_prompt}],
         )
