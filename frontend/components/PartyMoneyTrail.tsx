@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { getConnections } from '@/lib/api';
 import type { Relationship } from '@/lib/types';
 import { formatMoney } from '@/lib/utils';
-import { Building2 } from 'lucide-react';
+import { Building2, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface PartyMoneyTrailProps {
   slug: string;
@@ -78,7 +78,7 @@ export default function PartyMoneyTrail({ slug, officialName, donations }: Party
               committeeSlug: committee.slug,
               committeeId: committee.id,
               totalToOfficial: committee.total,
-              topFunders: Array.from(donorMap.values()).slice(0, 6),
+              topFunders: Array.from(donorMap.values()),
               totalFunders: donorMap.size,
             });
           }
@@ -99,8 +99,19 @@ export default function PartyMoneyTrail({ slug, officialName, donations }: Party
   return (
     <div className="mb-6">
       {chains.map((chain) => (
+        <ChainSection key={chain.committeeSlug} chain={chain} officialName={officialName} />
+      ))}
+    </div>
+  );
+}
+
+function ChainSection({ chain, officialName }: { chain: CommitteeChain; officialName: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const visibleFunders = expanded ? chain.topFunders : chain.topFunders.slice(0, 6);
+  const hasMore = chain.topFunders.length > 6;
+
+  return (
         <div
-          key={chain.committeeSlug}
           className="rounded-xl border-2 border-red-500/30 bg-zinc-900/80 p-5 mb-4 last:mb-0"
         >
           {/* Clear headline telling the story */}
@@ -134,7 +145,7 @@ export default function PartyMoneyTrail({ slug, officialName, donations }: Party
               </Link>
             </span>
             <div className="grid gap-1.5 sm:grid-cols-2">
-              {chain.topFunders.map((funder) => (
+              {visibleFunders.map((funder) => (
                 <Link
                   key={funder.slug}
                   href={`/entities/organization/${funder.slug}`}
@@ -144,17 +155,25 @@ export default function PartyMoneyTrail({ slug, officialName, donations }: Party
                 </Link>
               ))}
             </div>
-            {chain.totalFunders > 6 && (
-              <Link
-                href={`/entities/pac/${chain.committeeSlug}`}
-                className="mt-2 block text-xs text-money-gold hover:text-money-gold-hover"
+            {hasMore && (
+              <button
+                onClick={() => setExpanded(!expanded)}
+                className="mt-2 flex items-center gap-1 text-xs font-medium text-money-gold hover:text-money-gold-hover"
               >
-                See all {chain.totalFunders} funders &rarr;
-              </Link>
+                {expanded ? (
+                  <>
+                    <ChevronUp className="h-3 w-3" />
+                    Show less
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="h-3 w-3" />
+                    Show all {chain.totalFunders} funders
+                  </>
+                )}
+              </button>
             )}
           </div>
         </div>
-      ))}
-    </div>
   );
 }
