@@ -1511,21 +1511,38 @@ export default function EntityPage() {
           <PacDonors slug={entity.slug} entityName={entity.name} />
         )}
 
-        {/* Connected Officials */}
-        {connectedOfficials.length > 0 && entity.entity_type !== 'committee' && (
+        {/* Connected Officials — sorted by amount, aggregated */}
+        {connectedOfficials.length > 0 && entity.entity_type !== 'committee' && (() => {
+          // Aggregate by official slug and sum amounts
+          const officialMap = new Map<string, { conn: typeof connectedOfficials[0]; totalAmount: number }>();
+          for (const conn of connectedOfficials) {
+            const slug = conn.connected_entity?.slug || conn.id;
+            const existing = officialMap.get(slug);
+            if (existing) {
+              existing.totalAmount += conn.amount_usd ?? 0;
+            } else {
+              officialMap.set(slug, { conn, totalAmount: conn.amount_usd ?? 0 });
+            }
+          }
+          const sorted = Array.from(officialMap.values()).sort((a, b) => b.totalAmount - a.totalAmount);
+
+          return (
           <section>
-            <SectionHeading icon={Users}>Connected Officials</SectionHeading>
+            <SectionHeading icon={Users}>Connected Officials ({sorted.length})</SectionHeading>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {connectedOfficials.map((conn) => {
+              {sorted.map(({ conn, totalAmount }) => {
                 const official = conn.connected_entity;
                 if (!official) return null;
-                const officialMeta = official.metadata as Record<
-                  string,
-                  unknown
-                >;
+                const officialMeta = (official as unknown as Record<string, unknown>)?.metadata_ as Record<string, unknown>
+                  || (official as unknown as Record<string, unknown>)?.metadata as Record<string, unknown>
+                  || {};
+                const isOutgoing = conn.from_entity_id === entity.id;
+                const dirLabel = conn.relationship_type === 'donated_to'
+                  ? (isOutgoing ? 'Funded' : 'Received from')
+                  : formatRelationshipType(conn.relationship_type);
                 return (
                   <Link
-                    key={conn.id}
+                    key={official.slug}
                     href={`/officials/${official.slug}`}
                     className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-money-surface p-4 transition-colors hover:border-money-gold/30 hover:bg-money-surface-elevated"
                   >
@@ -1545,15 +1562,11 @@ export default function EntityPage() {
                         )}
                       </div>
                       <div className="flex items-center gap-2">
-                        <p className="text-xs text-zinc-500">
-                          {formatRelationshipType(conn.relationship_type)}
-                        </p>
-                        {conn.amount_usd != null && conn.amount_usd > 0 && (
-                          <MoneyAmount
-                            amount={conn.amount_usd}
-                            label={conn.amount_label}
-                            className="text-xs"
-                          />
+                        <p className="text-xs text-zinc-500">{dirLabel}</p>
+                        {totalAmount > 0 && (
+                          <span className="text-xs font-semibold text-money-success">
+                            {formatMoney(totalAmount)}
+                          </span>
                         )}
                       </div>
                     </div>
@@ -1563,7 +1576,8 @@ export default function EntityPage() {
               })}
             </div>
           </section>
-        )}
+          );
+        })()}
 
         {/* Type-specific content */}
         {typeData?.kind === 'company' && (
