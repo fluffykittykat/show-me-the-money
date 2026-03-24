@@ -1006,7 +1006,7 @@ async def detect_conflicts(
     for rel, bill_ent in yes_votes:
         bill_keywords[bill_ent.slug] = _extract_industry_keywords(bill_ent)
 
-    # 1) Committee-Donor overlap (vote-based signals use different severity)
+    # 1) Committee-Donor overlap — aggregate per committee, not per donor
     for c_rel in committees:
         c_other_id = c_rel.to_entity_id if c_rel.from_entity_id == entity.id else c_rel.from_entity_id
         c_ent = entities_map.get(c_other_id)
@@ -1015,28 +1015,52 @@ async def detect_conflicts(
         c_industries = _industries_for_committee(c_ent.name)
         if not c_industries:
             continue
+
+        # Collect ALL donors that overlap with this committee's industries
+        overlapping_donors = []
+        total_amount = 0
         for d_rel, d_ent in donations:
             d_kws = donor_keywords.get(d_ent.slug, [])
             if _keyword_overlap(c_industries, d_kws):
-                signals.append(ConflictSignal(
-                    entity_slug=entity_slug,
-                    conflict_type="structural_committee_donor_overlap",
-                    severity="structural_relationship",
-                    description=(
-                        f"Structural relationship: This official sits on {_sanitize(c_ent.name)}, "
-                        f"which has regulatory jurisdiction over the industry that "
-                        f"{_sanitize(d_ent.name)} operates in. {_sanitize(d_ent.name)} has "
-                        f"contributed to this official's campaign. This is a structural "
-                        f"relationship the public should be aware of."
-                    ),
-                    why_this_matters=WHY_THIS_MATTERS["structural_committee_donor_overlap"],
-                    evidence=[
-                        {"type": "committee", "entity": c_ent.slug, "name": _sanitize(c_ent.name)},
-                        {"type": "donation", "entity": d_ent.slug, "name": _sanitize(d_ent.name),
-                         "amount": d_rel.amount_usd},
-                    ],
-                    related_entities=[c_ent.slug, d_ent.slug],
-                ))
+                amount = d_rel.amount_usd or 0
+                overlapping_donors.append((_sanitize(d_ent.name), amount, d_ent.slug))
+                total_amount += amount
+
+        if not overlapping_donors:
+            continue
+
+        # Sort by amount descending, take top 3 for the description
+        overlapping_donors.sort(key=lambda x: x[1], reverse=True)
+        top_names = ", ".join(d[0] for d in overlapping_donors[:3])
+        total_dollars = total_amount / 100 if total_amount else 0
+
+        # Severity based on number of donors and amounts
+        if len(overlapping_donors) >= 5 or total_dollars >= 100000:
+            severity = "notable_pattern"
+        elif len(overlapping_donors) >= 2:
+            severity = "structural_relationship"
+        else:
+            severity = "connection_noted"
+
+        signals.append(ConflictSignal(
+            entity_slug=entity_slug,
+            conflict_type="structural_committee_donor_overlap",
+            severity=severity,
+            description=(
+                f"Sits on {_sanitize(c_ent.name)} which regulates industries that "
+                f"{len(overlapping_donors)} of their donors operate in. "
+                f"Top donors: {top_names}. "
+                f"Total from these donors: ${total_dollars:,.0f}."
+            ),
+            why_this_matters=WHY_THIS_MATTERS["structural_committee_donor_overlap"],
+            evidence=[
+                {"type": "committee", "entity": c_ent.slug, "name": _sanitize(c_ent.name)},
+            ] + [
+                {"type": "donation", "entity": d[2], "name": d[0], "amount": d[1]}
+                for d in overlapping_donors[:5]
+            ],
+            related_entities=[c_ent.slug] + [d[2] for d in overlapping_donors[:5]],
+        ))
 
     # 2) Stock-Vote overlap
     for s_rel, s_ent in stocks:
