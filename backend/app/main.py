@@ -216,6 +216,11 @@ async def admin_ingest(slug: str):
         from app.services.ingestion.ingest_committees import run_committee_ingestion
         _aio.create_task(run_committee_ingestion())
         return {"status": "started", "message": "Committee ingestion started"}
+    elif slug == "link-revolving-door":
+        import asyncio as _aio
+        from app.services.ingestion.link_revolving_door import run_link_revolving_door
+        _aio.create_task(run_link_revolving_door())
+        return {"status": "started", "message": "Revolving door linking started"}
     elif slug == "lobbying-bulk":
         import asyncio as _aio
         from app.services.ingestion.ingest_lobbying_bulk import run_lobbying_bulk_ingestion
