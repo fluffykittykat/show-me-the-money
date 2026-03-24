@@ -76,13 +76,11 @@ import clsx from 'clsx';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
+  { id: 'money', label: 'Money' },
   { id: 'hidden_connections', label: 'Hidden Connections' },
   { id: 'conflicts', label: 'Conflicts' },
-  { id: 'money', label: 'Money' },
   { id: 'legislative', label: 'Votes & Bills' },
   { id: 'connections', label: 'Connections' },
-  { id: 'lobbying', label: 'Lobbying' },
-  { id: 'ai_briefing', label: 'AI Briefing' },
 ];
 
 function categorizeConnections(connections: Relationship[]) {
@@ -204,97 +202,42 @@ export default function OfficialProfilePage() {
     }
   }, [slug]);
 
-  // Lazy-load tab data when a hidden connections tab is selected
+  // Track whether hidden connections have been fetched to prevent re-fetching
+  const [hiddenFetched, setHiddenFetched] = useState(false);
+
+  // Lazy-load tab data when hidden connections tab is selected
   const fetchTabData = useCallback(async (tabId: string) => {
-    if (tabDataLoading[tabId]) return;
+    if (tabId !== 'hidden_connections' || hiddenFetched) return;
 
-    // For the combined hidden_connections tab, load all sub-sections in parallel
-    if (tabId === 'hidden_connections') {
-      const sections = ['revolving_door', 'family', 'outside_income', 'contractors', 'trade_timing'];
-      setTabDataLoading((prev) => {
-        const next = { ...prev };
-        for (const s of sections) next[s] = true;
-        return next;
-      });
+    setHiddenFetched(true);
+    const sections = ['revolving_door', 'family', 'outside_income', 'contractors', 'trade_timing'];
+    setTabDataLoading((prev) => {
+      const next = { ...prev };
+      for (const s of sections) next[s] = true;
+      return next;
+    });
 
-      const fetchers: Promise<void>[] = [];
+    // Load all hidden connection data in parallel, once
+    const [rd, fc, oi, cd, tt] = await Promise.all([
+      getRevolvingDoor(slug).catch(() => []),
+      getFamilyConnections(slug).catch(() => []),
+      getOutsideIncome(slug).catch(() => []),
+      getContractorDonors(slug).catch(() => []),
+      getTradeTimingAnalysis(slug).catch(() => null),
+    ]);
 
-      if (!revolvingDoorData) {
-        fetchers.push(
-          getRevolvingDoor(slug).then((data) => setRevolvingDoorData(data)).catch(() => {})
-        );
-      }
-      if (!familyData) {
-        fetchers.push(
-          getFamilyConnections(slug).then((data) => setFamilyData(data)).catch(() => {})
-        );
-      }
-      if (!outsideIncomeData) {
-        fetchers.push(
-          getOutsideIncome(slug).then((data) => setOutsideIncomeData(data)).catch(() => {})
-        );
-      }
-      if (!contractorData) {
-        fetchers.push(
-          getContractorDonors(slug).then((data) => setContractorData(data)).catch(() => {})
-        );
-      }
-      if (!tradeTimingData) {
-        fetchers.push(
-          getTradeTimingAnalysis(slug).then((data) => setTradeTimingData(data)).catch(() => {})
-        );
-      }
+    setRevolvingDoorData(rd);
+    setFamilyData(fc);
+    setOutsideIncomeData(oi);
+    setContractorData(cd);
+    setTradeTimingData(tt);
 
-      await Promise.all(fetchers);
-      setTabDataLoading((prev) => {
-        const next = { ...prev };
-        for (const s of sections) next[s] = false;
-        return next;
-      });
-      return;
-    }
-
-    setTabDataLoading((prev) => ({ ...prev, [tabId]: true }));
-    try {
-      switch (tabId) {
-        case 'revolving_door':
-          if (!revolvingDoorData) {
-            const data = await getRevolvingDoor(slug);
-            setRevolvingDoorData(data);
-          }
-          break;
-        case 'family':
-          if (!familyData) {
-            const data = await getFamilyConnections(slug);
-            setFamilyData(data);
-          }
-          break;
-        case 'outside_income':
-          if (!outsideIncomeData) {
-            const data = await getOutsideIncome(slug);
-            setOutsideIncomeData(data);
-          }
-          break;
-        case 'contractors':
-          if (!contractorData) {
-            const data = await getContractorDonors(slug);
-            setContractorData(data);
-          }
-          break;
-        case 'trade_timing':
-          if (!tradeTimingData) {
-            const data = await getTradeTimingAnalysis(slug);
-            setTradeTimingData(data);
-          }
-          break;
-      }
-    } catch {
-      // Silently handle errors; sections will show empty state
-    } finally {
-      setTabDataLoading((prev) => ({ ...prev, [tabId]: false }));
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug]);
+    setTabDataLoading((prev) => {
+      const next = { ...prev };
+      for (const s of sections) next[s] = false;
+      return next;
+    });
+  }, [slug, hiddenFetched]);
 
   useEffect(() => {
     fetchData();
@@ -645,12 +588,27 @@ export default function OfficialProfilePage() {
           {/* ===== OVERVIEW TAB ===== */}
           {activeTab === 'overview' && (
             <div role="tabpanel" id="tabpanel-overview" aria-labelledby="overview">
-              {/* FBI Briefing — the first thing users see */}
+              {/* AI Briefing — the first thing users see */}
               <div className="mb-6">
                 <FBIBriefing
                   entitySlug={slug}
                   entityName={entity.name}
                   entityType="person"
+                />
+              </div>
+
+              {/* Investigator Summary — conflict analysis */}
+              <div className="mb-6">
+                <InvestigatorSummary
+                  entitySlug={slug}
+                  entityName={entity.name}
+                  conflicts={conflictData?.conflicts ?? []}
+                  conflictScore={conflictData?.conflict_score ?? 'NONE'}
+                  committees={categorized.committees}
+                  holdings={categorized.holdings}
+                  donations={categorized.donations}
+                  bills={categorized.bills}
+                  votes={categorized.votes}
                 />
               </div>
 
@@ -1048,42 +1006,7 @@ export default function OfficialProfilePage() {
             </div>
           )}
 
-          {/* ===== LOBBYING TAB ===== */}
-          {activeTab === 'lobbying' && (
-            <div role="tabpanel" id="tabpanel-lobbying" aria-labelledby="lobbying">
-              <LobbyingTab
-                entitySlug={slug}
-                entityName={entity.name}
-                committees={categorized.committees}
-                donations={categorized.donations}
-              />
-            </div>
-          )}
-
-          {/* ===== AI BRIEFING TAB ===== */}
-          {activeTab === 'ai_briefing' && (
-            <div role="tabpanel" id="tabpanel-ai_briefing" aria-labelledby="ai_briefing">
-              <InvestigatorSummary
-                entitySlug={slug}
-                entityName={entity.name}
-                conflicts={conflictData?.conflicts ?? []}
-                conflictScore={conflictData?.conflict_score ?? 'NONE'}
-                committees={categorized.committees}
-                holdings={categorized.holdings}
-                donations={categorized.donations}
-                bills={categorized.bills}
-                votes={categorized.votes}
-              />
-
-              <div className="mt-6">
-                <FBIBriefing
-                  entitySlug={slug}
-                  entityName={entity.name}
-                  entityType="person"
-                />
-              </div>
-            </div>
-          )}
+          {/* Lobbying and AI Briefing merged into Overview tab */}
         </div>
       </div>
     </div>
