@@ -13,7 +13,8 @@ interface PartyMoneyTrailProps {
   donations: Relationship[];
 }
 
-const PARTY_COMMITTEES = ['dscc', 'nrsc', 'dccc', 'nrcc'];
+// These are the big national party committees — shown with extra context
+const NATIONAL_PARTY_COMMITTEES = ['dscc', 'nrsc', 'dccc', 'nrcc'];
 
 interface CommitteeChain {
   committeeName: string;
@@ -29,14 +30,19 @@ export default function PartyMoneyTrail({ slug, officialName, donations }: Party
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Deduplicate party committee donations
-    const committeeMap = new Map<string, { name: string; slug: string; id: string; total: number }>();
+    // Find ALL PAC/committee donors — each one is a potential middleman
+    const committeeMap = new Map<string, { name: string; slug: string; id: string; total: number; isNational: boolean }>();
 
     for (const d of donations) {
       const ce = d.connected_entity;
       if (!ce) continue;
+      // Include any PAC or organization that donated — they're all middlemen
+      if (ce.entity_type !== 'pac' && ce.entity_type !== 'organization') continue;
+      // Skip tiny donations
+      if ((d.amount_usd ?? 0) < 100000) continue; // $1,000 minimum
+
       const slugLower = ce.slug.toLowerCase();
-      if (!PARTY_COMMITTEES.some((pc) => slugLower.includes(pc))) continue;
+      const isNational = NATIONAL_PARTY_COMMITTEES.some((pc) => slugLower.includes(pc));
 
       const existing = committeeMap.get(ce.slug);
       if (existing) {
@@ -47,11 +53,17 @@ export default function PartyMoneyTrail({ slug, officialName, donations }: Party
           slug: ce.slug,
           id: ce.id,
           total: d.amount_usd ?? 0,
+          isNational,
         });
       }
     }
 
-    if (committeeMap.size === 0) {
+    // Sort: national party committees first, then by amount
+    const sortedCommittees = Array.from(committeeMap.values())
+      .sort((a, b) => (b.isNational ? 1 : 0) - (a.isNational ? 1 : 0) || b.total - a.total)
+      .slice(0, 5); // Top 5 middlemen
+
+    if (sortedCommittees.length === 0) {
       setLoading(false);
       return;
     }
@@ -59,7 +71,7 @@ export default function PartyMoneyTrail({ slug, officialName, donations }: Party
     const fetchChains = async () => {
       const results: CommitteeChain[] = [];
 
-      for (const [, committee] of committeeMap) {
+      for (const committee of sortedCommittees) {
         try {
           const connections = await getConnections(committee.slug, { limit: 100 });
           const donorMap = new Map<string, { name: string; slug: string }>();
@@ -117,20 +129,19 @@ function ChainSection({ chain, officialName }: { chain: CommitteeChain; official
           {/* Clear headline telling the story */}
           <h3 className="flex items-center gap-2 text-base font-bold text-red-400 mb-1">
             <Building2 className="h-5 w-5" />
-            {officialName} received {formatMoney(chain.totalToOfficial)} through a middleman
-          </h3>
-          <p className="text-sm text-zinc-400 mb-4">
-            The middleman is the{' '}
+            {formatMoney(chain.totalToOfficial)} came through{' '}
             <Link
               href={`/entities/pac/${chain.committeeSlug}`}
-              className="font-semibold text-red-400 hover:text-red-300"
+              className="text-red-300 hover:text-red-200 underline decoration-red-500/30"
             >
               {chain.committeeName}
             </Link>
-            . These {chain.totalFunders} organizations fund the {chain.committeeName.split(' ')[0]} party committee,
-            which then distributes money to candidates like {officialName}.
-            This makes it look like ordinary party support instead of a direct
-            relationship between donor and politician.
+          </h3>
+          <p className="text-sm text-zinc-400 mb-4">
+            {chain.totalFunders > 0
+              ? `This PAC collected money from ${chain.totalFunders} donors and passed ${formatMoney(chain.totalToOfficial)} to ${officialName}. Click the PAC name to see all its donors and where else it sends money.`
+              : `This committee gave ${formatMoney(chain.totalToOfficial)} to ${officialName}. Click to investigate who funds this committee.`
+            }
           </p>
 
           {/* Funders list */}
