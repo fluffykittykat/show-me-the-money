@@ -1025,41 +1025,6 @@ export default function OfficialProfilePage() {
                   Campaign Finance ({categorized.donations.length} sources)
                 </h3>
 
-                {categorized.donations.length > 0 && (
-                  <div className="mb-5 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-                    <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-zinc-400">
-                      Money Received &mdash; Overview
-                    </h4>
-                    <ul className="space-y-1.5 text-sm">
-                      <li className="text-zinc-300">
-                        <span className="text-amber-500">&bull;</span>{' '}
-                        Total from {categorized.donations.length} source{categorized.donations.length !== 1 ? 's' : ''}:{' '}
-                        <span className="font-semibold text-green-400">
-                          {formatMoney(categorized.donations.reduce((s, d) => s + (d.amount_usd ?? 0), 0))}
-                        </span>
-                      </li>
-                      {(() => {
-                        const byType: Record<string, number> = {};
-                        for (const d of categorized.donations) {
-                          const meta = d.metadata as Record<string, unknown>;
-                          const t = (meta?.contributor_type as string) || (meta?.industry_label as string) || 'Other';
-                          byType[t] = (byType[t] || 0) + (d.amount_usd ?? 0);
-                        }
-                        return Object.entries(byType)
-                          .sort(([, a], [, b]) => b - a)
-                          .slice(0, 3)
-                          .map(([type, amount]) => (
-                            <li key={type} className="text-zinc-300">
-                              <span className="text-amber-500">&bull;</span>{' '}
-                              {type}:{' '}
-                              <span className="text-green-400">{formatMoney(amount)}</span>
-                            </li>
-                          ));
-                      })()}
-                    </ul>
-                  </div>
-                )}
-
                 {/* Pre-Vote Donations */}
                 {preVoteDonations.length > 0 && (
                   <div className="mb-5 rounded-xl border border-red-500/20 bg-red-500/5 p-4">

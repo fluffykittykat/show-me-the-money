@@ -60,11 +60,17 @@ export default function DonorTable({ donations, fecTotalReceipts }: DonorTablePr
       {/* Total raised */}
       <div className="mb-6 rounded-lg border border-zinc-800 bg-money-surface px-6 py-4">
         <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-          Total Campaign Contributions
+          Total Campaign Contributions (FEC)
         </span>
         <div className="mt-1 text-2xl font-bold text-money-success">
           {formatMoney(totalRaised)}
         </div>
+        {fecTotalReceipts && capturedTotal > 0 && capturedTotal !== totalRaised && (
+          <p className="mt-1 text-xs text-zinc-500">
+            Showing top {sorted.length} donors ({formatMoney(capturedTotal)} of {formatMoney(totalRaised)} total).
+            The rest comes from hundreds of smaller contributions.
+          </p>
+        )}
       </div>
 
       {/* Top 10 donors bar chart */}
