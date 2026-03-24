@@ -107,6 +107,93 @@ async def get_entity_connections(
     )
 
 
+@router.get("/{slug}/money-to-bills")
+async def get_money_to_bills(slug: str, db: AsyncSession = Depends(get_db)):
+    """Trace the chain: Donor → gave money → Official → sponsored Bill.
+
+    Groups by policy area to show where donor industries align with
+    the official's legislative activity.
+    """
+    result = await db.execute(select(Entity).where(Entity.slug == slug))
+    entity = result.scalar_one_or_none()
+    if not entity:
+        raise HTTPException(status_code=404, detail="Entity not found")
+
+    # Find donor→official→bill chains
+    from sqlalchemy import text as sql_text
+    chains_query = sql_text("""
+        SELECT
+            donor.name as donor_name,
+            donor.slug as donor_slug,
+            donor_rel.amount_usd as donation_amount,
+            bill.name as bill_name,
+            bill.slug as bill_slug,
+            bill.metadata->>'policy_area' as policy_area,
+            bill.metadata->>'status' as bill_status,
+            bill_rel.relationship_type as bill_rel_type
+        FROM relationships donor_rel
+        JOIN entities donor ON donor.id = donor_rel.from_entity_id
+        JOIN relationships bill_rel ON bill_rel.from_entity_id = :entity_id
+        JOIN entities bill ON bill.id = bill_rel.to_entity_id
+        WHERE donor_rel.to_entity_id = :entity_id
+        AND donor_rel.relationship_type = 'donated_to'
+        AND bill_rel.relationship_type IN ('sponsored', 'cosponsored')
+        AND bill.metadata->>'policy_area' IS NOT NULL
+        AND bill.metadata->>'policy_area' != ''
+        AND donor_rel.amount_usd > 10000
+        ORDER BY donor_rel.amount_usd DESC
+        LIMIT 200
+    """)
+
+    rows = (await db.execute(chains_query, {"entity_id": entity.id})).fetchall()
+
+    # Group by policy area to find patterns
+    from collections import defaultdict
+    by_area: dict[str, dict] = defaultdict(lambda: {"donors": {}, "bills": set(), "total_donated": 0})
+
+    for row in rows:
+        area = row.policy_area or "Other"
+        donor_key = row.donor_name
+        if donor_key not in by_area[area]["donors"]:
+            by_area[area]["donors"][donor_key] = {
+                "name": row.donor_name,
+                "slug": row.donor_slug,
+                "amount": row.donation_amount or 0,
+            }
+        by_area[area]["bills"].add((row.bill_name, row.bill_slug, row.bill_rel_type))
+        by_area[area]["total_donated"] = max(by_area[area]["total_donated"],
+            sum(d["amount"] for d in by_area[area]["donors"].values()))
+
+    # Format results
+    results = []
+    for area, data in sorted(by_area.items(), key=lambda x: -x[1]["total_donated"]):
+        donors = sorted(data["donors"].values(), key=lambda d: -d["amount"])[:5]
+        bills = [{"name": b[0], "slug": b[1], "type": b[2]} for b in list(data["bills"])[:5]]
+        if donors and bills:
+            results.append({
+                "policy_area": area,
+                "total_donated": data["total_donated"],
+                "donor_count": len(data["donors"]),
+                "bill_count": len(data["bills"]),
+                "top_donors": donors,
+                "related_bills": bills,
+                "narrative": (
+                    f"{len(data['donors'])} donor{'s' if len(data['donors']) > 1 else ''} "
+                    f"from the {area} sector gave money to this official, who then "
+                    f"{'sponsored' if bills[0]['type'] == 'sponsored' else 'cosponsored'} "
+                    f"{len(data['bills'])} bill{'s' if len(data['bills']) > 1 else ''} "
+                    f"in {area}."
+                ),
+            })
+
+    return {
+        "entity": slug,
+        "entity_name": entity.name,
+        "chains": results[:10],
+        "total_chains": len(results),
+    }
+
+
 @router.get("/{slug}/influence-map")
 async def get_influence_map(slug: str, db: AsyncSession = Depends(get_db)):
     """Find entities that both donate to AND lobby related to this official.
