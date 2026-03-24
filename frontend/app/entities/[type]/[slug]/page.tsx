@@ -391,9 +391,6 @@ function CompanyContent({
 
   return (
     <>
-      {/* Who funds this entity — auto-fetched from FEC */}
-      <PacDonors slug={entity.slug} entityName={entity.name} />
-
       {/* Donor Profile — who they fund */}
       {donorProfile && <DonorProfileSection donorProfile={donorProfile} />}
 
@@ -673,9 +670,6 @@ function DonorContent({
   if (donorProfile) {
     return (
       <>
-        {/* Who funds this entity — the most interesting question, show first */}
-        <PacDonors slug={entity.slug} entityName={entity.name} />
-
         {/* Who they fund — outgoing donations */}
         <DonorProfileSection donorProfile={donorProfile} />
 
@@ -1510,6 +1504,11 @@ export default function EntityPage() {
               </div>
             </div>
           </section>
+        )}
+
+        {/* Who Funds This Entity — PAC donors auto-fetched from FEC */}
+        {(entity.entity_type === 'pac' || entity.entity_type === 'organization' || entity.entity_type === 'company') && (
+          <PacDonors slug={entity.slug} entityName={entity.name} />
         )}
 
         {/* Connected Officials */}
