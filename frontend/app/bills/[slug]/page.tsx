@@ -565,163 +565,110 @@ export default function BillInvestigationPage() {
         </div>
       )}
 
-      {/* Hero: Follow the Money panel */}
-      <div className="mb-8 rounded-xl border border-money-gold/30 bg-zinc-900 p-6">
+      {/* THE FULL PICTURE — everything we know about this bill's money */}
+      <div className="mb-8 rounded-xl border-2 border-money-gold/30 bg-zinc-900/80 p-6">
         <div className="mb-4 flex items-center gap-2">
           <DollarSign className="h-5 w-5 text-money-gold" />
           <h2 className="text-lg font-bold text-money-gold">
-            Follow the Money
+            The Full Picture
           </h2>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-3">
-          {/* Total stat */}
-          <div className="rounded-lg border border-zinc-800 bg-zinc-950 px-5 py-4 text-center">
-            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-              Total to YES Voters
-            </p>
-            <p className="mt-1 text-3xl font-bold text-money-success">
-              {formatMoney(totalToYes)}
-            </p>
-            <p className="mt-1 text-xs text-zinc-500">
-              from beneficiary industries
-            </p>
+        {/* Summary stats */}
+        <div className="grid gap-4 sm:grid-cols-3 mb-6">
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950 px-4 py-3 text-center">
+            <p className="text-2xl font-bold text-money-gold">{sponsors.length + cosponsors.length}</p>
+            <p className="text-xs text-zinc-500 uppercase tracking-wider">Officials Behind This Bill</p>
           </div>
-
-          {/* Narrative */}
-          <div className="lg:col-span-2">
-            {narrative ? (
-              <p className="text-sm leading-relaxed text-zinc-300">
-                {narrative}
-              </p>
-            ) : (
-              <p className="text-sm text-zinc-600">
-                No money trail narrative available for this bill.
-              </p>
-            )}
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950 px-4 py-3 text-center">
+            <p className="text-2xl font-bold text-money-gold">
+              {Object.values(sponsorDonors).reduce((sum, donors) => sum + donors.length, 0)}
+            </p>
+            <p className="text-xs text-zinc-500 uppercase tracking-wider">Known Donors to Sponsors</p>
+          </div>
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950 px-4 py-3 text-center">
+            <p className={`text-2xl font-bold ${statusBadge.label === 'BECAME LAW' ? 'text-green-400' : statusBadge.label === 'FAILED' ? 'text-red-400' : 'text-yellow-400'}`}>
+              {statusBadge.label}
+            </p>
+            <p className="text-xs text-zinc-500 uppercase tracking-wider">Bill Status</p>
           </div>
         </div>
-      </div>
 
-      {/* Tab navigation */}
-      <div className="mb-6 flex gap-1 overflow-x-auto rounded-lg border border-zinc-800 bg-money-surface p-1">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={
-              'flex items-center gap-2 whitespace-nowrap rounded-md px-4 py-2 text-sm font-medium transition-colors ' +
-              (activeTab === tab.id
-                ? 'bg-zinc-800 text-money-gold'
-                : 'text-zinc-400 hover:text-zinc-200')
+        {/* Key question */}
+        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 mb-6">
+          <p className="text-sm text-amber-300">
+            <span className="font-bold">The question:</span>{' '}
+            {policyArea
+              ? `This ${policyArea} bill was ${statusBadge.label === 'BECAME LAW' ? 'signed into law' : statusBadge.label === 'PASSED' ? 'passed' : 'introduced'}. Did the money flowing to its ${sponsors.length + cosponsors.length} sponsors from the ${policyArea} industry influence this outcome?`
+              : `Who benefits from this bill, and did they fund the officials who wrote it?`
             }
-          >
-            {tab.icon}
-            {tab.label}
-          </button>
-        ))}
-      </div>
+          </p>
+        </div>
 
-      {/* Tab content */}
-      <div>
-        {/* Follow the Money Trail */}
-        {activeTab === 'money' && (
-          <div className="rounded-lg border border-zinc-800 bg-money-surface p-6">
-            <MoneyTrail
-              industries={industries}
-              voters={yesVoters}
-              bill={{ slug, name: entity.name }}
-              conflictScore={conflictScore}
-            />
-          </div>
-        )}
-
-        {/* Vote Breakdown */}
-        {activeTab === 'votes' && (
-          <div className="rounded-lg border border-zinc-800 bg-money-surface p-6">
-            <BillVoteBreakdown yesVoters={yesVoters} noVoters={noVoters} />
-          </div>
-        )}
-
-        {/* Industry Money Flow */}
-        {activeTab === 'industries' && (
-          <div className="rounded-lg border border-zinc-800 bg-money-surface p-6">
-            <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-zinc-400">
-              Industry Money to YES Voters
-            </h3>
-            {industries.length === 0 ? (
-              <p className="py-8 text-center text-sm text-zinc-600">
-                No industry data available.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {industries.map((ind) => (
-                  <div key={ind.industry}>
-                    <div className="mb-1 flex items-center justify-between">
-                      <span className="text-sm text-zinc-300">
-                        {ind.industry}
-                      </span>
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs text-zinc-500">
-                          {ind.pct_of_total.toFixed(1)}%
-                        </span>
-                        <span className="font-semibold text-money-success">
-                          {formatMoney(ind.amount)}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
-                      <div
-                        className="h-full rounded-full bg-money-gold/70"
-                        style={{
-                          width: `${(ind.amount / maxIndustryAmount) * 100}%`,
-                        }}
-                      />
-                    </div>
-                    {ind.senators.length > 0 && (
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {ind.senators.slice(0, 5).map((senator) => (
-                          <span
-                            key={senator}
-                            className="text-[10px] text-zinc-600"
-                          >
-                            {senator}
-                          </span>
-                        ))}
-                        {ind.senators.length > 5 && (
-                          <span className="text-[10px] text-zinc-600">
-                            +{ind.senators.length - 5} more
-                          </span>
-                        )}
-                      </div>
-                    )}
+        {/* Party breakdown of sponsors */}
+        {(sponsors.length > 0 || cosponsors.length > 0) && (() => {
+          const allSponsors = [...sponsors, ...cosponsors];
+          const parties: Record<string, number> = {};
+          for (const s of allSponsors) {
+            const p = (getMeta(s.connected_entity)?.party as string) || 'Unknown';
+            parties[p] = (parties[p] || 0) + 1;
+          }
+          return (
+            <div className="mb-4">
+              <p className="text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2">Party Breakdown</p>
+              <div className="flex gap-3">
+                {Object.entries(parties).sort((a, b) => b[1] - a[1]).map(([party, count]) => (
+                  <div key={party} className="flex items-center gap-2">
+                    <PartyBadge party={party} />
+                    <span className="text-sm text-zinc-300">{count}</span>
                   </div>
                 ))}
               </div>
-            )}
-          </div>
-        )}
-
-        {/* Bill Text */}
-        {activeTab === 'text' && (
-          <div className="rounded-lg border border-zinc-800 bg-money-surface p-6">
-            <BillTextPanel
-              tldr={tldr}
-              officialSummary={officialSummary}
-              fullTextUrl={fullTextUrl}
-              billTitle={entity.name}
-            />
-          </div>
-        )}
+            </div>
+          );
+        })()}
       </div>
 
-      {/* Why This Matters */}
-      {narrative && (
-        <div className="mt-8 rounded-lg border border-zinc-800 bg-money-surface p-6">
-          <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-money-gold">
-            Why This Matters
-          </h3>
-          <p className="text-sm leading-relaxed text-zinc-300">{narrative}</p>
+      {/* All Connections */}
+      {connections.length > 0 && (
+        <div className="mb-8 rounded-xl border border-zinc-800 bg-money-surface p-6">
+          <h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-zinc-400">
+            All Connections ({connections.length})
+          </h2>
+          <div className="space-y-2">
+            {connections.map((conn) => {
+              const ce = conn.connected_entity;
+              if (!ce) return null;
+              const ceMeta = getMeta(ce);
+              const party = (ceMeta?.party as string) || '';
+              const href = ce.entity_type === 'person'
+                ? `/officials/${ce.slug}`
+                : `/entities/${ce.entity_type}/${ce.slug}`;
+              return (
+                <Link
+                  key={conn.id}
+                  href={href}
+                  className="flex items-center justify-between rounded-lg px-3 py-2 hover:bg-zinc-800 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-zinc-200">{ce.name}</span>
+                    {party && <PartyBadge party={party} />}
+                    <span className="text-xs text-zinc-500">
+                      {conn.relationship_type === 'sponsored' ? 'Sponsor' :
+                       conn.relationship_type === 'cosponsored' ? 'Cosponsor' :
+                       conn.relationship_type === 'lobbies_on_behalf_of' ? 'Lobbied for this bill' :
+                       conn.relationship_type}
+                    </span>
+                  </div>
+                  {conn.amount_usd != null && conn.amount_usd > 0 && (
+                    <span className="text-sm font-semibold text-money-success">
+                      {formatMoney(conn.amount_usd)}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
