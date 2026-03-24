@@ -529,14 +529,11 @@ class AIBriefingService:
 
         briefing = await _generate_via_claude(system_prompt, data_prompt)
 
-        # If AI failed, fall back to cached or mock briefing
+        # If AI failed, fall back to cached fbi_briefing only (no mock data)
         if briefing.startswith("BRIEFING GENERATION UNAVAILABLE"):
             cached = (entity.metadata_ or {}).get("fbi_briefing")
             if cached:
                 return cached
-            mock = (entity.metadata_ or {}).get("mock_briefing")
-            if mock and len(mock) > 200:
-                return mock
             return briefing
 
         # Cache briefing + fingerprint in metadata
