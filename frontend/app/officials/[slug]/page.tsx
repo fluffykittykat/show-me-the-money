@@ -60,6 +60,7 @@ import RelationshipSpotlight from '@/components/RelationshipSpotlight';
 import LobbyingTab from '@/components/LobbyingTab';
 import MoneyToBills from '@/components/MoneyToBills';
 import PartyMoneyTrail from '@/components/PartyMoneyTrail';
+import RefreshButton from '@/components/RefreshButton';
 import LoadingState from '@/components/LoadingState';
 import HiddenConnectionsCard from '@/components/HiddenConnectionsCard';
 import RevolvingDoorSection from '@/components/RevolvingDoorSection';
@@ -511,8 +512,8 @@ export default function OfficialProfilePage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      {/* Breadcrumb */}
-      <div className="mb-6">
+      {/* Breadcrumb + Refresh */}
+      <div className="mb-6 flex items-center justify-between">
         <Link
           href="/officials"
           className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-300"
@@ -520,6 +521,7 @@ export default function OfficialProfilePage() {
           <ArrowLeft className="h-3 w-3" />
           Officials
         </Link>
+        <RefreshButton slug={slug} />
       </div>
 
       {/* Top Section: Avatar + Name */}

@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import async_session
-from app.routers import briefings, config, cross_ref, dashboard, entities, graph, hidden_connections, investigation, search, trades
+from app.routers import briefings, config, cross_ref, dashboard, entities, graph, hidden_connections, investigation, refresh, search, trades
 from app.schemas import HealthResponse, IngestionJobResponse
 from app.services.seed_service import is_database_empty, seed_database
 
@@ -104,6 +104,7 @@ app.include_router(investigation.router)
 app.include_router(dashboard.router)
 app.include_router(trades.router)
 app.include_router(hidden_connections.router)
+app.include_router(refresh.router)
 
 
 # Admin seed endpoint

@@ -15,6 +15,7 @@ import BillTextPanel from '@/components/BillTextPanel';
 import FBIBriefing from '@/components/FBIBriefing';
 import LoadingState from '@/components/LoadingState';
 import PartyBadge from '@/components/PartyBadge';
+import RefreshButton from '@/components/RefreshButton';
 import {
   ArrowLeft,
   AlertTriangle,
@@ -326,8 +327,8 @@ export default function BillInvestigationPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      {/* Breadcrumb */}
-      <div className="mb-6">
+      {/* Breadcrumb + Refresh */}
+      <div className="mb-6 flex items-center justify-between">
         <Link
           href="/"
           className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-300"
@@ -335,6 +336,7 @@ export default function BillInvestigationPage() {
           <ArrowLeft className="h-3 w-3" />
           Home
         </Link>
+        <RefreshButton slug={slug} />
       </div>
 
       {/* Top Section: Bill header */}
