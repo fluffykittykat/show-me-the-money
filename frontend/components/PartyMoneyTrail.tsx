@@ -98,48 +98,49 @@ export default function PartyMoneyTrail({ slug, officialName, donations }: Party
 
         {chains.map((chain) => (
           <div key={chain.committeeSlug} className="mb-4 last:mb-0">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-sm font-semibold text-zinc-200">
-                Via{' '}
+            {/* Flow: Donors → Committee → Official */}
+            <div className="flex items-stretch gap-0 rounded-xl overflow-hidden border border-zinc-800">
+              {/* Left: Donors */}
+              <div className="flex-1 bg-zinc-900 p-4">
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-2">
+                  Who funds it
+                </span>
+                <div className="space-y-1.5">
+                  {chain.topDonors.map((donor) => (
+                    <div key={donor.slug} className="flex items-center justify-between">
+                      <Link
+                        href={`/entities/organization/${donor.slug}`}
+                        className="truncate text-sm text-zinc-300 hover:text-money-gold"
+                      >
+                        {donor.name}
+                      </Link>
+                      <span className="ml-2 shrink-0 text-xs font-semibold text-money-success">
+                        {formatMoney(donor.amount)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Middle: Arrow + Committee */}
+              <div className="flex flex-col items-center justify-center bg-zinc-800/50 px-3">
+                <ArrowRight className="h-4 w-4 text-money-gold" />
                 <Link
                   href={`/entities/pac/${chain.committeeSlug}`}
-                  className="text-money-gold hover:text-money-gold-hover"
+                  className="mt-1 text-[10px] font-bold text-money-gold hover:text-money-gold-hover text-center whitespace-nowrap"
                 >
-                  {chain.committeeName}
+                  {chain.committeeName.replace('Democratic ', 'Dem. ').replace('Republican ', 'Rep. ').replace('Congressional ', '').replace('Campaign Committee', '').replace('Senatorial ', 'Sen. ').trim()}
                 </Link>
-              </span>
-              <span className="text-xs text-zinc-500">
-                ({formatMoney(chain.amountToOfficial)} to this official)
-              </span>
-            </div>
+                <span className="text-[10px] text-zinc-500">
+                  {formatMoney(chain.amountToOfficial)}
+                </span>
+                <ArrowRight className="h-4 w-4 text-money-gold mt-1" />
+              </div>
 
-            {/* The chain visualization */}
-            <div className="space-y-2">
-              {chain.topDonors.map((donor) => (
-                <div
-                  key={donor.slug}
-                  className="flex items-center gap-2 rounded-lg bg-zinc-800/50 px-3 py-2 text-sm"
-                >
-                  <Link
-                    href={`/entities/organization/${donor.slug}`}
-                    className="font-medium text-zinc-200 hover:text-money-gold"
-                  >
-                    {donor.name}
-                  </Link>
-                  <span className="text-money-success font-semibold">
-                    {formatMoney(donor.amount)}
-                  </span>
-                  <ArrowRight className="h-3 w-3 text-zinc-600" />
-                  <Link
-                    href={`/entities/pac/${chain.committeeSlug}`}
-                    className="text-zinc-400 hover:text-money-gold"
-                  >
-                    {chain.committeeName}
-                  </Link>
-                  <ArrowRight className="h-3 w-3 text-zinc-600" />
-                  <span className="text-zinc-300">{officialName}</span>
-                </div>
-              ))}
+              {/* Right: Official */}
+              <div className="flex items-center justify-center bg-zinc-900 px-4">
+                <span className="text-sm font-semibold text-zinc-200">{officialName}</span>
+              </div>
             </div>
           </div>
         ))}
