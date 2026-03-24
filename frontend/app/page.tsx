@@ -13,6 +13,7 @@ import {
   getDashboardStates,
   getActiveBills,
   getTopConflicts,
+  getTopInfluencers,
   getHiddenConnectionsFeed,
 } from '@/lib/api';
 import type {
@@ -20,6 +21,7 @@ import type {
   StateMapData,
   ActiveBill,
   TopConflict,
+  TopInfluencer,
 } from '@/lib/api';
 import type { HiddenConnectionsFeedItem } from '@/lib/types';
 import {
@@ -51,62 +53,7 @@ const DID_YOU_KNOW_FACTS = [
   'Some officials have 0 financial conflicts. They exist. We show that too.',
 ];
 
-const REVELATION_CARDS = [
-  {
-    emoji: '\uD83D\uDEAA',
-    title: 'THE REVOLVING DOOR',
-    description:
-      "When a senator's top staffer leaves government, they often become a lobbyist \u2014 and lobby the exact people they used to work with. This is legal. This happens constantly.",
-    example: "Fetterman's office: 3 former staffers now lobby his committees",
-    linkText: "See who's doing it",
-    href: '/officials/john-fetterman#hidden_connections',
-  },
-  {
-    emoji: '\uD83D\uDCB0',
-    title: 'SPEAKING FEES & OUTSIDE INCOME',
-    description:
-      'Major corporations pay politicians for speeches, book deals, and consulting. The organizations that pay are often regulated by those same politicians.',
-    example: 'Fetterman: paid by Financial Services Roundtable \u2014 while on Banking Committee',
-    linkText: 'See the payments',
-    href: '/officials/john-fetterman#hidden_connections',
-  },
-  {
-    emoji: '\uD83C\uDFE0',
-    title: 'FAMILY CONNECTIONS',
-    description:
-      "An official's spouse or child can legally work for companies the official regulates. Financial disclosures reveal this \u2014 but nobody puts it in one place.",
-    example: "Fetterman's wife works at JPMorgan \u2014 he sits on the Banking Committee that regulates JPMorgan",
-    linkText: 'See family ties',
-    href: '/officials/john-fetterman#hidden_connections',
-  },
-  {
-    emoji: '\uD83D\uDCC8',
-    title: 'STOCK HOLDINGS & TRADE TIMING',
-    description:
-      'Members of Congress can legally trade individual stocks. Some hold stock in companies their committees regulate.',
-    example: 'Fetterman: holds JPMorgan, BlackRock, ExxonMobil stock while on Banking Committee',
-    linkText: 'See the holdings',
-    href: '/officials/john-fetterman#money',
-  },
-  {
-    emoji: '\uD83C\uDFD7\uFE0F',
-    title: 'CONTRACTOR \u2192 DONOR PIPELINE',
-    description:
-      'Companies donate to campaigns. Some of those same companies later receive millions in government contracts. The connection is public record \u2014 just never shown together.',
-    example: 'Keystone Infrastructure: donated to Fetterman, received $14.2M in contracts',
-    linkText: 'See the contracts',
-    href: '/officials/john-fetterman#hidden_connections',
-  },
-  {
-    emoji: '\uD83D\uDD17',
-    title: 'EVIDENCE CHAINS',
-    description:
-      'No single fact is damning. But when you see the stock + the lobbying + the vote + the outcome \u2014 all connected to the same company \u2014 you can judge for yourself.',
-    example: 'Fetterman: holds Microsoft stock \u2192 Microsoft lobbies for Infrastructure Act \u2192 Fetterman votes YES',
-    linkText: 'See the chains',
-    href: '/officials/john-fetterman#conflicts',
-  },
-];
+// Revelation cards removed — replaced by data-driven Conflict Risk + Influencer sections
 
 const defaultStats: DashboardStats = {
   officials_count: 0,
@@ -185,6 +132,7 @@ export default function HomePage() {
   const [hiddenFeed, setHiddenFeed] = useState<HiddenConnectionsFeedItem[]>(
     []
   );
+  const [topInfluencers, setTopInfluencers] = useState<TopInfluencer[]>([]);
   const [stateData, setStateData] = useState<StateData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -201,7 +149,7 @@ export default function HomePage() {
   useEffect(() => {
     async function fetchAll() {
       try {
-        const [s, ab, tc, hf, sd] = await Promise.all([
+        const [s, ab, tc, hf, sd, ti] = await Promise.all([
           getDashboardStats().catch(() => defaultStats),
           getActiveBills().catch(() => []),
           getTopConflicts().catch(() => []),
@@ -209,11 +157,13 @@ export default function HomePage() {
             () => [] as HiddenConnectionsFeedItem[]
           ),
           getDashboardStates().catch(() => [] as StateMapData[]),
+          getTopInfluencers().catch(() => [] as TopInfluencer[]),
         ]);
         setStats(s);
         setActiveBills(ab);
         setTopConflicts(tc);
         setHiddenFeed(hf);
+        setTopInfluencers(ti);
         // Map API data to USMap component format
         setStateData((sd || []).map((s: StateMapData) => ({
           state: s.state,
@@ -336,49 +286,138 @@ export default function HomePage() {
       )}
 
       {/* ================================================================
-          3. "WHAT MOST PEOPLE DON'T KNOW" — Revelation Cards
+          3. HIGHEST CONFLICT RISK — Officials with multi-factor conflicts
           ================================================================ */}
       <section className="border-t border-zinc-800 bg-zinc-950">
         <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
           <div className="mb-10 text-center">
             <h2 className="font-mono text-2xl font-bold uppercase tracking-wider text-zinc-100 sm:text-3xl">
-              What Most People Don&apos;t Know
+              Highest Conflict Risk
             </h2>
             <p className="mx-auto mt-3 max-w-xl text-sm text-zinc-500">
-              Every fact below is legal. Every fact is public record. Nobody puts
-              them together &mdash; until now.
+              Officials where the money trail connects multiple dots &mdash; donors,
+              committees, votes, and stock holdings all pointing the same direction.
             </p>
           </div>
 
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {REVELATION_CARDS.map((card) => (
-              <Link
-                key={card.title}
-                href={card.href}
-                className="group rounded-xl border border-zinc-800 bg-zinc-900 p-6 transition-all hover:border-amber-500/30 hover:bg-zinc-900/90"
-              >
-                <div className="mb-3 text-3xl">{card.emoji}</div>
-                <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-money-gold">
-                  {card.title}
-                </h3>
-                <p className="mt-3 text-sm leading-relaxed text-zinc-400">
-                  {card.description}
-                </p>
-                {card.example && (
-                  <p className="mt-2 rounded-md border border-amber-500/10 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-amber-300/80">
-                    <span className="font-bold text-amber-400">Example: </span>
-                    {card.example}
+          {loading ? (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="h-36 animate-pulse rounded-xl bg-zinc-800/50" />
+              ))}
+            </div>
+          ) : topConflicts.length === 0 ? (
+            <div className="py-12 text-center text-sm text-zinc-600">
+              Conflict analysis in progress. Check back soon.
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {topConflicts.map((official, index) => (
+                <Link
+                  key={official.slug}
+                  href={`/officials/${official.slug}`}
+                  className="group relative rounded-xl border border-zinc-800 bg-zinc-900 p-5 transition-all hover:border-orange-500/30 hover:bg-zinc-900/90"
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-orange-500/10 font-mono text-sm font-bold text-orange-400">
+                      {index + 1}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <h3 className="truncate text-sm font-semibold text-zinc-200 group-hover:text-money-gold">
+                          {official.name}
+                        </h3>
+                        <PartyBadge party={official.party} />
+                      </div>
+                      <span className="text-xs text-zinc-500">{official.state}</span>
+                    </div>
+                    <ConflictBadge severity={official.conflict_score} size="sm" />
+                  </div>
+                  <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-zinc-400">
+                    {official.top_conflict}
                   </p>
-                )}
-                <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-money-gold transition-colors group-hover:text-money-gold-hover">
-                  {card.linkText}
-                  <ArrowRight className="h-3.5 w-3.5" />
-                </span>
-              </Link>
-            ))}
+                  <div className="mt-3 flex items-center justify-between">
+                    <span className="text-xs text-orange-400/70">
+                      {official.total_conflicts} conflict signal{official.total_conflicts !== 1 ? 's' : ''}
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-money-gold opacity-0 transition-opacity group-hover:opacity-100">
+                      Investigate <ArrowRight className="h-3 w-3" />
+                    </span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-6 text-center">
+            <Link
+              href="/officials"
+              className="inline-flex items-center gap-2 text-sm font-medium text-money-gold transition-colors hover:text-money-gold-hover"
+            >
+              Browse all officials <ArrowRight className="h-4 w-4" />
+            </Link>
           </div>
         </div>
       </section>
+
+      {/* ================================================================
+          3b. MOST INFLUENTIAL ENTITIES — Who has the most political reach
+          ================================================================ */}
+      {topInfluencers.length > 0 && (
+        <section className="border-t border-zinc-800 bg-zinc-950">
+          <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
+            <div className="mb-10 text-center">
+              <h2 className="font-mono text-2xl font-bold uppercase tracking-wider text-zinc-100 sm:text-3xl">
+                Most Influential Entities
+              </h2>
+              <p className="mx-auto mt-3 max-w-xl text-sm text-zinc-500">
+                The organizations and PACs that fund the most officials.
+                Click any name to see who they own.
+              </p>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {topInfluencers.map((entity, index) => {
+                const href = entity.entity_type === 'person'
+                  ? `/officials/${entity.slug}`
+                  : `/entities/${entity.entity_type}/${entity.slug}`;
+                return (
+                  <Link
+                    key={entity.slug}
+                    href={href}
+                    className="group rounded-xl border border-zinc-800 bg-zinc-900 p-5 transition-all hover:border-emerald-500/30 hover:bg-zinc-900/90"
+                  >
+                    <div className="flex items-start gap-3">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 font-mono text-sm font-bold text-emerald-400">
+                        {index + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <h3 className="truncate text-sm font-semibold text-zinc-200 group-hover:text-money-gold">
+                          {entity.name}
+                        </h3>
+                        <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-emerald-500/20 text-emerald-400 mt-1">
+                          {entity.entity_type === 'pac' ? 'PAC' : entity.entity_type === 'organization' ? 'Organization' : 'Company'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between text-xs">
+                      <span className="text-zinc-400">
+                        <span className="font-semibold text-money-success">{formatMoney(entity.total_donated)}</span> donated
+                      </span>
+                      <span className="text-zinc-500">
+                        {entity.officials_funded} official{entity.officials_funded !== 1 ? 's' : ''} funded
+                      </span>
+                    </div>
+                    <span className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-money-gold opacity-0 transition-opacity group-hover:opacity-100">
+                      See who they fund <ArrowRight className="h-3 w-3" />
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ================================================================
           3. DASHBOARD STATS
@@ -584,66 +623,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ================================================================
-          6. TOP CONFLICTS
-          ================================================================ */}
-      <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-        <div className="overflow-hidden rounded-xl border border-orange-500/20 bg-gradient-to-br from-orange-950/30 via-amber-950/20 to-zinc-900/80">
-          <div className="border-b border-orange-500/10 px-6 py-4">
-            <div className="flex items-center gap-3">
-              <Shield className="h-5 w-5 text-orange-400" />
-              <h2 className="font-mono text-lg font-bold uppercase tracking-wider text-orange-400">
-                Officials with Most Conflicts
-              </h2>
-            </div>
-          </div>
-
-          <div className="divide-y divide-orange-900/20">
-            {loading ? (
-              Array.from({ length: 5 }).map((_, i) => (
-                <SkeletonRow key={i} />
-              ))
-            ) : topConflicts.length === 0 ? (
-              <div className="px-6 py-12 text-center text-sm text-zinc-600">
-                No structural relationship data available. Analysis pending.
-              </div>
-            ) : (
-              topConflicts.slice(0, 8).map((official, index) => (
-                <Link
-                  key={official.slug}
-                  href={`/officials/${official.slug}`}
-                  className="group flex items-center gap-4 px-6 py-4 transition-colors hover:bg-orange-950/20"
-                >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-orange-500/10 font-mono text-sm font-bold text-orange-400">
-                    {index + 1}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-zinc-200 group-hover:text-money-gold">
-                        {official.name}
-                      </span>
-                      <PartyBadge party={official.party} />
-                      <span className="text-xs text-zinc-600">
-                        {official.state}
-                      </span>
-                    </div>
-                    <p className="mt-0.5 truncate text-xs text-zinc-500">
-                      {official.top_conflict}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="hidden text-xs text-zinc-600 sm:inline">
-                      {official.total_conflicts} potential conflict
-                      {official.total_conflicts !== 1 ? 's' : ''}
-                    </span>
-                    <ConflictBadge severity={official.conflict_score} size="sm" />
-                  </div>
-                </Link>
-              ))
-            )}
-          </div>
-        </div>
-      </section>
+      {/* Top Conflicts section moved to "Highest Conflict Risk" above */}
 
       {/* ================================================================
           7. "DID YOU KNOW?" FACTOID BAR

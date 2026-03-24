@@ -115,16 +115,22 @@ async def active_bills(db: AsyncSession = Depends(get_db)):
 
 @router.get("/top-conflicts", response_model=list[TopConflictItem])
 async def top_conflicts(db: AsyncSession = Depends(get_db)):
-    """Return officials with the most conflict signals."""
+    """Return officials with the most multi-factor conflict signals.
+
+    Only includes officials with 2+ connected dots (donor + committee,
+    stock + vote, etc). Single-factor structural relationships are excluded.
+    """
     try:
         from app.services.conflict_engine import detect_conflicts
     except ImportError:
-        # conflict_engine not yet available — return empty
         return []
 
+    # Scan all officials, not just first 50
     persons = (
         await db.execute(
-            select(Entity).where(Entity.entity_type == "person").limit(50)
+            select(Entity)
+            .where(Entity.entity_type == "person")
+            .where(Entity.metadata_.has_key("bioguide_id"))
         )
     ).scalars().all()
 
@@ -157,7 +163,62 @@ async def top_conflicts(db: AsyncSession = Depends(get_db)):
         )
 
     results.sort(key=lambda x: x.total_conflicts, reverse=True)
-    return results[:5]
+    return results[:10]
+
+
+# ---------------------------------------------------------------------------
+# 2b. Top Influencers — entities with the most political reach
+# ---------------------------------------------------------------------------
+
+
+@router.get("/top-influencers")
+async def top_influencers(db: AsyncSession = Depends(get_db)):
+    """Return entities (companies, PACs, orgs) ranked by political influence.
+
+    Influence = total donations + number of officials funded.
+    """
+    # Find entities that have donated_to relationships (they are the from_entity)
+    query = (
+        select(
+            Relationship.from_entity_id,
+            func.sum(Relationship.amount_usd).label("total_donated"),
+            func.count(func.distinct(Relationship.to_entity_id)).label("officials_funded"),
+        )
+        .where(Relationship.relationship_type == "donated_to")
+        .group_by(Relationship.from_entity_id)
+        .having(func.count(func.distinct(Relationship.to_entity_id)) >= 2)
+        .order_by(func.sum(Relationship.amount_usd).desc())
+        .limit(20)
+    )
+    rows = (await db.execute(query)).all()
+
+    if not rows:
+        return []
+
+    # Load the entity details
+    entity_ids = [r[0] for r in rows]
+    entities_result = await db.execute(
+        select(Entity).where(Entity.id.in_(entity_ids))
+    )
+    entities_map = {e.id: e for e in entities_result.scalars().all()}
+
+    results = []
+    for entity_id, total_donated, officials_funded in rows:
+        entity = entities_map.get(entity_id)
+        if not entity:
+            continue
+        # Skip individual person donors — only show orgs/companies/PACs
+        if entity.entity_type == "person" and not (entity.metadata_ or {}).get("donor_type") == "pac":
+            continue
+        results.append({
+            "slug": entity.slug,
+            "name": entity.name,
+            "entity_type": entity.entity_type,
+            "total_donated": total_donated or 0,
+            "officials_funded": officials_funded,
+        })
+
+    return results[:10]
 
 
 # ---------------------------------------------------------------------------

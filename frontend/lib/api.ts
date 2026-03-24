@@ -490,6 +490,18 @@ export async function getFeaturedStory(): Promise<FeaturedStory> {
   return apiFetch<FeaturedStory>('/dashboard/featured-story');
 }
 
+export interface TopInfluencer {
+  slug: string;
+  name: string;
+  entity_type: string;
+  total_donated: number;
+  officials_funded: number;
+}
+
+export async function getTopInfluencers(): Promise<TopInfluencer[]> {
+  return apiFetch<TopInfluencer[]>('/dashboard/top-influencers');
+}
+
 // ---------------------------------------------------------------------------
 // Hidden Connections API
 // ---------------------------------------------------------------------------
