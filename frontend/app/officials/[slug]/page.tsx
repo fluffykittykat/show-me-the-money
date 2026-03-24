@@ -58,6 +58,7 @@ import DonationTimeline from '@/components/DonationTimeline';
 import RelationshipSpotlight from '@/components/RelationshipSpotlight';
 import LobbyingTab from '@/components/LobbyingTab';
 import MoneyToBills from '@/components/MoneyToBills';
+import PartyMoneyTrail from '@/components/PartyMoneyTrail';
 import LoadingState from '@/components/LoadingState';
 import HiddenConnectionsCard from '@/components/HiddenConnectionsCard';
 import RevolvingDoorSection from '@/components/RevolvingDoorSection';
@@ -681,6 +682,9 @@ export default function OfficialProfilePage() {
 
               {/* FOLLOW THE MONEY — the main story, front and center */}
               <MoneyToBills slug={slug} />
+
+              {/* PARTY COMMITTEE MONEY TRAIL — who funds the middleman */}
+              <PartyMoneyTrail slug={slug} donations={categorized.donations} />
 
               {/* Investigator Summary — conflict analysis */}
               <div className="mb-6">
