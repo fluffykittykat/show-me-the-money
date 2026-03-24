@@ -368,34 +368,40 @@ export default function BillInvestigationPage() {
           )}
         </div>
 
-        {/* TLDR + Expandable Full Summary */}
-        {(tldr || officialSummary) && (
-          <div className="mt-4 max-w-4xl">
-            {tldr && (
-              <p className="text-sm leading-relaxed text-zinc-300">
-                {tldr}
-              </p>
-            )}
-            {officialSummary && officialSummary !== tldr && (
-              <div className="mt-2">
-                <button
-                  onClick={() => setShowFullSummary(!showFullSummary)}
-                  className="inline-flex items-center gap-1 text-xs font-medium text-money-gold hover:text-money-gold-hover transition-colors"
-                >
-                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showFullSummary ? 'rotate-180' : ''}`} />
-                  {showFullSummary ? 'Hide full summary' : 'Read full CRS summary'}
-                </button>
-                {showFullSummary && (
-                  <div className="mt-2 rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
-                    <p className="text-sm leading-relaxed text-zinc-400 whitespace-pre-line">
-                      {officialSummary}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+        {/* Summary section — always shows something */}
+        <div className="mt-4 max-w-4xl">
+          {tldr ? (
+            <p className="text-sm leading-relaxed text-zinc-300">{tldr}</p>
+          ) : officialSummary ? (
+            <p className="text-sm leading-relaxed text-zinc-300">{officialSummary}</p>
+          ) : entity.summary ? (
+            <p className="text-sm leading-relaxed text-zinc-300">{entity.summary}</p>
+          ) : (
+            <p className="text-sm leading-relaxed text-zinc-400 italic">
+              {status && status !== 'Unknown'
+                ? `Latest action: ${status}`
+                : 'No summary available for this bill yet.'}
+            </p>
+          )}
+          {officialSummary && tldr && officialSummary !== tldr && (
+            <div className="mt-2">
+              <button
+                onClick={() => setShowFullSummary(!showFullSummary)}
+                className="inline-flex items-center gap-1 text-xs font-medium text-money-gold hover:text-money-gold-hover transition-colors"
+              >
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showFullSummary ? 'rotate-180' : ''}`} />
+                {showFullSummary ? 'Hide full summary' : 'Read full CRS summary'}
+              </button>
+              {showFullSummary && (
+                <div className="mt-2 rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
+                  <p className="text-sm leading-relaxed text-zinc-400 whitespace-pre-line">
+                    {officialSummary}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* External links row */}
         {(fullTextUrl || congressUrl) && (
@@ -468,6 +474,56 @@ export default function BillInvestigationPage() {
               </div>
               <p className="mt-1 text-sm text-zinc-300">{status}</p>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* THE MONEY BEHIND THIS BILL — the key question */}
+      {sponsors.length > 0 && Object.keys(sponsorDonors).length > 0 && (
+        <div className="mb-8 rounded-xl border-2 border-money-gold/30 bg-zinc-900/80 p-6">
+          <h2 className="flex items-center gap-2 text-lg font-bold text-money-gold mb-2">
+            <DollarSign className="h-5 w-5" />
+            The Money Behind This Bill
+          </h2>
+          <p className="text-sm text-zinc-400 mb-4">
+            Who funds the officials who wrote this bill? And does their money align with
+            what this {policyArea || 'legislation'} bill does?
+          </p>
+          <div className="space-y-3">
+            {sponsors.concat(cosponsors).map((rel) => {
+              const ce = rel.connected_entity;
+              if (!ce) return null;
+              const ceMeta = getMeta(ce);
+              const party = (ceMeta?.party as string) || '';
+              const donors = ce.slug ? sponsorDonors[ce.slug] : undefined;
+              if (!donors || donors.length === 0) return null;
+
+              return (
+                <div key={rel.id} className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Link
+                      href={`/officials/${ce.slug}`}
+                      className="text-sm font-semibold text-zinc-200 hover:text-money-gold"
+                    >
+                      {ce.name}
+                    </Link>
+                    <PartyBadge party={party} />
+                    <span className="text-xs text-zinc-500">
+                      {rel.relationship_type === 'sponsored' ? 'Sponsor' : 'Cosponsor'}
+                    </span>
+                  </div>
+                  <div className="ml-2 space-y-1">
+                    {donors.map((d, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs">
+                        <span className="text-zinc-500">funded by</span>
+                        <span className="text-zinc-300">{d.name}</span>
+                        <span className="text-money-success font-semibold">{formatMoney(d.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
