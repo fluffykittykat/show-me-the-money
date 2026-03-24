@@ -341,8 +341,9 @@ export default function OfficialProfilePage() {
     return { ...tab, count };
   });
 
-  // Compute stats
-  const totalCampaign = categorized.donations.reduce(
+  // Compute stats — use FEC total if available, else sum captured donors
+  const fecTotalReceipts = (entity.metadata as Record<string, unknown>)?.total_receipts as number | undefined;
+  const capturedCampaign = categorized.donations.reduce(
     (sum, d) => sum + (d.amount_usd ?? 0),
     0
   );
@@ -355,7 +356,11 @@ export default function OfficialProfilePage() {
     { label: 'Donors', value: entitySummary?.connection_counts?.donations ?? categorized.donations.length },
     {
       label: 'Total Campaign $',
-      value: totalCampaign > 0 ? formatMoney(totalCampaign) : '--',
+      value: fecTotalReceipts
+        ? formatMoney(Math.round(Number(fecTotalReceipts) * 100))
+        : capturedCampaign > 0
+          ? formatMoney(capturedCampaign)
+          : '--',
     },
   ];
 
