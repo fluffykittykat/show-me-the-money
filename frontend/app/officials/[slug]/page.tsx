@@ -398,20 +398,58 @@ export default function OfficialProfilePage() {
   // Conflict count
   const totalConflictsCount = conflictData?.total_conflicts ?? 0;
 
-  // Generate quick summary
-  const summaryParts: string[] = [];
-  if (categorized.holdings.length > 0) {
-    summaryParts.push(`holds stock in ${categorized.holdings.length} companies`);
+  // Generate quick summary — connect the dots, don't just count
+  const meta = entity.metadata as Record<string, unknown>;
+  const officialParty = (meta?.party as string) || '';
+  const officialState = (meta?.state as string) || '';
+  const officialChamber = (meta?.chamber as string) || '';
+  const role = officialChamber === 'Senate' ? 'Senator' : officialChamber?.includes('House') ? 'Representative' : 'Member of Congress';
+
+  // Get top 3 donor names and total
+  const topDonors = [...categorized.donations]
+    .sort((a, b) => (b.amount_usd ?? 0) - (a.amount_usd ?? 0))
+    .slice(0, 3)
+    .map((d) => d.connected_entity?.name || 'Unknown');
+  const totalDonated = categorized.donations.reduce((s, d) => s + (d.amount_usd ?? 0), 0);
+  const fecTotal = (meta?.total_receipts as number) || 0;
+  const displayTotal = fecTotal ? formatMoney(fecTotal * 100, { fromCents: true }) : formatMoney(totalDonated);
+
+  // Build a narrative summary
+  const summaryLines: string[] = [];
+
+  // Line 1: Who they are and what committees they sit on
+  if (displayCommittees.length > 0) {
+    const commStr = displayCommittees.slice(0, 3).join(', ');
+    summaryLines.push(`${role} from ${officialState} (${officialParty}). Sits on ${commStr}${displayCommittees.length > 3 ? ` and ${displayCommittees.length - 3} more` : ''}.`);
+  } else {
+    summaryLines.push(`${role} from ${officialState} (${officialParty}).`);
   }
+
+  // Line 2: Donors — name the top ones
   if (categorized.donations.length > 0) {
-    summaryParts.push(`received donations from ${categorized.donations.length} sources`);
+    summaryLines.push(`Has raised ${displayTotal} in campaign contributions. Top donors include ${topDonors.join(', ')}.`);
   }
+
+  // Line 3: Revolving door
   if (hiddenSummary?.revolving_door_count && hiddenSummary.revolving_door_count > 0) {
-    summaryParts.push(`has ${hiddenSummary.revolving_door_count} former staffer${hiddenSummary.revolving_door_count !== 1 ? 's' : ''} who now lobby for related companies`);
+    const highlight = hiddenSummary.revolving_door_highlight || '';
+    summaryLines.push(`${hiddenSummary.revolving_door_count} former staffer${hiddenSummary.revolving_door_count !== 1 ? 's' : ''} now lobby for private clients. ${highlight}`);
   }
-  const quickSummaryText = summaryParts.length > 0
-    ? `${entity.name} ${summaryParts.join(', ')}. This doesn't mean they did anything wrong — it means the structural relationships exist for you to evaluate.`
-    : `No significant structural relationships have been identified in our current data for ${entity.name}.`;
+
+  // Line 4: Stock holdings
+  if (categorized.holdings.length > 0) {
+    const stockNames = categorized.holdings.slice(0, 3).map((h) => h.connected_entity?.name || '?').join(', ');
+    summaryLines.push(`Holds stock in ${stockNames}${categorized.holdings.length > 3 ? ` and ${categorized.holdings.length - 3} more` : ''}.`);
+  }
+
+  // Line 5: Conflict tease
+  if (totalConflictsCount > 0) {
+    summaryLines.push(`We identified ${totalConflictsCount} potential conflict${totalConflictsCount !== 1 ? 's' : ''} of interest worth investigating.`);
+  }
+
+  const quickSummaryText = summaryLines.length > 0
+    ? summaryLines.join(' ')
+    : `No significant connections have been identified in our current data for ${entity.name}.`;
 
   // Scroll to section helper
   const scrollToTab = (tabId: string) => {
