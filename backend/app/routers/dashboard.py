@@ -192,6 +192,8 @@ async def top_conflicts(db: AsyncSession = Depends(get_db)):
     )
     entities_map = {e.id: e for e in entities_result.scalars().all()}
 
+    # For each top-funded official, categorize the type of money trail
+    # Check for different relationship types to vary the badge
     fallback_results = []
     for entity_id, total_donated, donor_count in funded_rows:
         entity = entities_map.get(entity_id)
@@ -200,16 +202,54 @@ async def top_conflicts(db: AsyncSession = Depends(get_db)):
         meta = entity.metadata_ or {}
         if not meta.get("bioguide_id"):
             continue
+
         dollars = (total_donated or 0) / 100
+
+        # Check what types of connections this official has
+        rel_types_q = (
+            select(Relationship.relationship_type, func.count().label("cnt"))
+            .where(
+                (Relationship.from_entity_id == entity_id) |
+                (Relationship.to_entity_id == entity_id)
+            )
+            .where(Relationship.relationship_type.notin_(["sponsored", "cosponsored"]))
+            .group_by(Relationship.relationship_type)
+        )
+        rel_rows = (await db.execute(rel_types_q)).all()
+        rel_map = {r[0]: r[1] for r in rel_rows}
+
+        # Determine the most interesting conflict type and description
+        if rel_map.get("holds_stock", 0) > 0 and rel_map.get("donated_to", 0) > 0:
+            score = "HIGH_CONCERN"
+            desc = f"Holds stock in companies while receiving ${dollars:,.0f} from {donor_count} donors. Are their investments influencing their votes?"
+        elif rel_map.get("holds_stock", 0) > 0:
+            score = "NOTABLE_PATTERN"
+            desc = f"Holds stock in companies their committees may regulate. Financial interests and public duties overlap."
+        elif rel_map.get("book_deal_with", 0) > 0 or rel_map.get("speaking_fee_from", 0) > 0:
+            score = "NOTABLE_PATTERN"
+            desc = f"Receives outside income (book deals, speaking fees) from organizations with policy interests, plus ${dollars:,.0f} in campaign donations."
+        elif rel_map.get("spouse_income_from", 0) > 0 or rel_map.get("family_employed_by", 0) > 0:
+            score = "NOTABLE_PATTERN"
+            desc = f"Family members earn income from companies with policy interests. Also received ${dollars:,.0f} from {donor_count} campaign donors."
+        elif donor_count >= 15:
+            score = "NOTABLE_PATTERN"
+            desc = f"Received ${dollars:,.0f} from {donor_count} donors — one of the most heavily funded officials. Who are they, and what do they want?"
+        elif dollars >= 100000000:  # $1M+ in cents
+            score = "STRUCTURAL_RELATIONSHIP"
+            desc = f"Received ${dollars:,.0f} in campaign contributions from {donor_count} donors. Heavy funding warrants a closer look."
+        else:
+            score = "CONNECTION_NOTED"
+            desc = f"Received ${dollars:,.0f} from {donor_count} donors. Click to see who funds this official."
+
         fallback_results.append(
             TopConflictItem(
                 slug=entity.slug,
                 name=entity.name,
                 party=meta.get("party", ""),
                 state=meta.get("state", ""),
-                conflict_score="NOTABLE_PATTERN",
+                conflict_score=score,
                 total_conflicts=donor_count,
-                top_conflict=f"Received ${dollars:,.0f} from {donor_count} donors. Follow the money to see who funds this official and what they might want in return.",
+                top_conflict=desc,
             )
         )
 
