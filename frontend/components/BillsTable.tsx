@@ -17,21 +17,21 @@ function slugify(name: string): string {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  let colorClass = 'bg-zinc-700 text-zinc-300';
+  let colorClass = 'text-zinc-400';
   const lower = status.toLowerCase();
 
-  if (lower.includes('passed') || lower.includes('enacted') || lower.includes('signed')) {
-    colorClass = 'bg-emerald-500/20 text-emerald-400';
+  if (lower.includes('passed') || lower.includes('enacted') || lower.includes('signed') || lower.includes('became')) {
+    colorClass = 'text-emerald-400';
   } else if (lower.includes('failed') || lower.includes('vetoed')) {
-    colorClass = 'bg-red-500/20 text-red-400';
+    colorClass = 'text-red-400';
   } else if (lower.includes('introduced') || lower.includes('pending')) {
-    colorClass = 'bg-yellow-500/20 text-yellow-400';
+    colorClass = 'text-yellow-400';
   } else if (lower.includes('committee')) {
-    colorClass = 'bg-blue-500/20 text-blue-400';
+    colorClass = 'text-zinc-400';
   }
 
   return (
-    <span className={clsx('rounded-full px-2 py-0.5 text-xs font-medium', colorClass)}>
+    <span className={clsx('text-xs', colorClass)}>
       {status}
     </span>
   );
