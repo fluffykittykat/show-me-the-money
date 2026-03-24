@@ -1512,7 +1512,7 @@ export default function EntityPage() {
         )}
 
         {/* Connected Officials */}
-        {connectedOfficials.length > 0 && (
+        {connectedOfficials.length > 0 && entity.entity_type !== 'committee' && (
           <section>
             <SectionHeading icon={Users}>Connected Officials</SectionHeading>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -1612,7 +1612,7 @@ export default function EntityPage() {
         )}
 
         {/* All Connections table */}
-        {connections.length > 0 && (
+        {connections.length > 0 && entity.entity_type !== 'committee' && (
           <section>
             <SectionHeading>All Connections</SectionHeading>
             <RelationshipTable relationships={connections} entityId={entity.id} />
