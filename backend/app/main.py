@@ -211,6 +211,16 @@ async def admin_ingest(slug: str):
     elif slug == "lobbying":
         from app.services.ingestion.ingest_lobbying import run_lobbying_ingestion
         await run_lobbying_ingestion()
+    elif slug == "committees":
+        import asyncio as _aio
+        from app.services.ingestion.ingest_committees import run_committee_ingestion
+        _aio.create_task(run_committee_ingestion())
+        return {"status": "started", "message": "Committee ingestion started"}
+    elif slug == "lobbying-bulk":
+        import asyncio as _aio
+        from app.services.ingestion.ingest_lobbying_bulk import run_lobbying_bulk_ingestion
+        _aio.create_task(run_lobbying_bulk_ingestion())
+        return {"status": "started", "message": "Lobbying bulk ingestion started"}
     else:
         return {"status": "error", "message": f"Ingestion not supported for '{slug}'"}
     return {"status": "ok", "message": f"Ingestion complete for {slug}"}
