@@ -677,4 +677,29 @@ export async function getCompanyChains(companySlug: string): Promise<CompanyChai
   return apiFetch<CompanyChainsResponse>(`/investigate/chains/company/${encodeURIComponent(companySlug)}`);
 }
 
+// ---------------------------------------------------------------------------
+// Money-to-Bills chain types & API
+// ---------------------------------------------------------------------------
+
+export interface MoneyToBillChain {
+  policy_area: string;
+  total_donated: number;
+  donor_count: number;
+  bill_count: number;
+  top_donors: { name: string; slug: string; amount: number }[];
+  related_bills: { name: string; slug: string; type: string }[];
+  narrative: string;
+}
+
+export interface MoneyToBillsResponse {
+  entity: string;
+  entity_name: string;
+  chains: MoneyToBillChain[];
+  total_chains: number;
+}
+
+export async function getMoneyToBills(slug: string): Promise<MoneyToBillsResponse> {
+  return apiFetch<MoneyToBillsResponse>(`/entities/${encodeURIComponent(slug)}/money-to-bills`);
+}
+
 export { ApiError };

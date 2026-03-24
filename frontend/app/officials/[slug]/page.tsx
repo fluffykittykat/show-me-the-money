@@ -57,6 +57,7 @@ import ConflictCard from '@/components/ConflictCard';
 import DonationTimeline from '@/components/DonationTimeline';
 import RelationshipSpotlight from '@/components/RelationshipSpotlight';
 import LobbyingTab from '@/components/LobbyingTab';
+import MoneyToBills from '@/components/MoneyToBills';
 import LoadingState from '@/components/LoadingState';
 import HiddenConnectionsCard from '@/components/HiddenConnectionsCard';
 import RevolvingDoorSection from '@/components/RevolvingDoorSection';
@@ -760,6 +761,9 @@ export default function OfficialProfilePage() {
                   </div>
                 </div>
               )}
+
+              {/* Money → Bills chain */}
+              <MoneyToBills slug={slug} />
 
               {/* Bio */}
               {entity.summary && (
