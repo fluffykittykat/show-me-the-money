@@ -14,7 +14,6 @@ import {
   getActiveBills,
   getTopConflicts,
   getTopInfluencers,
-  getHiddenConnectionsFeed,
 } from '@/lib/api';
 import type {
   DashboardStats,
@@ -23,7 +22,7 @@ import type {
   TopConflict,
   TopInfluencer,
 } from '@/lib/api';
-import type { HiddenConnectionsFeedItem } from '@/lib/types';
+// HiddenConnectionsFeedItem removed — replaced with real revolving door data
 import {
   ArrowRight,
   Users,
@@ -122,6 +121,81 @@ function SkeletonRow() {
 }
 
 // ---------------------------------------------------------------------------
+// Revolving Door section (self-contained, fetches own data)
+// ---------------------------------------------------------------------------
+
+interface RevolvingDoorEntry {
+  lobbyist_name: string;
+  lobbyist_slug: string;
+  former_position: string;
+  current_employer: string;
+  official_name: string;
+  official_slug: string;
+  official_party: string;
+  official_state: string;
+}
+
+function RevolvingDoorSection() {
+  const [data, setData] = useState<RevolvingDoorEntry[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/dashboard/revolving-door')
+      .then((r) => r.json())
+      .then((d) => { setData(d); setLoaded(true); })
+      .catch(() => setLoaded(true));
+  }, []);
+
+  if (!loaded || data.length === 0) return null;
+
+  return (
+    <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+      <div className="rounded-xl border border-amber-500/20 bg-zinc-900/80 overflow-hidden">
+        <div className="flex items-center justify-between border-b border-amber-500/10 px-6 py-4">
+          <div className="flex items-center gap-3">
+            <Eye className="h-5 w-5 text-amber-400" />
+            <h2 className="font-mono text-lg font-bold uppercase tracking-wider text-amber-400">
+              The Revolving Door
+            </h2>
+          </div>
+          <span className="hidden font-mono text-[10px] uppercase tracking-widest text-zinc-700 sm:inline">
+            FORMER STAFFERS NOW LOBBYING // REAL LDA DATA
+          </span>
+        </div>
+        <div className="divide-y divide-zinc-800/50">
+          {data.slice(0, 10).map((item, i) => (
+            <div key={`${item.lobbyist_slug}-${i}`} className="px-6 py-4 hover:bg-zinc-800/40 transition-colors">
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 text-xl" aria-hidden="true">&#128682;</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-zinc-200">
+                    <Link href={`/entities/person/${item.lobbyist_slug}`} className="font-semibold hover:text-amber-400">
+                      {item.lobbyist_name}
+                    </Link>
+                    {' '}used to work for{' '}
+                    <Link href={`/officials/${item.official_slug}`} className="font-semibold hover:text-amber-400">
+                      {item.official_name}
+                    </Link>
+                    {' '}
+                    <PartyBadge party={item.official_party} />
+                    {' '}and now lobbies for private clients.
+                  </p>
+                  {item.former_position && (
+                    <p className="mt-1 text-xs text-zinc-500 line-clamp-1">
+                      Former role: {item.former_position}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -129,9 +203,6 @@ export default function HomePage() {
   const [stats, setStats] = useState<DashboardStats>(defaultStats);
   const [activeBills, setActiveBills] = useState<ActiveBill[]>([]);
   const [topConflicts, setTopConflicts] = useState<TopConflict[]>([]);
-  const [hiddenFeed, setHiddenFeed] = useState<HiddenConnectionsFeedItem[]>(
-    []
-  );
   const [topInfluencers, setTopInfluencers] = useState<TopInfluencer[]>([]);
   const [stateData, setStateData] = useState<StateData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -149,20 +220,16 @@ export default function HomePage() {
   useEffect(() => {
     async function fetchAll() {
       try {
-        const [s, ab, tc, hf, sd, ti] = await Promise.all([
+        const [s, ab, tc, sd, ti] = await Promise.all([
           getDashboardStats().catch(() => defaultStats),
           getActiveBills().catch(() => []),
           getTopConflicts().catch(() => []),
-          getHiddenConnectionsFeed().catch(
-            () => [] as HiddenConnectionsFeedItem[]
-          ),
           getDashboardStates().catch(() => [] as StateMapData[]),
           getTopInfluencers().catch(() => [] as TopInfluencer[]),
         ]);
         setStats(s);
         setActiveBills(ab);
         setTopConflicts(tc);
-        setHiddenFeed(hf);
         setTopInfluencers(ti);
         // Map API data to USMap component format
         setStateData((sd || []).map((s: StateMapData) => ({
@@ -471,91 +538,9 @@ export default function HomePage() {
       </section>
 
       {/* ================================================================
-          4. LIVE INTELLIGENCE — Hidden Connections Feed
+          4. REVOLVING DOOR — Real LDA data
           ================================================================ */}
-      <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-        <div className="relative overflow-hidden rounded-xl border border-amber-500/20 bg-zinc-900/80">
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.02]">
-            <span className="rotate-[-15deg] select-none font-mono text-6xl font-black tracking-widest text-amber-400 sm:text-8xl">
-              CLASSIFIED
-            </span>
-          </div>
-
-          <div className="relative">
-            <div className="flex items-center justify-between border-b border-amber-500/10 px-6 py-4">
-              <div className="flex items-center gap-3">
-                <Eye className="h-5 w-5 text-amber-400" />
-                <h2 className="font-mono text-lg font-bold uppercase tracking-wider text-amber-400">
-                  Live Intelligence
-                </h2>
-              </div>
-              <span className="hidden font-mono text-[10px] uppercase tracking-widest text-zinc-700 sm:inline">
-                REAL-TIME ALERTS
-              </span>
-            </div>
-
-            <div className="divide-y divide-zinc-800/50">
-              {loading ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <SkeletonRow key={i} />
-                ))
-              ) : hiddenFeed.length === 0 ? (
-                <div className="px-6 py-12 text-center text-sm text-zinc-600">
-                  No hidden connection alerts at this time. Analysis ongoing.
-                </div>
-              ) : (
-                hiddenFeed.slice(0, 10).map((item, index) => (
-                  <Link
-                    key={`${item.entity_slug}-${item.alert_type}-${index}`}
-                    href={`/officials/${item.entity_slug}`}
-                    className="group flex items-start gap-4 px-6 py-4 transition-colors hover:bg-zinc-800/40"
-                  >
-                    <span className="mt-0.5 text-xl" aria-hidden="true">
-                      {item.alert_type === 'revolving_door' && '\uD83D\uDEAA'}
-                      {item.alert_type === 'trade_timing' && '\u23F1\uFE0F'}
-                      {item.alert_type === 'contractor_donor' &&
-                        '\uD83C\uDFD7\uFE0F'}
-                      {item.alert_type === 'family_conflict' &&
-                        '\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67'}
-                      {item.alert_type === 'speaking_fee' && '\uD83C\uDF99\uFE0F'}
-                      {![
-                        'revolving_door',
-                        'trade_timing',
-                        'contractor_donor',
-                        'family_conflict',
-                        'speaking_fee',
-                      ].includes(item.alert_type) && '\uD83D\uDD0D'}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-zinc-200 group-hover:text-amber-400">
-                        {item.headline}
-                      </p>
-                      <p className="mt-0.5 line-clamp-2 text-xs text-zinc-500">
-                        {item.description}
-                      </p>
-                      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
-                        <span className="font-medium text-zinc-400">
-                          {item.entity_name}
-                        </span>
-                        <span className="text-zinc-700">&middot;</span>
-                        <ConflictBadge severity={item.severity} size="sm" />
-                        {item.timestamp && (
-                          <>
-                            <span className="text-zinc-700">&middot;</span>
-                            <span className="text-zinc-600">
-                              {formatDate(item.timestamp)}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </Link>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
+      <RevolvingDoorSection />
 
       {/* ================================================================
           5. ACTIVE INTELLIGENCE — Bills

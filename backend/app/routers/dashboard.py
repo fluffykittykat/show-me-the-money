@@ -371,6 +371,67 @@ async def top_influencers(db: AsyncSession = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
+# 2c. Revolving Door — former staffers now lobbying (real LDA data)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/revolving-door")
+async def dashboard_revolving_door(db: AsyncSession = Depends(get_db)):
+    """Return recent revolving door connections from real LDA data."""
+    # Find revolving_door_lobbyist relationships with connected officials
+    rels_q = (
+        select(Relationship, Entity)
+        .join(Entity, Entity.id == Relationship.to_entity_id)
+        .where(Relationship.relationship_type == "revolving_door_lobbyist")
+        .where(Entity.entity_type == "person")
+        .where(Entity.metadata_.has_key("bioguide_id"))
+        .limit(15)
+    )
+    rows = (await db.execute(rels_q)).all()
+
+    if not rows:
+        return []
+
+    # Load lobbyist entities
+    lobbyist_ids = [r[0].from_entity_id for r in rows]
+    lobbyist_result = await db.execute(
+        select(Entity).where(Entity.id.in_(lobbyist_ids))
+    )
+    lobbyists = {e.id: e for e in lobbyist_result.scalars().all()}
+
+    results = []
+    seen = set()
+    for rel, official in rows:
+        lobbyist = lobbyists.get(rel.from_entity_id)
+        if not lobbyist:
+            continue
+        # Deduplicate by lobbyist
+        if lobbyist.slug in seen:
+            continue
+        seen.add(lobbyist.slug)
+
+        meta = rel.metadata_ or {}
+        official_meta = official.metadata_ or {}
+        lobbyist_meta = lobbyist.metadata_ or {}
+
+        former_position = meta.get("former_position", lobbyist_meta.get("covered_position", ""))
+        current_employer = meta.get("current_employer", lobbyist_meta.get("current_employer", ""))
+
+        results.append({
+            "lobbyist_name": lobbyist.name,
+            "lobbyist_slug": lobbyist.slug,
+            "former_position": former_position[:200] if former_position else "",
+            "current_employer": current_employer,
+            "official_name": official.name,
+            "official_slug": official.slug,
+            "official_party": official_meta.get("party", ""),
+            "official_state": official_meta.get("state", ""),
+        })
+
+    return results
+
+
+# ---------------------------------------------------------------------------
 # 3. States — senator data grouped by state for the map
 # ---------------------------------------------------------------------------
 
