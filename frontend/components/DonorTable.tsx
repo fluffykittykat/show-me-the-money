@@ -11,6 +11,7 @@ import DidYouKnow from '@/components/DidYouKnow';
 interface DonorTableProps {
   donations: Relationship[];
   fecTotalReceipts?: number | null;
+  fecCycle?: number | string | null;
 }
 
 function slugify(name: string): string {
@@ -30,7 +31,7 @@ function RecipientBadge({ slug }: { slug: string }) {
   );
 }
 
-export default function DonorTable({ donations, fecTotalReceipts }: DonorTableProps) {
+export default function DonorTable({ donations, fecTotalReceipts, fecCycle }: DonorTableProps) {
   if (donations.length === 0) {
     return (
       <p className="py-8 text-center text-sm text-zinc-500">
@@ -71,7 +72,7 @@ export default function DonorTable({ donations, fecTotalReceipts }: DonorTablePr
       {/* Total raised */}
       <div className="mb-6 rounded-lg border border-zinc-800 bg-money-surface px-6 py-4">
         <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-          Total Campaign Contributions (FEC)
+          Total Campaign Contributions (FEC{fecCycle ? ` — ${fecCycle} cycle` : ''})
         </span>
         <div className="mt-1 text-2xl font-bold text-money-success">
           {formatMoney(totalRaised)}

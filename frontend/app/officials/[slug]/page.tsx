@@ -355,7 +355,7 @@ export default function OfficialProfilePage() {
     { label: 'Stock Holdings', value: entitySummary?.connection_counts?.holdings ?? categorized.holdings.length },
     { label: 'Donors', value: entitySummary?.connection_counts?.donations ?? categorized.donations.length },
     {
-      label: 'Total Campaign $',
+      label: `Total Campaign $${(entity.metadata as Record<string, unknown>)?.best_fec_cycle ? ` (${(entity.metadata as Record<string, unknown>).best_fec_cycle})` : ''}`,
       value: fecTotalReceipts
         ? formatMoney(Math.round(Number(fecTotalReceipts) * 100))
         : capturedCampaign > 0
@@ -1038,6 +1038,7 @@ export default function OfficialProfilePage() {
                 <DonorTable
                   donations={categorized.donations}
                   fecTotalReceipts={(entity.metadata as Record<string, unknown>)?.total_receipts as number | undefined}
+                  fecCycle={(entity.metadata as Record<string, unknown>)?.best_fec_cycle as number | undefined}
                 />
               </div>
             </div>
