@@ -61,8 +61,24 @@ export default function PacDonors({ slug, entityName }: PacDonorsProps) {
 
   if (!data || data.donors.length === 0) return null;
 
-  const visibleDonors = expanded ? data.donors : data.donors.slice(0, 10);
-  const hasMore = data.donors.length > 10;
+  // Aggregate duplicate donors into one row with combined total
+  const aggregated = new Map<string, PacDonor>();
+  for (const d of data.donors) {
+    const existing = aggregated.get(d.slug);
+    if (existing) {
+      existing.amount += d.amount;
+      // Keep the most recent date
+      if (d.date && (!existing.date || d.date > existing.date)) {
+        existing.date = d.date;
+      }
+    } else {
+      aggregated.set(d.slug, { ...d });
+    }
+  }
+  const uniqueDonors = Array.from(aggregated.values()).sort((a, b) => b.amount - a.amount);
+
+  const visibleDonors = expanded ? uniqueDonors : uniqueDonors.slice(0, 10);
+  const hasMore = uniqueDonors.length > 10;
 
   return (
     <section className="mb-8">
@@ -130,7 +146,7 @@ export default function PacDonors({ slug, entityName }: PacDonorsProps) {
               ) : (
                 <>
                   <ChevronDown className="h-3 w-3" />
-                  Show all {data.total_donors} donors
+                  Show all {uniqueDonors.length} donors
                 </>
               )}
             </button>
