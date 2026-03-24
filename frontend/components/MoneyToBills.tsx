@@ -127,9 +127,16 @@ export default function MoneyToBills({ slug }: MoneyToBillsProps) {
 
   return (
     <div className="mb-6">
-      <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-zinc-400">
-        Money &rarr; Bills
-      </h3>
+      <div className="mb-4 rounded-xl border-2 border-money-gold/30 bg-zinc-900/80 p-5">
+        <h3 className="flex items-center gap-2 text-lg font-bold text-money-gold">
+          <span className="text-xl">&#128176;</span>
+          Follow the Money
+        </h3>
+        <p className="mt-1 text-sm text-zinc-400">
+          These donors gave money to this official, who then sponsored or cosponsored legislation
+          in the same policy areas. Does the money influence the bills? You decide.
+        </p>
+      </div>
       <div className="grid gap-4 sm:grid-cols-2">
         {data.chains.map((chain) => (
           <ChainCard key={chain.policy_area} chain={chain} />

@@ -679,6 +679,9 @@ export default function OfficialProfilePage() {
                 />
               </div>
 
+              {/* FOLLOW THE MONEY — the main story, front and center */}
+              <MoneyToBills slug={slug} />
+
               {/* Investigator Summary — conflict analysis */}
               <div className="mb-6">
                 <InvestigatorSummary
@@ -791,9 +794,6 @@ export default function OfficialProfilePage() {
                   </div>
                 </div>
               )}
-
-              {/* Money → Bills chain */}
-              <MoneyToBills slug={slug} />
 
               {/* Bio */}
               {entity.summary && (
