@@ -164,29 +164,38 @@ async def top_conflicts(db: AsyncSession = Depends(get_db)):
         meta = person.metadata_ or {}
 
         # Build a combined description from all conflict signals
-        # Extract unique committees and donor counts from all signals
         all_committees = set()
-        all_donors = set()
+        all_donors = {}  # name -> amount
         for c in conflicts:
             for ev in (c.evidence or []):
                 if ev.get("type") == "committee":
                     all_committees.add(ev.get("name", ""))
                 elif ev.get("type") == "donation":
-                    all_donors.add(ev.get("name", ""))
+                    name = ev.get("name", "")
+                    amt = ev.get("amount", 0) or 0
+                    if name not in all_donors or amt > all_donors[name]:
+                        all_donors[name] = amt
+
+        total_conflict_dollars = sum(all_donors.values())
 
         if all_committees and all_donors:
             committees_str = ", ".join(list(all_committees)[:3])
             if len(all_committees) > 3:
                 committees_str += f" (+{len(all_committees) - 3} more)"
+            # Name the top donors by amount
+            top_donor_names = sorted(all_donors.keys(), key=lambda n: -all_donors[n])[:3]
+            dollars_str = f"${total_conflict_dollars / 100:,.0f}" if total_conflict_dollars else ""
             combined_desc = (
                 f"Sits on {committees_str}. "
-                f"Receives donations from {len(all_donors)} entities in industries "
-                f"these committees regulate."
+                f"Receives {dollars_str + ' from ' if dollars_str else 'donations from '}"
+                f"{len(all_donors)} regulated-industry donor{'s' if len(all_donors) != 1 else ''}"
+                f" including {', '.join(top_donor_names[:2])}."
             )
         else:
             combined_desc = top.description
 
-        results.append(
+        results.append((
+            total_conflict_dollars,
             TopConflictItem(
                 slug=person.slug,
                 name=person.name,
@@ -195,18 +204,20 @@ async def top_conflicts(db: AsyncSession = Depends(get_db)):
                 conflict_score=top.severity.upper(),
                 total_conflicts=len(all_donors) if all_donors else len(conflicts),
                 top_conflict=combined_desc,
-            )
-        )
+            ),
+        ))
 
-    # Sort by severity first (highest concern at top), then by signal count
+    # Sort by severity first, then by dollar amount, then by donor count
     score_rank = {
         "HIGH_CONCERN": 4, "NOTABLE_PATTERN": 3,
         "STRUCTURAL_RELATIONSHIP": 2, "CONNECTION_NOTED": 1,
     }
     results.sort(
-        key=lambda x: (score_rank.get(x.conflict_score, 0), x.total_conflicts),
+        key=lambda x: (score_rank.get(x[1].conflict_score, 0), x[0], x[1].total_conflicts),
         reverse=True,
     )
+    # Unwrap tuples
+    results = [item for _, item in results]
 
     # If conflict engine found results, cache and return
     if results:
