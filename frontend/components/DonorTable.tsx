@@ -39,11 +39,21 @@ export default function DonorTable({ donations, fecTotalReceipts }: DonorTablePr
     );
   }
 
+  // Aggregate multiple donations from the same donor into one line
+  const aggregated = new Map<string, Relationship>();
+  for (const d of donations) {
+    const key = d.connected_entity?.slug || d.from_entity_id;
+    const existing = aggregated.get(key);
+    if (existing) {
+      existing.amount_usd = (existing.amount_usd ?? 0) + (d.amount_usd ?? 0);
+    } else {
+      aggregated.set(key, { ...d, amount_usd: d.amount_usd ?? 0 });
+    }
+  }
+
   // Sort by amount descending
-  const sorted = [...donations].sort((a, b) => {
-    const aVal = a.amount_usd ?? 0;
-    const bVal = b.amount_usd ?? 0;
-    return bVal - aVal;
+  const sorted = Array.from(aggregated.values()).sort((a, b) => {
+    return (b.amount_usd ?? 0) - (a.amount_usd ?? 0);
   });
 
   // Use FEC total receipts if available (more accurate), else sum captured donors
