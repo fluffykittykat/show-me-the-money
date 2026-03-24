@@ -854,58 +854,79 @@ export default function OfficialProfilePage() {
                   <RelationshipSpotlight spotlights={spotlightData} officialName={entity.name} />
                 )}
 
-                {/* Conflict Cards */}
-                {conflictData && conflictData.conflicts.length > 0 ? (
-                  <div className="space-y-4">
-                    <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">
-                      <AlertTriangle className="h-4 w-4 text-amber-500" />
-                      {conflictData.total_conflicts} Potential Conflict{conflictData.total_conflicts !== 1 ? 's' : ''} of Interest
-                    </h3>
-                    <p className="mb-4 text-xs text-zinc-500">
-                      These structural relationships are surfaced for public transparency.
-                      Every fact is sourced from public records. Review the evidence below
-                      and draw your own conclusions.
-                    </p>
-                    {conflictData.conflicts
-                      .sort((a, b) => {
-                        const order: Record<string, number> = {
-                          critical: 4, high_concern: 4,
-                          high: 3, notable_pattern: 3,
-                          medium: 2, structural_relationship: 2,
-                          low: 1, connection_noted: 1,
-                        };
-                        return (order[b.severity.toLowerCase()] || 0) - (order[a.severity.toLowerCase()] || 0);
-                      })
-                      .map((conflict, i) => {
-                        // Find matching evidence chain
-                        const relatedChain = conflict.related_entities
-                          .map((entitySlug) => chainMap.get(entitySlug))
-                          .find(Boolean);
+                {/* Conflict Summary — consolidated view */}
+                {conflictData && conflictData.conflicts.length > 0 ? (() => {
+                  // Group conflicts by committee to avoid repetition
+                  const byCommittee = new Map<string, { committee: string; donors: { name: string; slug: string; amount: number }[]; severity: string }>();
+                  for (const conflict of conflictData.conflicts) {
+                    const evidence = conflict.evidence || [];
+                    const committee = evidence.find((e: Record<string, unknown>) => e.type === 'committee');
+                    const donors = evidence.filter((e: Record<string, unknown>) => e.type === 'donation');
+                    const key = (committee as Record<string, unknown>)?.name as string || conflict.description.slice(0, 50);
 
-                        return (
-                          <ConflictCard
-                            key={i}
-                            severity={conflict.severity}
-                            conflictType={conflict.conflict_type}
-                            description={conflict.description}
-                            evidence={conflict.evidence}
-                            relatedEntities={conflict.related_entities}
-                            whyThisMatters={conflict.why_this_matters}
-                            evidenceChain={relatedChain ? {
-                              chain: relatedChain.chain,
-                              severity: relatedChain.severity,
-                              narrative: relatedChain.narrative,
-                              officialSlug: relatedChain.official_slug,
-                              companySlug: relatedChain.company_slug,
-                            } : undefined}
-                          />
-                        );
-                      })}
-                  </div>
-                ) : (
+                    if (!byCommittee.has(key)) {
+                      byCommittee.set(key, { committee: key, donors: [], severity: conflict.severity });
+                    }
+                    const entry = byCommittee.get(key)!;
+                    for (const d of donors) {
+                      const dd = d as Record<string, unknown>;
+                      if (!entry.donors.find((x) => x.name === dd.name)) {
+                        entry.donors.push({ name: dd.name as string, slug: dd.entity as string, amount: (dd.amount as number) || 0 });
+                      }
+                    }
+                  }
+
+                  const groups = Array.from(byCommittee.values())
+                    .sort((a, b) => b.donors.length - a.donors.length);
+
+                  return (
+                    <div className="space-y-4">
+                      <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">
+                        <AlertTriangle className="h-4 w-4 text-amber-500" />
+                        Conflicts of Interest
+                      </h3>
+                      <p className="text-xs text-zinc-500">
+                        Officials who receive money from industries they regulate. Each row shows a committee and the donors from that industry.
+                      </p>
+                      <div className="space-y-3">
+                        {groups.map((group) => (
+                          <div key={group.committee} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+                            <div className="flex items-center justify-between mb-2">
+                              <h4 className="text-sm font-semibold text-zinc-200">{group.committee}</h4>
+                              <ConflictBadge severity={group.severity} size="sm" />
+                            </div>
+                            <p className="text-xs text-zinc-500 mb-3">
+                              {group.donors.length} donor{group.donors.length !== 1 ? 's' : ''} from industries this committee regulates:
+                            </p>
+                            <div className="space-y-1.5">
+                              {group.donors.sort((a, b) => b.amount - a.amount).slice(0, 5).map((donor) => (
+                                <div key={donor.name} className="flex items-center justify-between text-xs">
+                                  <Link
+                                    href={`/entities/person/${donor.slug}`}
+                                    className="text-zinc-300 hover:text-money-gold truncate"
+                                  >
+                                    {donor.name}
+                                  </Link>
+                                  {donor.amount > 0 && (
+                                    <span className="ml-2 shrink-0 text-money-success font-medium">
+                                      {formatMoney(donor.amount)}
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
+                              {group.donors.length > 5 && (
+                                <p className="text-xs text-zinc-600">+ {group.donors.length - 5} more donors</p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })() : (
                   <div className="rounded-xl border border-zinc-800 bg-zinc-900 px-6 py-8 text-center">
                     <p className="text-sm text-zinc-400">
-                      No structural relationships of concern identified in current data. This assessment is limited to indexed public records.
+                      No conflicts of interest identified in current data.
                     </p>
                   </div>
                 )}
