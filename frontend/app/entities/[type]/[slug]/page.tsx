@@ -391,11 +391,11 @@ function CompanyContent({
 
   return (
     <>
-      {/* Donor Profile — shown if company has donations */}
-      {donorProfile && <DonorProfileSection donorProfile={donorProfile} />}
-
       {/* Who funds this entity — auto-fetched from FEC */}
       <PacDonors slug={entity.slug} entityName={entity.name} />
+
+      {/* Donor Profile — who they fund */}
+      {donorProfile && <DonorProfileSection donorProfile={donorProfile} />}
 
       {/* Stock holders stats — only if no donor profile or always show stock info */}
       {!donorProfile && (
@@ -673,10 +673,11 @@ function DonorContent({
   if (donorProfile) {
     return (
       <>
-        <DonorProfileSection donorProfile={donorProfile} />
-
-        {/* Who funds this entity — auto-fetched from FEC */}
+        {/* Who funds this entity — the most interesting question, show first */}
         <PacDonors slug={entity.slug} entityName={entity.name} />
+
+        {/* Who they fund — outgoing donations */}
+        <DonorProfileSection donorProfile={donorProfile} />
 
         {/* Legislation they've lobbied for */}
         {billConnections.length > 0 && (
