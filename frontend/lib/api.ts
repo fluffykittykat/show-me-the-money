@@ -64,9 +64,9 @@ export async function getConnections(
   );
 }
 
-export async function getBriefing(slug: string): Promise<BriefingResponse> {
+export async function getBriefing(slug: string, refresh?: boolean): Promise<BriefingResponse> {
   return apiFetch<BriefingResponse>(
-    `/entities/${encodeURIComponent(slug)}/briefing`
+    `/entities/${encodeURIComponent(slug)}/briefing${refresh ? '?refresh=true' : ''}`
   );
 }
 

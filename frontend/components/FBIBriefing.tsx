@@ -445,9 +445,35 @@ export default function FBIBriefing({
               FBI Special Agent Briefing // Follow The Money
             </span>
           </div>
-          <span className="hidden font-mono text-xs text-zinc-600 sm:inline">
-            {capitalize(entityType)} // {entitySlug}
-          </span>
+          <div className="flex items-center gap-2">
+            {briefing && !loading && (
+              <button
+                onClick={() => {
+                  setLoading(true);
+                  setError(null);
+                  setBriefing(null);
+                  briefingCache.delete(entitySlug);
+                  getBriefing(entitySlug, true)
+                    .then((data) => {
+                      briefingCache.set(entitySlug, data);
+                      setBriefing(data);
+                    })
+                    .catch(() => {
+                      setError('Regeneration failed. Try again.');
+                    })
+                    .finally(() => {
+                      setLoading(false);
+                    });
+                }}
+                className="rounded border border-zinc-700 px-2 py-1 font-mono text-[10px] text-zinc-400 hover:border-money-gold hover:text-money-gold transition-colors"
+              >
+                Regenerate
+              </button>
+            )}
+            <span className="hidden font-mono text-xs text-zinc-600 sm:inline">
+              {capitalize(entityType)} // {entitySlug}
+            </span>
+          </div>
         </div>
 
         {/* Classification line */}
