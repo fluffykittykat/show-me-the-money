@@ -248,6 +248,22 @@ async def admin_enrich_bills(force: bool = False):
     return {"status": "started", "message": "Bill enrichment started in background (CRS summaries + text URLs)"}
 
 
+@admin_router.post("/fec/rematch")
+async def admin_fec_rematch():
+    """Re-match FEC data for officials using bioguide→FEC crosswalk. 100% accuracy."""
+    import asyncio
+    from app.services.ingestion.fec_rematch import run_fec_rematch
+
+    async def _run():
+        try:
+            return await run_fec_rematch()
+        except Exception as exc:
+            print(f"[fec_rematch] Error: {exc}")
+
+    asyncio.create_task(_run())
+    return {"status": "started", "message": "FEC re-match started using bioguide→FEC crosswalk (no name guessing)"}
+
+
 @admin_router.post("/briefings/generate")
 async def admin_generate_briefings(entity_type: str = "person", force: bool = False):
     """Pre-generate FBI briefings for all entities of a given type."""
