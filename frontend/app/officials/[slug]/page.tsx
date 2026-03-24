@@ -351,7 +351,16 @@ export default function OfficialProfilePage() {
   const stats = [
     { label: 'Years in Office', value: yearsInOffice },
     { label: 'Committees', value: entitySummary?.connection_counts?.committees ?? categorized.committees.length },
-    { label: 'Conflicts', value: conflictData?.total_conflicts ?? 0 },
+    { label: 'Conflicts', value: (() => {
+      if (!conflictData?.conflicts?.length) return 0;
+      // Deduplicate by committee name to match grouped display
+      const seen = new Set<string>();
+      for (const c of conflictData.conflicts) {
+        const committee = (c.evidence || []).find((e: Record<string, unknown>) => e.type === 'committee');
+        seen.add((committee as Record<string, unknown>)?.name as string || c.description.slice(0, 50));
+      }
+      return seen.size;
+    })() },
     { label: 'Stock Holdings', value: entitySummary?.connection_counts?.holdings ?? categorized.holdings.length },
     { label: 'Donors', value: entitySummary?.connection_counts?.donations ?? categorized.donations.length },
     {
