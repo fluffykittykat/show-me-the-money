@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { Entity } from '@/lib/types';
-import { getInitials, capitalize, truncate } from '@/lib/utils';
+import { getInitials, capitalize, truncate, timeAgo } from '@/lib/utils';
 import PartyBadge from './PartyBadge';
 import clsx from 'clsx';
 
@@ -98,6 +98,12 @@ export default function EntityCard({ entity }: EntityCardProps) {
           {entity.summary && (
             <p className="mt-2 text-sm leading-relaxed text-zinc-400">
               {truncate(entity.summary, 120)}
+            </p>
+          )}
+
+          {entity.updated_at && (
+            <p className="mt-2 text-xs text-zinc-600">
+              Updated {timeAgo(entity.updated_at)}
             </p>
           )}
         </div>
