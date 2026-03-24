@@ -5,8 +5,17 @@ export interface Entity {
   name: string;
   summary: string | null;
   metadata: Record<string, unknown>;
+  metadata_?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+}
+
+/** Get metadata from an entity, handling both metadata and metadata_ field names */
+export function getMeta(entity: Entity | Record<string, unknown> | null | undefined): Record<string, unknown> {
+  if (!entity) return {};
+  return (entity as Record<string, unknown>).metadata_ as Record<string, unknown>
+    || (entity as Record<string, unknown>).metadata as Record<string, unknown>
+    || {};
 }
 
 export interface Relationship {

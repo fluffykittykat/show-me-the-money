@@ -26,6 +26,7 @@ class EntityBrief(BaseModel):
     entity_type: str
     name: str
     summary: Optional[str] = None
+    metadata_: Optional[dict] = None
 
 
 class FlatConnectionItem(BaseModel):

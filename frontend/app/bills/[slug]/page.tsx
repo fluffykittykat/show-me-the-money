@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { getEntity, getBillMoneyTrail, getConnections } from '@/lib/api';
 import type { BillMoneyTrail } from '@/lib/api';
 import type { Entity, Relationship } from '@/lib/types';
+import { getMeta } from '@/lib/types';
 import { formatMoney } from '@/lib/utils';
 import ConflictBadge from '@/components/ConflictBadge';
 import MoneyTrail from '@/components/MoneyTrail';
@@ -233,7 +234,7 @@ export default function BillInvestigationPage() {
               <div className="space-y-1">
                 {sponsors.map((s) => {
                   const ce = s.connected_entity;
-                  const ceMeta = ce?.metadata as Record<string, unknown> | undefined;
+                  const ceMeta = getMeta(ce);
                   const party = (ceMeta?.party as string) || '';
                   const state = (ceMeta?.state as string) || '';
                   const displayName = ce?.name || s.from_entity_id;
@@ -273,7 +274,7 @@ export default function BillInvestigationPage() {
               <div className="space-y-1">
                 {cosponsors.map((c) => {
                   const ce = c.connected_entity;
-                  const ceMeta = ce?.metadata as Record<string, unknown> | undefined;
+                  const ceMeta = getMeta(ce);
                   const party = (ceMeta?.party as string) || '';
                   const state = (ceMeta?.state as string) || '';
                   const displayName = ce?.name || c.from_entity_id;
