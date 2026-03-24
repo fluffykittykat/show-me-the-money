@@ -25,6 +25,9 @@ import {
   Users,
   ExternalLink,
   ChevronRight,
+  ChevronDown,
+  Clock,
+  Tag,
 } from 'lucide-react';
 
 type Tab = 'money' | 'votes' | 'industries' | 'text';
@@ -52,6 +55,75 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   },
 ];
 
+// --- Bill status badge parser ---
+
+interface StatusBadge {
+  label: string;
+  colorClass: string;
+}
+
+function parseBillStatus(status: string): StatusBadge {
+  const lower = status.toLowerCase();
+
+  if (lower.includes('became public law') || lower.includes('became law') || lower.includes('signed by president')) {
+    return { label: 'BECAME LAW', colorClass: 'bg-green-900/60 text-green-300 border-green-700/50' };
+  }
+  if (lower.includes('vetoed') || lower.includes('failed') || lower.includes('pocket vetoed')) {
+    return { label: 'FAILED', colorClass: 'bg-red-900/60 text-red-300 border-red-700/50' };
+  }
+  if (lower.includes('passed house') && lower.includes('passed senate')) {
+    return { label: 'PASSED BOTH', colorClass: 'bg-blue-900/60 text-blue-300 border-blue-700/50' };
+  }
+  if (lower.includes('passed house') || lower.includes('passed senate') || lower.includes('agreed to in')) {
+    return { label: 'PASSED', colorClass: 'bg-blue-900/60 text-blue-300 border-blue-700/50' };
+  }
+  if (lower.includes('referred to') || lower.includes('committee')) {
+    return { label: 'IN COMMITTEE', colorClass: 'bg-yellow-900/60 text-yellow-300 border-yellow-700/50' };
+  }
+  if (lower.includes('introduced')) {
+    return { label: 'INTRODUCED', colorClass: 'bg-zinc-800 text-zinc-300 border-zinc-700' };
+  }
+  if (lower.includes('resolving differences') || lower.includes('conference')) {
+    return { label: 'IN CONFERENCE', colorClass: 'bg-purple-900/60 text-purple-300 border-purple-700/50' };
+  }
+  if (lower.includes('sent to president') || lower.includes('presented to president')) {
+    return { label: 'AT PRESIDENT', colorClass: 'bg-blue-900/60 text-blue-300 border-blue-700/50' };
+  }
+
+  return { label: 'PENDING', colorClass: 'bg-zinc-800 text-zinc-300 border-zinc-700' };
+}
+
+// --- Policy area color mapping ---
+
+const POLICY_AREA_COLORS: Record<string, string> = {
+  'health': 'bg-rose-900/50 text-rose-300 border-rose-700/40',
+  'defense': 'bg-slate-800 text-slate-300 border-slate-600/40',
+  'education': 'bg-indigo-900/50 text-indigo-300 border-indigo-700/40',
+  'energy': 'bg-amber-900/50 text-amber-300 border-amber-700/40',
+  'environment': 'bg-emerald-900/50 text-emerald-300 border-emerald-700/40',
+  'finance': 'bg-green-900/50 text-green-300 border-green-700/40',
+  'taxation': 'bg-green-900/50 text-green-300 border-green-700/40',
+  'immigration': 'bg-orange-900/50 text-orange-300 border-orange-700/40',
+  'crime': 'bg-red-900/50 text-red-300 border-red-700/40',
+  'technology': 'bg-cyan-900/50 text-cyan-300 border-cyan-700/40',
+  'agriculture': 'bg-lime-900/50 text-lime-300 border-lime-700/40',
+  'transportation': 'bg-sky-900/50 text-sky-300 border-sky-700/40',
+  'labor': 'bg-violet-900/50 text-violet-300 border-violet-700/40',
+};
+
+function getPolicyAreaColor(area: string): string {
+  const lower = area.toLowerCase();
+  for (const [key, value] of Object.entries(POLICY_AREA_COLORS)) {
+    if (lower.includes(key)) return value;
+  }
+  return 'bg-zinc-800 text-zinc-300 border-zinc-700';
+}
+
+// --- Sponsor donor data type ---
+interface SponsorDonors {
+  [sponsorSlug: string]: { name: string; amount: number }[];
+}
+
 export default function BillInvestigationPage() {
   const params = useParams();
   const slug = params.slug as string;
@@ -62,6 +134,8 @@ export default function BillInvestigationPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('money');
+  const [showFullSummary, setShowFullSummary] = useState(false);
+  const [sponsorDonors, setSponsorDonors] = useState<SponsorDonors>({});
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -75,6 +149,42 @@ export default function BillInvestigationPage() {
       setEntity(entityData);
       setMoneyTrail(moneyTrailData);
       setConnections(connectionsData.connections);
+
+      // Fetch top donors for each sponsor/cosponsor (fire-and-forget, non-blocking)
+      const allSponsorConnections = connectionsData.connections.filter(
+        (c) => c.relationship_type === 'sponsored' || c.relationship_type === 'cosponsored'
+      );
+      const sponsorSlugs = allSponsorConnections
+        .map((c) => c.connected_entity?.slug)
+        .filter((s): s is string => !!s);
+
+      // Fetch donors for each sponsor in parallel (limit to first 10 to avoid overload)
+      const donorPromises = sponsorSlugs.slice(0, 10).map(async (officialSlug) => {
+        try {
+          const donorData = await getConnections(officialSlug, { type: 'donated_to', limit: 3 });
+          const topDonors = donorData.connections
+            .filter((c) => c.amount_usd != null && c.amount_usd > 0)
+            .sort((a, b) => (b.amount_usd || 0) - (a.amount_usd || 0))
+            .slice(0, 3)
+            .map((c) => ({
+              name: c.connected_entity?.name || c.from_entity_id,
+              amount: c.amount_usd || 0,
+            }));
+          return { slug: officialSlug, donors: topDonors };
+        } catch {
+          return { slug: officialSlug, donors: [] };
+        }
+      });
+
+      Promise.all(donorPromises).then((results) => {
+        const donorMap: SponsorDonors = {};
+        for (const r of results) {
+          if (r.donors.length > 0) {
+            donorMap[r.slug] = r.donors;
+          }
+        }
+        setSponsorDonors(donorMap);
+      });
     } catch (err) {
       if (
         err instanceof Error &&
@@ -136,11 +246,17 @@ export default function BillInvestigationPage() {
   const status = (metadata?.status as string) || 'Unknown';
   const tldr = (metadata?.tldr as string) || '';
   const officialSummary =
-    (metadata?.official_summary as string) || entity.summary || '';
+    (metadata?.official_summary as string) ||
+    (metadata?.crs_summary as string) ||
+    entity.summary ||
+    '';
   const fullTextUrl = (metadata?.full_text_url as string) || '';
+  const latestActionDate = (metadata?.latest_action_date as string) || (metadata?.status_date as string) || '';
 
   const policyArea = (metadata?.policy_area as string) || '';
   const congressUrl = (metadata?.congress_url as string) || '';
+
+  const statusBadge = parseBillStatus(status);
 
   // Filter sponsors and cosponsors from connections
   const sponsors = connections.filter(
@@ -164,6 +280,50 @@ export default function BillInvestigationPage() {
     1
   );
 
+  // Helper to render a sponsor row with inline donors
+  function renderSponsorRow(rel: Relationship) {
+    const ce = rel.connected_entity;
+    const ceMeta = getMeta(ce);
+    const party = (ceMeta?.party as string) || '';
+    const state = (ceMeta?.state as string) || '';
+    const displayName = ce?.name || rel.from_entity_id;
+    const officialSlug = ce?.slug;
+    const donors = officialSlug ? sponsorDonors[officialSlug] : undefined;
+
+    return (
+      <div key={rel.id} className="rounded-lg px-3 py-2 transition-colors hover:bg-zinc-800">
+        <Link
+          href={officialSlug ? `/officials/${officialSlug}` : '#'}
+          className="group flex items-center justify-between"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-zinc-200 group-hover:text-zinc-100">
+              {displayName}
+            </span>
+            <PartyBadge party={party} />
+            {state && (
+              <span className="text-xs text-zinc-500">{state}</span>
+            )}
+          </div>
+          <ChevronRight className="h-4 w-4 text-zinc-600 group-hover:text-zinc-400" />
+        </Link>
+        {donors && donors.length > 0 && (
+          <div className="mt-1 ml-1 flex flex-wrap items-center gap-1 text-xs text-zinc-500">
+            <DollarSign className="h-3 w-3 text-money-gold/60" />
+            <span className="text-zinc-600">Top donors:</span>
+            {donors.map((d, i) => (
+              <span key={d.name}>
+                <span className="text-zinc-400">{d.name}</span>
+                <span className="text-money-gold/80"> ({formatMoney(d.amount)})</span>
+                {i < donors.length - 1 && <span className="text-zinc-700">, </span>}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       {/* Breadcrumb */}
@@ -183,6 +343,9 @@ export default function BillInvestigationPage() {
           <h1 className="text-3xl font-bold tracking-tight text-zinc-100">
             {entity.name}
           </h1>
+          <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-wider ${statusBadge.colorClass}`}>
+            {statusBadge.label}
+          </span>
           <ConflictBadge severity={conflictScore} size="md" />
         </div>
 
@@ -194,16 +357,73 @@ export default function BillInvestigationPage() {
               <span>{congress} Congress</span>
             </>
           )}
-          <span className="text-zinc-600">&middot;</span>
-          <span className="inline-flex items-center rounded-full bg-zinc-800 px-2.5 py-0.5 text-xs font-medium text-zinc-300">
-            {status}
-          </span>
+          {policyArea && (
+            <>
+              <span className="text-zinc-600">&middot;</span>
+              <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium ${getPolicyAreaColor(policyArea)}`}>
+                <Tag className="h-3 w-3" />
+                {policyArea}
+              </span>
+            </>
+          )}
         </div>
 
-        {entity.summary && (
-          <p className="mt-3 max-w-3xl text-sm leading-relaxed text-zinc-400">
-            {entity.summary}
-          </p>
+        {/* TLDR + Expandable Full Summary */}
+        {(tldr || officialSummary) && (
+          <div className="mt-4 max-w-4xl">
+            {tldr && (
+              <p className="text-sm leading-relaxed text-zinc-300">
+                {tldr}
+              </p>
+            )}
+            {officialSummary && officialSummary !== tldr && (
+              <div className="mt-2">
+                <button
+                  onClick={() => setShowFullSummary(!showFullSummary)}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-money-gold hover:text-money-gold-hover transition-colors"
+                >
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showFullSummary ? 'rotate-180' : ''}`} />
+                  {showFullSummary ? 'Hide full summary' : 'Read full CRS summary'}
+                </button>
+                {showFullSummary && (
+                  <div className="mt-2 rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
+                    <p className="text-sm leading-relaxed text-zinc-400 whitespace-pre-line">
+                      {officialSummary}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* External links row */}
+        {(fullTextUrl || congressUrl) && (
+          <div className="mt-4 flex flex-wrap gap-3">
+            {congressUrl && (
+              <a
+                href={congressUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-md bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-700"
+              >
+                View on Congress.gov
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            )}
+            {fullTextUrl && (
+              <a
+                href={fullTextUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100"
+              >
+                <FileText className="h-3.5 w-3.5" />
+                Read Full Text
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            )}
+          </div>
         )}
       </div>
 
@@ -216,13 +436,49 @@ export default function BillInvestigationPage() {
         />
       </div>
 
-      {/* Sponsors & Cosponsors */}
+      {/* Bill Status Timeline */}
+      {status && status !== 'Unknown' && (
+        <div className="mb-8 rounded-xl border border-zinc-800 bg-money-surface p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <Clock className="h-5 w-5 text-zinc-400" />
+            <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-400">
+              Bill Status Timeline
+            </h2>
+          </div>
+          <div className="flex items-start gap-4">
+            {/* Timeline dot and line */}
+            <div className="flex flex-col items-center pt-1">
+              <div className={`h-3 w-3 rounded-full ${
+                statusBadge.label === 'BECAME LAW' ? 'bg-green-500' :
+                statusBadge.label === 'FAILED' ? 'bg-red-500' :
+                statusBadge.label === 'PASSED' || statusBadge.label === 'PASSED BOTH' ? 'bg-blue-500' :
+                statusBadge.label === 'IN COMMITTEE' ? 'bg-yellow-500' :
+                'bg-zinc-500'
+              }`} />
+              <div className="mt-1 h-8 w-px bg-zinc-700" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${statusBadge.colorClass}`}>
+                  {statusBadge.label}
+                </span>
+                {latestActionDate && (
+                  <span className="text-xs text-zinc-500">{latestActionDate}</span>
+                )}
+              </div>
+              <p className="mt-1 text-sm text-zinc-300">{status}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sponsors & Cosponsors with top donors */}
       {(sponsors.length > 0 || cosponsors.length > 0) && (
         <div className="mb-8 rounded-xl border border-zinc-800 bg-money-surface p-6">
           <div className="mb-4 flex items-center gap-2">
             <Users className="h-5 w-5 text-zinc-400" />
             <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-400">
-              Sponsors
+              Sponsors & Their Money
             </h2>
           </div>
 
@@ -232,33 +488,7 @@ export default function BillInvestigationPage() {
                 Sponsored by:
               </p>
               <div className="space-y-1">
-                {sponsors.map((s) => {
-                  const ce = s.connected_entity;
-                  const ceMeta = getMeta(ce);
-                  const party = (ceMeta?.party as string) || '';
-                  const state = (ceMeta?.state as string) || '';
-                  const displayName = ce?.name || s.from_entity_id;
-                  const officialSlug = ce?.slug;
-
-                  return (
-                    <Link
-                      key={s.id}
-                      href={officialSlug ? `/officials/${officialSlug}` : '#'}
-                      className="group flex items-center justify-between rounded-lg px-3 py-2 transition-colors hover:bg-zinc-800"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-zinc-200 group-hover:text-zinc-100">
-                          {displayName}
-                        </span>
-                        <PartyBadge party={party} />
-                        {state && (
-                          <span className="text-xs text-zinc-500">{state}</span>
-                        )}
-                      </div>
-                      <ChevronRight className="h-4 w-4 text-zinc-600 group-hover:text-zinc-400" />
-                    </Link>
-                  );
-                })}
+                {sponsors.map((s) => renderSponsorRow(s))}
               </div>
             </div>
           )}
@@ -272,88 +502,8 @@ export default function BillInvestigationPage() {
                 </span>
               </p>
               <div className="space-y-1">
-                {cosponsors.map((c) => {
-                  const ce = c.connected_entity;
-                  const ceMeta = getMeta(ce);
-                  const party = (ceMeta?.party as string) || '';
-                  const state = (ceMeta?.state as string) || '';
-                  const displayName = ce?.name || c.from_entity_id;
-                  const officialSlug = ce?.slug;
-
-                  return (
-                    <Link
-                      key={c.id}
-                      href={officialSlug ? `/officials/${officialSlug}` : '#'}
-                      className="group flex items-center justify-between rounded-lg px-3 py-2 transition-colors hover:bg-zinc-800"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-zinc-200 group-hover:text-zinc-100">
-                          {displayName}
-                        </span>
-                        <PartyBadge party={party} />
-                        {state && (
-                          <span className="text-xs text-zinc-500">{state}</span>
-                        )}
-                      </div>
-                      <ChevronRight className="h-4 w-4 text-zinc-600 group-hover:text-zinc-400" />
-                    </Link>
-                  );
-                })}
+                {cosponsors.map((c) => renderSponsorRow(c))}
               </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Bill Status */}
-      {(status || policyArea || fullTextUrl || congressUrl) && (
-        <div className="mb-8 rounded-xl border border-zinc-800 bg-money-surface p-6">
-          <h2 className="mb-4 text-sm font-bold uppercase tracking-wider text-zinc-400">
-            Bill Status
-          </h2>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {status && (
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                  Latest Action
-                </p>
-                <p className="mt-1 text-sm text-zinc-300">{status}</p>
-              </div>
-            )}
-            {policyArea && (
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                  Policy Area
-                </p>
-                <p className="mt-1 text-sm text-zinc-300">{policyArea}</p>
-              </div>
-            )}
-          </div>
-          {(fullTextUrl || congressUrl) && (
-            <div className="mt-4 flex flex-wrap gap-3">
-              {fullTextUrl && (
-                <a
-                  href={fullTextUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100"
-                >
-                  <FileText className="h-3.5 w-3.5" />
-                  Full Text
-                  <ExternalLink className="h-3 w-3" />
-                </a>
-              )}
-              {congressUrl && (
-                <a
-                  href={congressUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100"
-                >
-                  Congress.gov
-                  <ExternalLink className="h-3 w-3" />
-                </a>
-              )}
             </div>
           )}
         </div>
