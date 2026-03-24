@@ -225,9 +225,9 @@ function DonorProfileSection({
           <div className="space-y-3">
             {donorProfile.recipients
               .sort((a, b) => (b.amount_usd ?? 0) - (a.amount_usd ?? 0))
-              .map((recipient) => (
+              .map((recipient, idx) => (
                 <div
-                  key={recipient.slug}
+                  key={recipient.slug || `recipient-${idx}`}
                   className="rounded-lg border border-zinc-800 bg-money-surface p-4 transition-colors hover:border-money-gold/30"
                 >
                   <div className="flex items-center justify-between">

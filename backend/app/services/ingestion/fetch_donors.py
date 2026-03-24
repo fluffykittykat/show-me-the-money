@@ -101,7 +101,8 @@ async def _find_officials_needing_donors() -> list[dict]:
         stmt = (
             select(Entity)
             .where(
-                Entity.entity_type.in_(["official", "politician"]),
+                Entity.entity_type == "person",
+                Entity.metadata_.has_key("bioguide_id"),
                 Entity.id.notin_(select(has_donors_subq.c.to_entity_id)),
             )
         )
