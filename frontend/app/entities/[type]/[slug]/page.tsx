@@ -1615,7 +1615,7 @@ export default function EntityPage() {
         {connections.length > 0 && (
           <section>
             <SectionHeading>All Connections</SectionHeading>
-            <RelationshipTable relationships={connections} />
+            <RelationshipTable relationships={connections} entityId={entity.id} />
           </section>
         )}
 
