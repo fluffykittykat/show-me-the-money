@@ -231,6 +231,11 @@ async def admin_ingest(slug: str):
         from app.services.ingestion.fetch_donors import run_fetch_donors
         _aio.create_task(run_fetch_donors())
         return {"status": "started", "message": "Donor fetch started (slow mode)"}
+    elif slug == "fetch-totals":
+        import asyncio as _aio
+        from app.services.ingestion.fetch_totals import run_fetch_totals
+        _aio.create_task(run_fetch_totals())
+        return {"status": "started", "message": "FEC totals fetch started for 137 officials"}
     elif slug == "party-money":
         import asyncio as _aio
         from app.services.ingestion.ingest_party_money import run_party_money_ingestion
