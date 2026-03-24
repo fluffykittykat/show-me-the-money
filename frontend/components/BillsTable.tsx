@@ -98,11 +98,11 @@ export default function BillsTable({ bills, votes = [] }: BillsTableProps) {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-zinc-800 text-xs uppercase tracking-wider text-zinc-500">
-                  <th className="px-4 py-3 font-medium">Title</th>
-                  <th className="px-4 py-3 font-medium">Bill #</th>
-                  <th className="px-4 py-3 font-medium">Introduced</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium">Policy Area</th>
+                  <th className="w-1/2 px-4 py-3 font-medium">Title</th>
+                  <th className="w-[8%] px-4 py-3 font-medium">Bill #</th>
+                  <th className="w-[12%] px-4 py-3 font-medium">Introduced</th>
+                  <th className="w-[15%] px-4 py-3 font-medium">Status</th>
+                  <th className="w-[15%] px-4 py-3 font-medium">Policy Area</th>
                 </tr>
               </thead>
               <tbody>
@@ -137,7 +137,7 @@ export default function BillsTable({ bills, votes = [] }: BillsTableProps) {
                       key={bill.id}
                       className="border-b border-zinc-800/50 transition-colors hover:bg-zinc-800/30"
                     >
-                      <td className="max-w-xs px-4 py-3">
+                      <td className="px-4 py-3">
                         <div>
                           {href && entity ? (
                             <Link
