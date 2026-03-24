@@ -145,11 +145,36 @@ async def top_conflicts(db: AsyncSession = Depends(get_db)):
         if not conflicts:
             continue
 
+        # Combine all signals into a single summary per official
         top = max(
             conflicts,
             key=lambda c: severity_rank.get(c.severity.lower(), 0),
         )
         meta = person.metadata_ or {}
+
+        # Build a combined description from all conflict signals
+        # Extract unique committees and donor counts from all signals
+        all_committees = set()
+        all_donors = set()
+        for c in conflicts:
+            for ev in (c.evidence or []):
+                if ev.get("type") == "committee":
+                    all_committees.add(ev.get("name", ""))
+                elif ev.get("type") == "donation":
+                    all_donors.add(ev.get("name", ""))
+
+        if all_committees and all_donors:
+            committees_str = ", ".join(list(all_committees)[:3])
+            if len(all_committees) > 3:
+                committees_str += f" (+{len(all_committees) - 3} more)"
+            combined_desc = (
+                f"Sits on {committees_str}. "
+                f"Receives donations from {len(all_donors)} entities in industries "
+                f"these committees regulate."
+            )
+        else:
+            combined_desc = top.description
+
         results.append(
             TopConflictItem(
                 slug=person.slug,
@@ -157,12 +182,20 @@ async def top_conflicts(db: AsyncSession = Depends(get_db)):
                 party=meta.get("party", ""),
                 state=meta.get("state", ""),
                 conflict_score=top.severity.upper(),
-                total_conflicts=len(conflicts),
-                top_conflict=top.description,
+                total_conflicts=len(all_donors) if all_donors else len(conflicts),
+                top_conflict=combined_desc,
             )
         )
 
-    results.sort(key=lambda x: x.total_conflicts, reverse=True)
+    # Sort by severity first (highest concern at top), then by signal count
+    score_rank = {
+        "HIGH_CONCERN": 4, "NOTABLE_PATTERN": 3,
+        "STRUCTURAL_RELATIONSHIP": 2, "CONNECTION_NOTED": 1,
+    }
+    results.sort(
+        key=lambda x: (score_rank.get(x.conflict_score, 0), x.total_conflicts),
+        reverse=True,
+    )
 
     # If conflict engine found results, return them
     if results:
