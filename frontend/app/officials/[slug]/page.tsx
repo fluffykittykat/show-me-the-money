@@ -20,8 +20,9 @@ import {
   getAllChains,
   getEntitySummary,
   getInfluenceMap,
+  getMoneyToBills,
 } from '@/lib/api';
-import type { InfluenceMap } from '@/lib/api';
+import type { InfluenceMap, MoneyToBillsResponse } from '@/lib/api';
 import type {
   ConflictData,
   DonationTimeline as DonationTimelineType,
@@ -150,6 +151,7 @@ export default function OfficialProfilePage() {
   const [hiddenSummary, setHiddenSummary] = useState<HiddenConnectionsSummary | null>(null);
   const [hiddenSummaryLoading, setHiddenSummaryLoading] = useState(true);
   const [influenceMap, setInfluenceMap] = useState<InfluenceMap | null>(null);
+  const [moneyToBills, setMoneyToBills] = useState<MoneyToBillsResponse | null>(null);
   const [revolvingDoorData, setRevolvingDoorData] = useState<RevolvingDoorItem[] | null>(null);
   const [familyData, setFamilyData] = useState<FamilyConnectionItem[] | null>(null);
   const [outsideIncomeData, setOutsideIncomeData] = useState<OutsideIncomeItem[] | null>(null);
@@ -185,7 +187,8 @@ export default function OfficialProfilePage() {
         getHiddenConnectionsSummary(slug).catch(() => null),
         getAllChains(slug).then(r => Array.isArray(r) ? r : (r as { chains: EvidenceChainResponse[] }).chains || []).catch(() => [] as EvidenceChainResponse[]),
         getInfluenceMap(slug).catch(() => null),
-      ]).then(([conflicts, timeline, network, interests, spotlights, summary, hiddenSum, chains, influence]) => {
+        getMoneyToBills(slug).catch(() => null),
+      ]).then(([conflicts, timeline, network, interests, spotlights, summary, hiddenSum, chains, influence, mtb]) => {
         setConflictData(conflicts);
         setTimelineData(timeline);
         setNetworkData(network);
@@ -196,6 +199,7 @@ export default function OfficialProfilePage() {
         setHiddenSummaryLoading(false);
         setEvidenceChains(chains as EvidenceChainResponse[]);
         setInfluenceMap(influence);
+        setMoneyToBills(mtb as MoneyToBillsResponse | null);
       });
     } catch (err) {
       if (err instanceof Error && 'status' in err && (err as Record<string, unknown>).status === 404) {
@@ -449,17 +453,30 @@ export default function OfficialProfilePage() {
     summaryLines.push(`Holds stock in ${stockNames}${categorized.holdings.length > 3 ? ` and ${categorized.holdings.length - 3} more` : ''}.`);
   }
 
-  // Line 5: Dual influence — the money shot
+  // Line 5: THE PUNCHLINE — connect donor → bill → committee
+  if (moneyToBills && moneyToBills.chains.length > 0) {
+    // Find the most interesting chain — most donors or highest amount
+    const bestChain = [...moneyToBills.chains].sort((a, b) => b.donor_count - a.donor_count)[0];
+    const topDonorInChain = bestChain.top_donors[0];
+    const topBillInChain = bestChain.related_bills[0];
+    if (topDonorInChain && topBillInChain) {
+      summaryLines.push(
+        `${topDonorInChain.name} donated ${formatMoney(topDonorInChain.amount)}. ${entity.name.split(',')[0]} then sponsored "${topBillInChain.name}" — a ${bestChain.policy_area} bill. Coincidence?`
+      );
+    }
+  }
+
+  // Line 6: Dual influence — lobbying + donating
   if (influenceMap && influenceMap.total > 0) {
-    const topInfluencers = influenceMap.dual_influence.slice(0, 3).map((d) => d.lobby_client_name);
+    const topInfluencer = influenceMap.dual_influence[0];
     summaryLines.push(
-      `${influenceMap.total} of their donors also lobby Congress — including ${topInfluencers.join(', ')}. They gave money AND paid lobbyists to influence legislation.`
+      `${topInfluencer.lobby_client_name} gave money to this official AND pays lobbyists to influence Congress. That's not illegal — but it's worth knowing.`
     );
   }
 
-  // Line 6: Conflict tease
+  // Line 7: Conflict tease
   if (totalConflictsCount > 0) {
-    summaryLines.push(`We identified ${totalConflictsCount} potential conflict${totalConflictsCount !== 1 ? 's' : ''} of interest worth investigating.`);
+    summaryLines.push(`We identified ${totalConflictsCount} potential conflict${totalConflictsCount !== 1 ? 's' : ''} of interest. Scroll down to investigate.`);
   }
 
   const quickSummaryText = summaryLines.length > 0
