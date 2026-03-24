@@ -217,6 +217,7 @@ export interface TimelineEvent {
   description: string;
   amount_usd: number | null;
   days_before_vote: number | null;
+  related_entity_slug: string | null;
 }
 
 export interface DonationTimeline {
