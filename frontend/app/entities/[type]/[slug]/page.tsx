@@ -1558,15 +1558,6 @@ export default function EntityPage() {
           </section>
         )}
 
-        {/* AI Briefing — front and center for every entity type */}
-        <section className="mb-8">
-          <FBIBriefing
-            entitySlug={slug}
-            entityName={entity.name}
-            entityType={entity.entity_type}
-          />
-        </section>
-
         {/* Type-specific content */}
         {typeData?.kind === 'company' && (
           <CompanyContent
