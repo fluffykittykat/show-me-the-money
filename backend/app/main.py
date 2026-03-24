@@ -216,6 +216,38 @@ async def admin_ingest(slug: str):
     return {"status": "ok", "message": f"Ingestion complete for {slug}"}
 
 
+@admin_router.post("/ingest/lobbying")
+async def admin_ingest_lobbying(
+    max_filings: int = 500,
+    years: str = "2024,2025",
+):
+    """Start bulk lobbying ingestion from Senate LDA API.
+
+    Args:
+        max_filings: Max filings per year (default 500)
+        years: Comma-separated filing years (default "2024,2025")
+    """
+    import asyncio
+    from app.services.ingestion.ingest_lobbying_bulk import run_lobbying_bulk_ingestion
+
+    year_list = [int(y.strip()) for y in years.split(",") if y.strip()]
+
+    async def _run():
+        try:
+            return await run_lobbying_bulk_ingestion(
+                years=year_list,
+                max_filings=max_filings,
+            )
+        except Exception as exc:
+            print(f"[ingest_lobbying_bulk] Error: {exc}")
+
+    asyncio.create_task(_run())
+    return {
+        "status": "started",
+        "message": f"Lobbying bulk ingestion started (years={year_list}, max={max_filings}/year)",
+    }
+
+
 @admin_router.post("/enrich/senators")
 async def admin_enrich_senators():
     """Phase 2: Enrich all senators with LDA lobbying data."""
@@ -262,6 +294,22 @@ async def admin_fec_rematch():
 
     asyncio.create_task(_run())
     return {"status": "started", "message": "FEC re-match started using bioguide→FEC crosswalk (no name guessing)"}
+
+
+@admin_router.post("/ingest/committees")
+async def admin_ingest_committees():
+    """Start committee assignment ingestion from congress-legislators data."""
+    import asyncio
+    from app.services.ingestion.ingest_committees import run_committee_ingestion
+
+    async def _run():
+        try:
+            return await run_committee_ingestion()
+        except Exception as exc:
+            print(f"[committees] Error: {exc}")
+
+    asyncio.create_task(_run())
+    return {"status": "started", "message": "Committee ingestion started"}
 
 
 @admin_router.post("/briefings/generate")
