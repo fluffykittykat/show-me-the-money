@@ -113,13 +113,24 @@ async def active_bills(db: AsyncSession = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 
+import time as _time
+
+# Simple in-memory cache for top-conflicts (expensive query)
+_top_conflicts_cache: dict[str, tuple[float, list]] = {}
+_CACHE_TTL = 300  # 5 minutes
+
+
 @router.get("/top-conflicts", response_model=list[TopConflictItem])
 async def top_conflicts(db: AsyncSession = Depends(get_db)):
     """Return officials with the most multi-factor conflict signals.
 
-    Only includes officials with 2+ connected dots (donor + committee,
-    stock + vote, etc). Single-factor structural relationships are excluded.
+    Cached for 5 minutes to avoid re-scanning all 500 officials on every page load.
     """
+    cache_key = "top_conflicts"
+    if cache_key in _top_conflicts_cache:
+        cached_at, cached_data = _top_conflicts_cache[cache_key]
+        if _time.time() - cached_at < _CACHE_TTL:
+            return cached_data
     try:
         from app.services.conflict_engine import detect_conflicts
     except ImportError:
@@ -197,9 +208,11 @@ async def top_conflicts(db: AsyncSession = Depends(get_db)):
         reverse=True,
     )
 
-    # If conflict engine found results, return them
+    # If conflict engine found results, cache and return
     if results:
-        return results[:10]
+        final = results[:10]
+        _top_conflicts_cache[cache_key] = (_time.time(), final)
+        return final
 
     # Fallback: rank officials by total donations received (most funded = most to investigate)
     from sqlalchemy import desc
@@ -286,7 +299,9 @@ async def top_conflicts(db: AsyncSession = Depends(get_db)):
             )
         )
 
-    return fallback_results[:10]
+    final = fallback_results[:10]
+    _top_conflicts_cache[cache_key] = (_time.time(), final)
+    return final
 
 
 # ---------------------------------------------------------------------------
