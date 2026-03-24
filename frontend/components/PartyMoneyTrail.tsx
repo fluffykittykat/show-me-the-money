@@ -18,8 +18,10 @@ const PARTY_COMMITTEES = ['dscc', 'nrsc', 'dccc', 'nrcc'];
 interface CommitteeChain {
   committeeName: string;
   committeeSlug: string;
-  amountToOfficial: number;
-  topDonors: { name: string; slug: string; amount: number }[];
+  committeeId: string;
+  totalToOfficial: number;
+  topFunders: { name: string; slug: string }[];
+  totalFunders: number;
 }
 
 export default function PartyMoneyTrail({ slug, officialName, donations }: PartyMoneyTrailProps) {
@@ -27,46 +29,58 @@ export default function PartyMoneyTrail({ slug, officialName, donations }: Party
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Find party committee donations to this official
-    const partyDonations = donations.filter((d) => {
-      const ce = d.connected_entity;
-      if (!ce) return false;
-      const slugLower = ce.slug.toLowerCase();
-      return PARTY_COMMITTEES.some((pc) => slugLower.includes(pc));
-    });
+    // Find and DEDUPLICATE party committee donations to this official
+    const committeeMap = new Map<string, { name: string; slug: string; id: string; total: number }>();
 
-    if (partyDonations.length === 0) {
+    for (const d of donations) {
+      const ce = d.connected_entity;
+      if (!ce) continue;
+      const slugLower = ce.slug.toLowerCase();
+      if (!PARTY_COMMITTEES.some((pc) => slugLower.includes(pc))) continue;
+
+      const existing = committeeMap.get(ce.slug);
+      if (existing) {
+        existing.total += d.amount_usd ?? 0;
+      } else {
+        committeeMap.set(ce.slug, {
+          name: ce.name,
+          slug: ce.slug,
+          id: ce.id,
+          total: d.amount_usd ?? 0,
+        });
+      }
+    }
+
+    if (committeeMap.size === 0) {
       setLoading(false);
       return;
     }
 
-    // For each party committee, fetch who donates TO them
     const fetchChains = async () => {
       const results: CommitteeChain[] = [];
 
-      for (const donation of partyDonations) {
-        const ce = donation.connected_entity;
-        if (!ce) continue;
-
+      for (const [, committee] of committeeMap) {
         try {
-          const connections = await getConnections(ce.slug, { limit: 100 });
-          // Find donations TO this committee (where committee is the to_entity)
-          const incomingDonors = connections.connections
-            .filter((c) => c.relationship_type === 'donated_to' && c.to_entity_id === ce.id)
-            .sort((a, b) => (b.amount_usd ?? 0) - (a.amount_usd ?? 0))
-            .slice(0, 5)
-            .map((c) => ({
-              name: c.connected_entity?.name || 'Unknown',
-              slug: c.connected_entity?.slug || '',
-              amount: c.amount_usd ?? 0,
-            }));
+          const connections = await getConnections(committee.slug, { limit: 100 });
+          // Find unique donors TO this committee
+          const donorMap = new Map<string, { name: string; slug: string }>();
+          for (const c of connections.connections) {
+            if (c.relationship_type === 'donated_to' && c.to_entity_id === committee.id) {
+              const ce = c.connected_entity;
+              if (ce && !donorMap.has(ce.slug)) {
+                donorMap.set(ce.slug, { name: ce.name, slug: ce.slug });
+              }
+            }
+          }
 
-          if (incomingDonors.length > 0) {
+          if (donorMap.size > 0) {
             results.push({
-              committeeName: ce.name,
-              committeeSlug: ce.slug,
-              amountToOfficial: donation.amount_usd ?? 0,
-              topDonors: incomingDonors,
+              committeeName: committee.name,
+              committeeSlug: committee.slug,
+              committeeId: committee.id,
+              totalToOfficial: committee.total,
+              topFunders: Array.from(donorMap.values()).slice(0, 5),
+              totalFunders: donorMap.size,
             });
           }
         } catch {
@@ -91,55 +105,56 @@ export default function PartyMoneyTrail({ slug, officialName, donations }: Party
           The Middleman: Party Committee Money
         </h3>
         <p className="mt-1 mb-4 text-sm text-zinc-400">
-          These companies and organizations fund the party committee, which then distributes
-          money to {officialName}. The party committee is the middleman that makes a
-          transactional relationship look like ordinary party support.
+          These organizations fund the party committee, which then distributes
+          money to {officialName}. The party committee makes a transactional
+          relationship look like ordinary party support.
         </p>
 
         {chains.map((chain) => (
           <div key={chain.committeeSlug} className="mb-4 last:mb-0">
-            {/* Flow: Donors → Committee → Official */}
             <div className="flex items-stretch gap-0 rounded-xl overflow-hidden border border-zinc-800">
-              {/* Left: Donors */}
+              {/* Left: Who funds the committee */}
               <div className="flex-1 bg-zinc-900 p-4">
                 <span className="block text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-2">
-                  Who funds it
+                  Who funds the {chain.committeeName.replace('Democratic ', '').replace('National ', '').replace('Republican ', '').split(' Committee')[0]}
                 </span>
                 <div className="space-y-1.5">
-                  {chain.topDonors.map((donor) => (
-                    <div key={donor.slug} className="flex items-center justify-between">
-                      <Link
-                        href={`/entities/organization/${donor.slug}`}
-                        className="truncate text-sm text-zinc-300 hover:text-money-gold"
-                      >
-                        {donor.name}
-                      </Link>
-                      <span className="ml-2 shrink-0 text-xs font-semibold text-money-success">
-                        {formatMoney(donor.amount)}
-                      </span>
-                    </div>
+                  {chain.topFunders.map((funder) => (
+                    <Link
+                      key={funder.slug}
+                      href={`/entities/organization/${funder.slug}`}
+                      className="block truncate text-sm text-zinc-300 hover:text-money-gold"
+                    >
+                      {funder.name}
+                    </Link>
                   ))}
+                  {chain.totalFunders > 5 && (
+                    <span className="text-[10px] text-zinc-600">
+                      + {chain.totalFunders - 5} more
+                    </span>
+                  )}
                 </div>
               </div>
 
-              {/* Middle: Arrow + Committee */}
-              <div className="flex flex-col items-center justify-center bg-zinc-800/50 px-3">
-                <ArrowRight className="h-4 w-4 text-money-gold" />
+              {/* Middle: Committee */}
+              <div className="flex flex-col items-center justify-center bg-zinc-800/50 px-4">
+                <ArrowRight className="h-4 w-4 text-red-400" />
                 <Link
                   href={`/entities/pac/${chain.committeeSlug}`}
-                  className="mt-1 text-[10px] font-bold text-money-gold hover:text-money-gold-hover text-center whitespace-nowrap"
+                  className="mt-1 text-xs font-bold text-red-400 hover:text-red-300 text-center"
                 >
-                  {chain.committeeName.replace('Democratic ', 'Dem. ').replace('Republican ', 'Rep. ').replace('Congressional ', '').replace('Campaign Committee', '').replace('Senatorial ', 'Sen. ').trim()}
+                  {chain.committeeName.replace('Democratic ', 'Dem. ').replace('National ', '').replace('Republican ', 'Rep. ').replace('Congressional ', '').replace('Campaign Committee', '').replace('Senatorial ', 'Sen. ').trim()}
                 </Link>
-                <span className="text-[10px] text-zinc-500">
-                  {formatMoney(chain.amountToOfficial)}
-                </span>
-                <ArrowRight className="h-4 w-4 text-money-gold mt-1" />
+                <ArrowRight className="h-4 w-4 text-red-400 mt-1" />
               </div>
 
-              {/* Right: Official */}
-              <div className="flex items-center justify-center bg-zinc-900 px-4">
+              {/* Right: Official + amount received */}
+              <div className="flex flex-col items-center justify-center bg-zinc-900 px-4 py-3">
                 <span className="text-sm font-semibold text-zinc-200">{officialName}</span>
+                <span className="mt-1 text-lg font-bold text-money-success">
+                  {formatMoney(chain.totalToOfficial)}
+                </span>
+                <span className="text-[10px] text-zinc-500">received</span>
               </div>
             </div>
           </div>
