@@ -338,7 +338,7 @@ export default function HomePage() {
                   </p>
                   <div className="mt-3 flex items-center justify-between">
                     <span className="text-xs text-orange-400/70">
-                      {official.total_conflicts} conflict signal{official.total_conflicts !== 1 ? 's' : ''}
+                      {official.total_conflicts} {official.total_conflicts > 20 ? 'donors' : 'conflict signal' + (official.total_conflicts !== 1 ? 's' : '')}
                     </span>
                     <span className="inline-flex items-center gap-1 text-xs font-semibold text-money-gold opacity-0 transition-opacity group-hover:opacity-100">
                       Investigate <ArrowRight className="h-3 w-3" />

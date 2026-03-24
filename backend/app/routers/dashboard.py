@@ -163,7 +163,57 @@ async def top_conflicts(db: AsyncSession = Depends(get_db)):
         )
 
     results.sort(key=lambda x: x.total_conflicts, reverse=True)
-    return results[:10]
+
+    # If conflict engine found results, return them
+    if results:
+        return results[:10]
+
+    # Fallback: rank officials by total donations received (most funded = most to investigate)
+    from sqlalchemy import desc
+    top_funded_q = (
+        select(
+            Relationship.to_entity_id,
+            func.sum(Relationship.amount_usd).label("total"),
+            func.count(func.distinct(Relationship.from_entity_id)).label("donor_count"),
+        )
+        .where(Relationship.relationship_type == "donated_to")
+        .group_by(Relationship.to_entity_id)
+        .order_by(desc("total"))
+        .limit(10)
+    )
+    funded_rows = (await db.execute(top_funded_q)).all()
+
+    if not funded_rows:
+        return []
+
+    entity_ids = [r[0] for r in funded_rows]
+    entities_result = await db.execute(
+        select(Entity).where(Entity.id.in_(entity_ids))
+    )
+    entities_map = {e.id: e for e in entities_result.scalars().all()}
+
+    fallback_results = []
+    for entity_id, total_donated, donor_count in funded_rows:
+        entity = entities_map.get(entity_id)
+        if not entity or entity.entity_type != "person":
+            continue
+        meta = entity.metadata_ or {}
+        if not meta.get("bioguide_id"):
+            continue
+        dollars = (total_donated or 0) / 100
+        fallback_results.append(
+            TopConflictItem(
+                slug=entity.slug,
+                name=entity.name,
+                party=meta.get("party", ""),
+                state=meta.get("state", ""),
+                conflict_score="NOTABLE_PATTERN",
+                total_conflicts=donor_count,
+                top_conflict=f"Received ${dollars:,.0f} from {donor_count} donors. Follow the money to see who funds this official and what they might want in return.",
+            )
+        )
+
+    return fallback_results[:10]
 
 
 # ---------------------------------------------------------------------------
