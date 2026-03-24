@@ -100,21 +100,34 @@ export default function BillsTable({ bills, votes = [] }: BillsTableProps) {
                 <tr className="border-b border-zinc-800 text-xs uppercase tracking-wider text-zinc-500">
                   <th className="px-4 py-3 font-medium">Title</th>
                   <th className="px-4 py-3 font-medium">Bill #</th>
-                  <th className="px-4 py-3 font-medium">Date</th>
+                  <th className="px-4 py-3 font-medium">Introduced</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                   <th className="px-4 py-3 font-medium">Policy Area</th>
                 </tr>
               </thead>
               <tbody>
-                {bills.map((bill) => {
+                {[...bills]
+                  .sort((a, b) => {
+                    const aDate = (a.connected_entity as Record<string, unknown>)?.metadata_ as Record<string, unknown>;
+                    const bDate = (b.connected_entity as Record<string, unknown>)?.metadata_ as Record<string, unknown>;
+                    const aStr = (aDate?.introduced_date as string) || (aDate?.introducedDate as string) || a.date_start || '';
+                    const bStr = (bDate?.introduced_date as string) || (bDate?.introducedDate as string) || b.date_start || '';
+                    return bStr.localeCompare(aStr); // newest first
+                  })
+                  .map((bill) => {
                   const meta = bill.metadata as Record<string, unknown>;
-                  const billType = (meta?.type as string) || '';
-                  const billNum = (meta?.number as string) || '';
-                  const billNumber = billType && billNum ? `${billType}.${billNum}` : '--';
-                  const status = (meta?.status as string) || 'Unknown';
-                  const policyArea = (meta?.policyArea as string) || '--';
-                  const cosponsors = (meta?.cosponsors as Array<{ slug: string; name: string }>) || [];
                   const entity = bill.connected_entity;
+                  // Get bill metadata from the connected entity (the bill) not the relationship
+                  const billMeta = (entity as Record<string, unknown>)?.metadata_ as Record<string, unknown>
+                    || (entity as Record<string, unknown>)?.metadata as Record<string, unknown>
+                    || meta || {};
+                  const billType = (billMeta?.type as string) || (meta?.type as string) || '';
+                  const billNum = (billMeta?.number as string) || (billMeta?.bill_number as string) || (meta?.number as string) || '';
+                  const billNumber = billType && billNum ? `${billType}.${billNum}` : '--';
+                  const status = (billMeta?.status as string) || (meta?.status as string) || 'Unknown';
+                  const policyArea = (billMeta?.policy_area as string) || (billMeta?.policyArea as string) || (meta?.policyArea as string) || '--';
+                  const introducedDate = (billMeta?.introduced_date as string) || (billMeta?.introducedDate as string) || '';
+                  const cosponsors = (meta?.cosponsors as Array<{ slug: string; name: string }>) || [];
                   const href = entity
                     ? `/bills/${entity.slug}`
                     : null;
@@ -163,7 +176,7 @@ export default function BillsTable({ bills, votes = [] }: BillsTableProps) {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-zinc-400">
-                        {formatDate(bill.date_start)}
+                        {formatDate(introducedDate || bill.date_start)}
                       </td>
                       <td className="px-4 py-3">
                         <StatusBadge status={status} />
