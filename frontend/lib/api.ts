@@ -490,6 +490,25 @@ export async function getFeaturedStory(): Promise<FeaturedStory> {
   return apiFetch<FeaturedStory>('/dashboard/featured-story');
 }
 
+export interface DualInfluenceItem {
+  donor_name: string;
+  donor_slug: string;
+  donation_amount: number;
+  lobby_client_name: string;
+}
+
+export interface InfluenceMap {
+  entity: string;
+  entity_name: string;
+  dual_influence: DualInfluenceItem[];
+  total: number;
+  total_donors: number;
+}
+
+export async function getInfluenceMap(slug: string): Promise<InfluenceMap> {
+  return apiFetch<InfluenceMap>(`/entities/${encodeURIComponent(slug)}/influence-map`);
+}
+
 export interface TopInfluencer {
   slug: string;
   name: string;

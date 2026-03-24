@@ -19,7 +19,9 @@ import {
   getTradeTimingAnalysis,
   getAllChains,
   getEntitySummary,
+  getInfluenceMap,
 } from '@/lib/api';
+import type { InfluenceMap } from '@/lib/api';
 import type {
   ConflictData,
   DonationTimeline as DonationTimelineType,
@@ -145,6 +147,7 @@ export default function OfficialProfilePage() {
   const [spotlightData, setSpotlightData] = useState<RelationshipSpotlightData[]>([]);
   const [hiddenSummary, setHiddenSummary] = useState<HiddenConnectionsSummary | null>(null);
   const [hiddenSummaryLoading, setHiddenSummaryLoading] = useState(true);
+  const [influenceMap, setInfluenceMap] = useState<InfluenceMap | null>(null);
   const [revolvingDoorData, setRevolvingDoorData] = useState<RevolvingDoorItem[] | null>(null);
   const [familyData, setFamilyData] = useState<FamilyConnectionItem[] | null>(null);
   const [outsideIncomeData, setOutsideIncomeData] = useState<OutsideIncomeItem[] | null>(null);
@@ -179,7 +182,8 @@ export default function OfficialProfilePage() {
         getEntitySummary(slug).catch(() => null),
         getHiddenConnectionsSummary(slug).catch(() => null),
         getAllChains(slug).then(r => Array.isArray(r) ? r : (r as { chains: EvidenceChainResponse[] }).chains || []).catch(() => [] as EvidenceChainResponse[]),
-      ]).then(([conflicts, timeline, network, interests, spotlights, summary, hiddenSum, chains]) => {
+        getInfluenceMap(slug).catch(() => null),
+      ]).then(([conflicts, timeline, network, interests, spotlights, summary, hiddenSum, chains, influence]) => {
         setConflictData(conflicts);
         setTimelineData(timeline);
         setNetworkData(network);
@@ -189,6 +193,7 @@ export default function OfficialProfilePage() {
         setHiddenSummary(hiddenSum);
         setHiddenSummaryLoading(false);
         setEvidenceChains(chains as EvidenceChainResponse[]);
+        setInfluenceMap(influence);
       });
     } catch (err) {
       if (err instanceof Error && 'status' in err && (err as Record<string, unknown>).status === 404) {
@@ -442,7 +447,15 @@ export default function OfficialProfilePage() {
     summaryLines.push(`Holds stock in ${stockNames}${categorized.holdings.length > 3 ? ` and ${categorized.holdings.length - 3} more` : ''}.`);
   }
 
-  // Line 5: Conflict tease
+  // Line 5: Dual influence — the money shot
+  if (influenceMap && influenceMap.total > 0) {
+    const topInfluencers = influenceMap.dual_influence.slice(0, 3).map((d) => d.lobby_client_name);
+    summaryLines.push(
+      `${influenceMap.total} of their donors also lobby Congress — including ${topInfluencers.join(', ')}. They gave money AND paid lobbyists to influence legislation.`
+    );
+  }
+
+  // Line 6: Conflict tease
   if (totalConflictsCount > 0) {
     summaryLines.push(`We identified ${totalConflictsCount} potential conflict${totalConflictsCount !== 1 ? 's' : ''} of interest worth investigating.`);
   }

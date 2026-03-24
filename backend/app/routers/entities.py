@@ -105,3 +105,74 @@ async def get_entity_connections(
         connections=connections,
         total=total,
     )
+
+
+@router.get("/{slug}/influence-map")
+async def get_influence_map(slug: str, db: AsyncSession = Depends(get_db)):
+    """Find entities that both donate to AND lobby related to this official.
+
+    These are the strongest influence signals: an entity gives money to
+    your campaign AND pays lobbyists to influence legislation.
+    """
+    result = await db.execute(select(Entity).where(Entity.slug == slug))
+    entity = result.scalar_one_or_none()
+    if not entity:
+        raise HTTPException(status_code=404, detail="Entity not found")
+
+    # Find all donors to this official
+    donor_rels = (await db.execute(
+        select(Relationship, Entity)
+        .join(Entity, Entity.id == Relationship.from_entity_id)
+        .where(
+            Relationship.to_entity_id == entity.id,
+            Relationship.relationship_type == "donated_to",
+        )
+    )).all()
+
+    if not donor_rels:
+        return {"entity": slug, "dual_influence": [], "total": 0}
+
+    # Get all lobbying clients
+    lobby_clients = (await db.execute(
+        select(Entity.name, Entity.slug, Entity.id)
+        .join(Relationship, Relationship.to_entity_id == Entity.id)
+        .where(Relationship.relationship_type == "lobbies_on_behalf_of")
+    )).all()
+
+    # Build a lookup of lobby client names (lowercased) -> slug
+    lobby_lookup: dict[str, str] = {}
+    for name, client_slug, client_id in lobby_clients:
+        lobby_lookup[name.lower()] = client_slug
+
+    # Match donors to lobby clients
+    dual_influence = []
+    for rel, donor_entity in donor_rels:
+        donor_name = donor_entity.name.lower()
+        # Check if this donor (or part of their name) matches a lobbying client
+        matched_client = None
+        for lobby_name, lobby_slug in lobby_lookup.items():
+            # Match if donor name contains the lobby client name or vice versa
+            donor_key = donor_name.split(",")[0].strip() if "," in donor_name else donor_name
+            if len(donor_key) > 5 and (donor_key in lobby_name or lobby_name in donor_key):
+                matched_client = lobby_name
+                break
+
+        if matched_client:
+            dual_influence.append({
+                "donor_name": donor_entity.name,
+                "donor_slug": donor_entity.slug,
+                "donor_type": donor_entity.entity_type,
+                "donation_amount": rel.amount_usd or 0,
+                "also_lobbies": True,
+                "lobby_client_name": matched_client.title(),
+            })
+
+    dual_influence.sort(key=lambda x: x["donation_amount"], reverse=True)
+
+    return {
+        "entity": slug,
+        "entity_name": entity.name,
+        "dual_influence": dual_influence,
+        "total": len(dual_influence),
+        "total_donors": len(donor_rels),
+    }
