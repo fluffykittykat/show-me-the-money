@@ -229,10 +229,14 @@ def _build_system_prompt(entity_type: str) -> str:
         "paragraph: the hidden connections -- family income, revolving door "
         "lobbyists, suspicious timing.]\n\n"
         "INVESTIGATIVE ASSESSMENT:\n"
-        "[1 paragraph: What questions should the public be asking? What warrants "
-        "further investigation? What would you look at next if this were a real "
-        "case? End with a clear, plain-English summary of the overall concern "
-        "level.]"
+        "[Break this into clearly structured subsections. DO NOT write one giant "
+        "paragraph. Use this structure:]\n\n"
+        "If this were an active case file, this unit would focus on:\n\n"
+        "- **[Area 1 title]**: [2-3 sentences explaining what to investigate and why]\n"
+        "- **[Area 2 title]**: [2-3 sentences]\n"
+        "- **[Area 3 title]** (if applicable): [2-3 sentences]\n\n"
+        "**The bottom line:** [1-2 sentences. Plain English. What should the "
+        "public take away? What is the overall concern level and why?]"
     )
 
     type_specific = {
