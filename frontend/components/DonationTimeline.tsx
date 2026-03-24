@@ -46,12 +46,12 @@ export default function DonationTimeline({
     );
   }
 
-  // Sort events by date
+  // Sort events by date — newest first
   const sorted = [...events].sort((a, b) => {
     if (!a.date && !b.date) return 0;
     if (!a.date) return 1;
     if (!b.date) return -1;
-    return new Date(a.date).getTime() - new Date(b.date).getTime();
+    return new Date(b.date).getTime() - new Date(a.date).getTime();
   });
 
   return (
