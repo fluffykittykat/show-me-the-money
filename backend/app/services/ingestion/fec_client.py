@@ -41,7 +41,7 @@ class FECClient:
                 raise
 
     async def fetch_top_contributors(
-        self, committee_id: str, cycle: int = 2022, per_page: int = 100
+        self, committee_id: str, cycle: int = 2024, per_page: int = 100
     ) -> list:
         """Fetch top individual contributors for a committee, up to 3 pages."""
         url = f"{BASE_URL}/schedules/schedule_a/"

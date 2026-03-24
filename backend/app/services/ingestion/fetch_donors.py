@@ -276,11 +276,16 @@ async def run_fetch_donors() -> str:
                 errors.append({"official": name, "error": "no committee_id"})
                 continue
 
-            # Fetch top contributors (this may paginate = multiple API calls)
-            contributors = await fec_client.fetch_top_contributors(
-                committee_id, per_page=DONORS_PER_OFFICIAL
-            )
-            logger.info("  Got %d contributors for %s", len(contributors), name)
+            # Fetch top contributors for recent cycles (2024 first, then 2022)
+            contributors = []
+            for cycle in [2024, 2022]:
+                cycle_donors = await fec_client.fetch_top_contributors(
+                    committee_id, cycle=cycle, per_page=DONORS_PER_OFFICIAL
+                )
+                contributors.extend(cycle_donors)
+                if cycle_donors:
+                    logger.info("  Got %d contributors for %s (cycle %d)", len(cycle_donors), name, cycle)
+                await asyncio.sleep(DELAY_BETWEEN_API_CALLS)
 
             # Create donor entities and relationships
             created = await _create_donor_relationships(
