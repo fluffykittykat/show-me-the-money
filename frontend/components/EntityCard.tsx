@@ -101,11 +101,16 @@ export default function EntityCard({ entity }: EntityCardProps) {
             </p>
           )}
 
-          {entity.updated_at && (
-            <p className="mt-2 text-xs text-zinc-600">
-              Updated {timeAgo(entity.updated_at)}
-            </p>
-          )}
+          <div className="mt-2 flex items-center gap-2">
+            {entity.entity_type === 'person' && metadata?.bioguide_id && !metadata?.fec_candidate_id && (
+              <span className="text-[10px] text-amber-500/70">Incomplete data</span>
+            )}
+            {entity.updated_at && (
+              <span className="text-xs text-zinc-600">
+                Updated {timeAgo(entity.updated_at)}
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </Link>

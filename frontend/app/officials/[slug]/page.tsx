@@ -583,6 +583,36 @@ export default function OfficialProfilePage() {
             </p>
           </div>
 
+          {/* Data completeness indicator */}
+          {(() => {
+            const hasDonors = categorized.donations.length > 0;
+            const hasCommittees = categorized.committees.length > 0;
+            const hasHoldings = categorized.holdings.length > 0;
+            const hasBills = categorized.bills.length > 0;
+            const dataPoints = [hasDonors, hasCommittees, hasBills, hasHoldings];
+            const completeness = dataPoints.filter(Boolean).length;
+            const isIncomplete = completeness < 3;
+
+            if (isIncomplete) {
+              const missing: string[] = [];
+              if (!hasDonors) missing.push('campaign donors');
+              if (!hasCommittees) missing.push('committee assignments');
+              if (!hasHoldings) missing.push('stock holdings');
+
+              return (
+                <div className="mb-4 rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2">
+                  <p className="text-xs text-amber-400">
+                    <span className="font-bold">Incomplete data.</span>{' '}
+                    {missing.length > 0 && `Missing: ${missing.join(', ')}. `}
+                    This does not mean this official is free of conflicts — it means our data coverage is limited.
+                    We are actively working to fill gaps from public records.
+                  </p>
+                </div>
+              );
+            }
+            return null;
+          })()}
+
           {/* CTA buttons */}
           <div className="flex flex-wrap gap-2">
             {totalConflictsCount > 0 && (
