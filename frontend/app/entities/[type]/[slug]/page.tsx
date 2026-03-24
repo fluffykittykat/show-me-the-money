@@ -33,6 +33,7 @@ import MoneyAmount from '@/components/MoneyAmount';
 import RelationshipTable from '@/components/RelationshipTable';
 import LoadingState from '@/components/LoadingState';
 import FBIBriefing from '@/components/FBIBriefing';
+import PacDonors from '@/components/PacDonors';
 import {
   ArrowLeft,
   ArrowRight,
@@ -393,6 +394,9 @@ function CompanyContent({
       {/* Donor Profile — shown if company has donations */}
       {donorProfile && <DonorProfileSection donorProfile={donorProfile} />}
 
+      {/* Who funds this entity — auto-fetched from FEC */}
+      <PacDonors slug={entity.slug} entityName={entity.name} />
+
       {/* Stock holders stats — only if no donor profile or always show stock info */}
       {!donorProfile && (
         <div className="grid gap-3 sm:grid-cols-3">
@@ -670,6 +674,9 @@ function DonorContent({
     return (
       <>
         <DonorProfileSection donorProfile={donorProfile} />
+
+        {/* Who funds this entity — auto-fetched from FEC */}
+        <PacDonors slug={entity.slug} entityName={entity.name} />
 
         {/* Legislation they've lobbied for */}
         {billConnections.length > 0 && (
