@@ -108,8 +108,8 @@ export default function BillsTable({ bills, votes = [] }: BillsTableProps) {
               <tbody>
                 {[...bills]
                   .sort((a, b) => {
-                    const aDate = (a.connected_entity as Record<string, unknown>)?.metadata_ as Record<string, unknown>;
-                    const bDate = (b.connected_entity as Record<string, unknown>)?.metadata_ as Record<string, unknown>;
+                    const aDate = (a.connected_entity as unknown as Record<string, unknown>)?.metadata_ as Record<string, unknown>;
+                    const bDate = (b.connected_entity as unknown as Record<string, unknown>)?.metadata_ as Record<string, unknown>;
                     const aStr = (aDate?.introduced_date as string) || (aDate?.introducedDate as string) || a.date_start || '';
                     const bStr = (bDate?.introduced_date as string) || (bDate?.introducedDate as string) || b.date_start || '';
                     return bStr.localeCompare(aStr); // newest first
@@ -118,8 +118,8 @@ export default function BillsTable({ bills, votes = [] }: BillsTableProps) {
                   const meta = bill.metadata as Record<string, unknown>;
                   const entity = bill.connected_entity;
                   // Get bill metadata from the connected entity (the bill) not the relationship
-                  const billMeta = (entity as Record<string, unknown>)?.metadata_ as Record<string, unknown>
-                    || (entity as Record<string, unknown>)?.metadata as Record<string, unknown>
+                  const billMeta = (entity as unknown as Record<string, unknown>)?.metadata_ as Record<string, unknown>
+                    || (entity as unknown as Record<string, unknown>)?.metadata as Record<string, unknown>
                     || meta || {};
                   const billType = (billMeta?.type as string) || (meta?.type as string) || '';
                   const billNum = (billMeta?.number as string) || (billMeta?.bill_number as string) || (meta?.number as string) || '';

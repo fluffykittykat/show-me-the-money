@@ -102,7 +102,7 @@ export default function EntityCard({ entity }: EntityCardProps) {
           )}
 
           <div className="mt-2 flex items-center gap-2">
-            {entity.entity_type === 'person' && metadata?.bioguide_id && !metadata?.fec_candidate_id && (
+            {entity.entity_type === 'person' && !!metadata?.bioguide_id && !metadata?.fec_candidate_id && (
               <span className="text-[10px] text-amber-500/70">Incomplete data</span>
             )}
             {entity.updated_at && (

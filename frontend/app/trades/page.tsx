@@ -130,7 +130,7 @@ export default function TradesPage() {
   if (loading) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <LoadingState variant="list" />
+        <LoadingState variant="table-row" />
       </div>
     );
   }
