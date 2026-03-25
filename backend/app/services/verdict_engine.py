@@ -1,0 +1,501 @@
+"""
+Verdict Engine — The 4-Level "Gotcha" Algorithm
+
+Counts connected dots between officials and industries to determine
+how structurally "bought" an official appears to be.
+
+For each official, donors are grouped by industry and dots are counted:
+
+  Dot 1: DONOR_FROM_INDUSTRY   — A donor from this industry donated (FEC)
+  Dot 2: REGULATING_COMMITTEE  — Official sits on a committee regulating this industry
+  Dot 3: SPONSORED_ALIGNED_BILLS — Official sponsored/cosponsored bills in this policy area
+  Dot 4: DONOR_LOBBIES         — Donor (or related entity) also lobbies Congress
+  Dot 5: MIDDLEMAN_PAC         — Money flows through a middleman PAC
+
+Verdicts:
+  1 dot   = NORMAL      (just got donations, everyone does)
+  2 dots  = CONNECTED   (structural relationship exists)
+  3+ dots = INFLUENCED  (money -> power -> legislation chain complete)
+  OWNED   = 2+ industries each score INFLUENCED or higher
+"""
+
+from __future__ import annotations
+
+import uuid
+from collections import defaultdict
+
+from sqlalchemy import select, or_
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models import Entity, Relationship
+from app.services.conflict_engine import (
+    _extract_industry_keywords,
+    _industries_for_committee,
+    _keyword_overlap,
+    _sanitize,
+)
+
+# ── Policy area to industry keyword mapping ──────────────────────────────
+# Maps bill policy_area strings (from Congress.gov) to the same industry
+# keywords used by COMMITTEE_INDUSTRY_MAP so we can compare them.
+POLICY_AREA_INDUSTRY_MAP: dict[str, list[str]] = {
+    "finance and financial sector": ["finance", "banking", "securities", "insurance"],
+    "economics and public finance": ["finance", "economics", "budget", "tax"],
+    "taxation": ["finance", "tax"],
+    "health": ["health", "pharma", "pharmaceutical", "medical", "biotech"],
+    "energy": ["energy", "oil", "gas", "mining", "nuclear", "utilities"],
+    "agriculture and food": ["agriculture", "food", "farming", "agribusiness"],
+    "environmental protection": ["environment", "conservation", "climate", "water"],
+    "science, technology, communications": ["technology", "telecom", "communications"],
+    "transportation and public works": ["transportation", "infrastructure", "airline", "railroad"],
+    "armed forces and national security": ["defense", "military", "aerospace", "weapons"],
+    "crime and law enforcement": ["legal", "law", "courts", "prison", "corrections"],
+    "international affairs": ["foreign", "trade", "international", "diplomacy"],
+    "education": ["education"],
+    "labor and employment": ["labor", "employment"],
+    "housing and community development": ["real estate", "housing"],
+    "commerce": ["commerce", "consumer", "retail", "trade"],
+    "public lands and natural resources": ["environment", "mining", "conservation"],
+    "immigration": ["immigration", "border"],
+    "native americans": ["tribal", "native", "casino", "gaming"],
+    "government operations and politics": ["government", "administration"],
+}
+
+
+def _industry_keywords_for_policy_area(policy_area: str) -> list[str]:
+    """Map a bill's policy_area to industry keywords."""
+    if not policy_area:
+        return []
+    pa_lower = _sanitize(policy_area).lower().strip()
+    # Exact match first
+    if pa_lower in POLICY_AREA_INDUSTRY_MAP:
+        return POLICY_AREA_INDUSTRY_MAP[pa_lower]
+    # Fuzzy: check if any key is contained in the policy_area or vice-versa
+    for key, kws in POLICY_AREA_INDUSTRY_MAP.items():
+        if key in pa_lower or pa_lower in key:
+            return kws
+    # Last resort: split words
+    return pa_lower.split()
+
+
+def _verdict_for_dots(dot_count: int) -> str:
+    """Map dot count to verdict string."""
+    if dot_count >= 3:
+        return "INFLUENCED"
+    if dot_count == 2:
+        return "CONNECTED"
+    return "NORMAL"
+
+
+def _fmt_amount(cents: int) -> str:
+    """Format cents as human-readable dollar string."""
+    if cents is None or cents == 0:
+        return "$0"
+    dollars = cents / 100
+    if dollars >= 1_000_000:
+        return f"${dollars / 1_000_000:.1f}M"
+    if dollars >= 1_000:
+        return f"${dollars / 1_000:.0f}K"
+    return f"${dollars:,.0f}"
+
+
+def _generate_narrative(
+    industry: str,
+    donors: list[dict],
+    committees: list[dict],
+    bills: list[dict],
+    lobbying: list[dict],
+    middlemen: list[dict],
+    total_amount: int,
+) -> str:
+    """Build a human-readable narrative for an industry trail."""
+    parts: list[str] = []
+
+    donor_names = ", ".join(d["name"] for d in donors[:3])
+    if len(donors) > 3:
+        donor_names += f" and {len(donors) - 3} others"
+    parts.append(f"{donor_names} donated {_fmt_amount(total_amount)} to this official")
+
+    if committees:
+        committee_names = ", ".join(c["name"] for c in committees[:2])
+        parts.append(f"who sits on {committee_names}")
+
+    if bills:
+        parts.append(f"and sponsored {len(bills)} related bill{'s' if len(bills) != 1 else ''}")
+
+    if lobbying:
+        parts.append(f"while {len(lobbying)} lobbying connection{'s' if len(lobbying) != 1 else ''} exist")
+
+    if middlemen:
+        mid_names = ", ".join(m["name"] for m in middlemen[:2])
+        parts.append(f"with money flowing through {mid_names}")
+
+    return " ".join(parts) + "."
+
+
+# ── Main engine ──────────────────────────────────────────────────────────
+
+
+async def compute_verdicts(
+    session: AsyncSession, official_id: uuid.UUID
+) -> list[dict]:
+    """Compute money trail verdicts for an official, grouped by industry.
+
+    Returns list of dicts, one per industry trail:
+    {
+        "industry": "Finance",
+        "verdict": "INFLUENCED",
+        "dot_count": 3,
+        "dots": ["donor_from_industry", "regulating_committee", ...],
+        "chain": {
+            "donors": [...],
+            "committees": [...],
+            "bills": [...],
+            "middlemen": [...],
+            "lobbying": [...],
+        },
+        "narrative": "...",
+        "total_amount": 500000,
+    }
+    """
+    # ── Step 1: Load all relationships involving this official ────────
+    # Outgoing: official -> committee, official -> bill (sponsored/cosponsored)
+    # Incoming: donor -> official (donated_to)
+    outgoing_q = (
+        select(Relationship)
+        .where(Relationship.from_entity_id == official_id)
+        .where(
+            Relationship.relationship_type.in_(
+                ["committee_member", "sponsored", "cosponsored"]
+            )
+        )
+    )
+    incoming_q = (
+        select(Relationship)
+        .where(Relationship.to_entity_id == official_id)
+        .where(Relationship.relationship_type == "donated_to")
+    )
+
+    outgoing_result = await session.execute(outgoing_q)
+    incoming_result = await session.execute(incoming_q)
+    outgoing_rels = outgoing_result.scalars().all()
+    incoming_rels = incoming_result.scalars().all()
+
+    if not incoming_rels:
+        return []  # No donors, no trails
+
+    # ── Step 2: Collect entity IDs we need to load ────────────────────
+    entity_ids: set[uuid.UUID] = {official_id}
+    committee_rel_map: dict[uuid.UUID, list[Relationship]] = defaultdict(list)
+    bill_rel_map: dict[uuid.UUID, list[Relationship]] = defaultdict(list)
+    donor_rels: list[Relationship] = list(incoming_rels)
+
+    for rel in outgoing_rels:
+        entity_ids.add(rel.to_entity_id)
+        if rel.relationship_type == "committee_member":
+            committee_rel_map[rel.to_entity_id].append(rel)
+        elif rel.relationship_type in ("sponsored", "cosponsored"):
+            bill_rel_map[rel.to_entity_id].append(rel)
+
+    donor_ids: set[uuid.UUID] = set()
+    for rel in donor_rels:
+        entity_ids.add(rel.from_entity_id)
+        donor_ids.add(rel.from_entity_id)
+
+    # ── Step 3: Load all referenced entities ──────────────────────────
+    entities_q = select(Entity).where(Entity.id.in_(list(entity_ids)))
+    entities_result = await session.execute(entities_q)
+    entities_by_id: dict[uuid.UUID, Entity] = {
+        e.id: e for e in entities_result.scalars().all()
+    }
+
+    # ── Step 4: Load lobbying relationships for donors ────────────────
+    # Look for lobbies_on_behalf_of where from_entity or to_entity is a donor
+    lobby_rels: list[Relationship] = []
+    if donor_ids:
+        lobby_q = (
+            select(Relationship)
+            .where(
+                or_(
+                    Relationship.from_entity_id.in_(list(donor_ids)),
+                    Relationship.to_entity_id.in_(list(donor_ids)),
+                )
+            )
+            .where(Relationship.relationship_type == "lobbies_on_behalf_of")
+        )
+        lobby_result = await session.execute(lobby_q)
+        lobby_rels = list(lobby_result.scalars().all())
+
+    # Load any additional entities referenced by lobbying rels
+    lobby_entity_ids: set[uuid.UUID] = set()
+    for rel in lobby_rels:
+        lobby_entity_ids.add(rel.from_entity_id)
+        lobby_entity_ids.add(rel.to_entity_id)
+    missing_ids = lobby_entity_ids - set(entities_by_id.keys())
+    if missing_ids:
+        extra_q = select(Entity).where(Entity.id.in_(list(missing_ids)))
+        extra_result = await session.execute(extra_q)
+        for e in extra_result.scalars().all():
+            entities_by_id[e.id] = e
+
+    # ── Step 5: Build committee industry map ──────────────────────────
+    # committee_id -> industry keywords
+    committee_industries: dict[uuid.UUID, list[str]] = {}
+    for cid in committee_rel_map:
+        entity = entities_by_id.get(cid)
+        if entity:
+            committee_industries[cid] = _industries_for_committee(entity.name)
+
+    # All industry keywords from all committees the official sits on
+    all_committee_keywords: list[str] = []
+    for kws in committee_industries.values():
+        all_committee_keywords.extend(kws)
+
+    # ── Step 6: Build bill industry map ───────────────────────────────
+    # bill_id -> industry keywords from policy_area
+    bill_industries: dict[uuid.UUID, list[str]] = {}
+    for bid in bill_rel_map:
+        entity = entities_by_id.get(bid)
+        if entity:
+            meta = entity.metadata_ or {}
+            policy_area = meta.get("policy_area", "")
+            bill_industries[bid] = _industry_keywords_for_policy_area(policy_area)
+
+    # ── Step 7: Group donors by industry ──────────────────────────────
+    # industry_keyword -> list of (donor_entity, relationship)
+    industry_donors: dict[str, list[tuple[Entity, Relationship]]] = defaultdict(list)
+
+    for rel in donor_rels:
+        donor = entities_by_id.get(rel.from_entity_id)
+        if not donor:
+            continue
+        keywords = _extract_industry_keywords(donor)
+        if not keywords:
+            # Use "general" as fallback
+            industry_donors["general"].append((donor, rel))
+            continue
+        # Assign donor to each matching industry keyword that is also
+        # relevant (appears in committee or bill industries, or is a
+        # well-known industry keyword).
+        assigned = False
+        for kw in keywords:
+            kw_lower = kw.lower().strip()
+            if kw_lower and len(kw_lower) > 2:  # Skip very short words
+                industry_donors[kw_lower].append((donor, rel))
+                assigned = True
+        if not assigned:
+            industry_donors["general"].append((donor, rel))
+
+    # ── Step 8: Merge related industry keywords ───────────────────────
+    # Consolidate synonymous industry keys into canonical industries
+    CANONICAL_INDUSTRIES: dict[str, str] = {
+        "banking": "finance",
+        "securities": "finance",
+        "insurance": "finance",
+        "investment": "finance",
+        "real estate": "finance",
+        "oil": "energy",
+        "gas": "energy",
+        "nuclear": "energy",
+        "utilities": "energy",
+        "mining": "energy",
+        "pharma": "health",
+        "pharmaceutical": "health",
+        "medical": "health",
+        "biotech": "health",
+        "military": "defense",
+        "aerospace": "defense",
+        "weapons": "defense",
+        "telecom": "technology",
+        "communications": "technology",
+        "media": "technology",
+        "food": "agriculture",
+        "farming": "agriculture",
+        "agribusiness": "agriculture",
+        "conservation": "environment",
+        "climate": "environment",
+        "water": "environment",
+        "law": "legal",
+        "courts": "legal",
+        "prison": "legal",
+        "corrections": "legal",
+        "infrastructure": "transportation",
+        "airline": "transportation",
+        "railroad": "transportation",
+        "trade": "international",
+        "diplomacy": "international",
+        "foreign": "international",
+        "tribal": "native affairs",
+        "native": "native affairs",
+        "casino": "native affairs",
+        "gaming": "native affairs",
+        "budget": "government",
+        "administration": "government",
+        "tax": "finance",
+        "economics": "finance",
+    }
+
+    # Regroup by canonical industry
+    canonical_donors: dict[str, list[tuple[Entity, Relationship]]] = defaultdict(list)
+    for raw_kw, donor_list in industry_donors.items():
+        canonical = CANONICAL_INDUSTRIES.get(raw_kw, raw_kw)
+        # Deduplicate: same donor+rel shouldn't appear twice
+        for item in donor_list:
+            if item not in canonical_donors[canonical]:
+                canonical_donors[canonical].append(item)
+
+    # ── Step 9: Compute dots per canonical industry ───────────────────
+    trails: list[dict] = []
+
+    for industry, donor_list in canonical_donors.items():
+        if industry == "general":
+            continue  # Skip unclassifiable donors
+
+        # Deduplicate donors by entity ID
+        seen_donor_ids: set[uuid.UUID] = set()
+        unique_donors: list[tuple[Entity, Relationship]] = []
+        total_amount = 0
+        for donor_entity, rel in donor_list:
+            if donor_entity.id not in seen_donor_ids:
+                seen_donor_ids.add(donor_entity.id)
+                unique_donors.append((donor_entity, rel))
+            total_amount += rel.amount_usd or 0
+
+        dots: list[str] = []
+        chain_donors: list[dict] = []
+        chain_committees: list[dict] = []
+        chain_bills: list[dict] = []
+        chain_middlemen: list[dict] = []
+        chain_lobbying: list[dict] = []
+
+        # ── Dot 1: DONOR_FROM_INDUSTRY ────────────────────────────────
+        # Always true if we're processing this industry
+        dots.append("donor_from_industry")
+        for donor_entity, rel in unique_donors:
+            chain_donors.append({
+                "name": _sanitize(donor_entity.name),
+                "slug": donor_entity.slug,
+                "amount": rel.amount_usd or 0,
+            })
+
+        # ── Dot 2: REGULATING_COMMITTEE ───────────────────────────────
+        for cid, kws in committee_industries.items():
+            if _keyword_overlap(kws, [industry]):
+                entity = entities_by_id.get(cid)
+                if entity and not any(
+                    c["slug"] == entity.slug for c in chain_committees
+                ):
+                    chain_committees.append({
+                        "name": _sanitize(entity.name),
+                        "slug": entity.slug,
+                    })
+        if chain_committees:
+            dots.append("regulating_committee")
+
+        # ── Dot 3: SPONSORED_ALIGNED_BILLS ────────────────────────────
+        for bid, kws in bill_industries.items():
+            if _keyword_overlap(kws, [industry]):
+                entity = entities_by_id.get(bid)
+                if entity and not any(
+                    b["slug"] == entity.slug for b in chain_bills
+                ):
+                    chain_bills.append({
+                        "name": _sanitize(entity.name),
+                        "slug": entity.slug,
+                    })
+        if chain_bills:
+            dots.append("sponsored_aligned_bills")
+
+        # ── Dot 4: DONOR_LOBBIES ──────────────────────────────────────
+        for rel in lobby_rels:
+            firm = entities_by_id.get(rel.from_entity_id)
+            client = entities_by_id.get(rel.to_entity_id)
+            # Check if any donor is involved (as firm or client)
+            connected = (
+                rel.from_entity_id in seen_donor_ids
+                or rel.to_entity_id in seen_donor_ids
+            )
+            if connected:
+                meta = rel.metadata_ or {}
+                issue = meta.get("issue", meta.get("general_issue_code", ""))
+                chain_lobbying.append({
+                    "firm": _sanitize(firm.name) if firm else "Unknown",
+                    "client": _sanitize(client.name) if client else "Unknown",
+                    "issue": _sanitize(str(issue)) if issue else "",
+                })
+        if chain_lobbying:
+            dots.append("donor_lobbies")
+
+        # ── Dot 5: MIDDLEMAN_PAC ──────────────────────────────────────
+        for donor_entity, rel in unique_donors:
+            if donor_entity.entity_type == "pac":
+                # This is a PAC acting as middleman
+                # Calculate amount_in (to PAC) and amount_out (PAC to official)
+                chain_middlemen.append({
+                    "name": _sanitize(donor_entity.name),
+                    "slug": donor_entity.slug,
+                    "amount_in": rel.amount_usd or 0,  # what flowed through
+                    "amount_out": rel.amount_usd or 0,  # what reached official
+                })
+        if chain_middlemen:
+            dots.append("middleman_pac")
+
+        # ── Build trail ───────────────────────────────────────────────
+        dot_count = len(dots)
+        verdict = _verdict_for_dots(dot_count)
+
+        narrative = _generate_narrative(
+            industry=industry,
+            donors=chain_donors,
+            committees=chain_committees,
+            bills=chain_bills,
+            lobbying=chain_lobbying,
+            middlemen=chain_middlemen,
+            total_amount=total_amount,
+        )
+
+        trails.append({
+            "industry": industry.title(),
+            "verdict": verdict,
+            "dot_count": dot_count,
+            "dots": dots,
+            "chain": {
+                "donors": chain_donors,
+                "committees": chain_committees,
+                "bills": chain_bills,
+                "middlemen": chain_middlemen,
+                "lobbying": chain_lobbying,
+            },
+            "narrative": narrative,
+            "total_amount": total_amount,
+        })
+
+    # Sort trails: highest dot count first, then by total amount
+    trails.sort(key=lambda t: (-t["dot_count"], -t["total_amount"]))
+
+    return trails
+
+
+def compute_overall_verdict(trails: list[dict]) -> tuple[str, int]:
+    """Given all industry trails, compute the official's overall verdict.
+
+    OWNED      = 2+ industries at INFLUENCED level
+    INFLUENCED = any industry at 3+ dots
+    CONNECTED  = any industry at 2 dots
+    NORMAL     = all industries at 1 dot or less
+
+    Returns (verdict, total_dots_across_all_industries)
+    """
+    if not trails:
+        return ("NORMAL", 0)
+
+    total_dots = sum(t["dot_count"] for t in trails)
+    influenced_count = sum(1 for t in trails if t["dot_count"] >= 3)
+
+    if influenced_count >= 2:
+        return ("OWNED", total_dots)
+    if influenced_count >= 1:
+        return ("INFLUENCED", total_dots)
+    if any(t["dot_count"] >= 2 for t in trails):
+        return ("CONNECTED", total_dots)
+    return ("NORMAL", total_dots)
