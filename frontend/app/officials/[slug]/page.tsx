@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { RefreshCw } from 'lucide-react';
 import { getV2Official } from '@/lib/api';
@@ -17,6 +17,7 @@ import FreshnessBar from '@/components/FreshnessBar';
 
 export default function OfficialPage() {
   const { slug } = useParams<{ slug: string }>();
+  const router = useRouter();
   const [data, setData] = useState<V2OfficialResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -97,7 +98,7 @@ export default function OfficialPage() {
             </thead>
             <tbody>
               {top_donors.map((d, i) => (
-                <tr key={i} className="border-t border-zinc-900 cursor-pointer hover:bg-zinc-800/60 transition-colors" onClick={() => window.location.href = `/entities/${d.entity_type}/${d.slug}`}>
+                <tr key={i} className="border-t border-zinc-900 cursor-pointer hover:bg-zinc-800/60 transition-colors" onClick={() => router.push(`/entities/${d.entity_type}/${d.slug}`)}>
                   <td className="py-2.5 px-3">
                     <Link href={`/entities/${d.entity_type}/${d.slug}`} className="hover:text-amber-400 transition-colors">{d.name}</Link>
                   </td>
@@ -115,13 +116,13 @@ export default function OfficialPage() {
         <div className="mb-8">
           <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">Middlemen</h2>
           {middlemen.map((m, i) => (
-            <Link key={i} href={`/entities/pac/${m.slug}`} className="block bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-3 flex justify-between items-center cursor-pointer hover:border-amber-500/50 hover:bg-zinc-800/80 transition-all duration-200">
+            <div key={i} onClick={() => router.push(`/entities/pac/${m.slug}`)} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-3 flex justify-between items-center cursor-pointer hover:border-amber-500/50 hover:bg-zinc-800/80 transition-all duration-200">
               <div>
                 <span className="font-semibold">{m.name}</span>
                 <div className="text-xs text-zinc-500">{m.entity_type}</div>
               </div>
               <div className="text-amber-400 font-semibold">{formatMoney(m.total_donated)}</div>
-            </Link>
+            </div>
           ))}
         </div>
       )}

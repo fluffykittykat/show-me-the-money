@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { getV2Homepage } from '@/lib/api';
 import type { V2HomepageResponse } from '@/lib/types';
 import { formatMoney } from '@/lib/utils';
@@ -12,6 +13,7 @@ import HighlightCard from '@/components/HighlightCard';
 import VerdictBadge from '@/components/VerdictBadge';
 
 export default function HomePage() {
+  const router = useRouter();
   const [data, setData] = useState<V2HomepageResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -99,7 +101,7 @@ export default function HomePage() {
         <div>
           <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">Top Officials by Verdict</h2>
           {top_officials.map((o, i) => (
-            <Link key={o.slug} href={`/officials/${o.slug}`} className="flex items-center justify-between py-3 border-b border-zinc-900 last:border-0 cursor-pointer hover:bg-zinc-800/60 rounded-lg px-2 -mx-2 transition-all duration-200">
+            <div key={o.slug} onClick={() => router.push(`/officials/${o.slug}`)} className="flex items-center justify-between py-3 border-b border-zinc-900 last:border-0 cursor-pointer hover:bg-zinc-800/60 rounded-lg px-2 -mx-2 transition-all duration-200">
               <div className="flex items-center gap-3">
                 <span className="text-zinc-600 font-bold w-6">{i + 1}</span>
                 <div>
@@ -108,13 +110,13 @@ export default function HomePage() {
                 </div>
               </div>
               <VerdictBadge verdict={o.verdict} />
-            </Link>
+            </div>
           ))}
         </div>
         <div>
           <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">Top Influencers</h2>
           {top_influencers.map((inf, i) => (
-            <Link key={inf.slug} href={`/entities/${inf.entity_type}/${inf.slug}`} className="flex items-center justify-between py-3 border-b border-zinc-900 last:border-0 cursor-pointer hover:bg-zinc-800/60 rounded-lg px-2 -mx-2 transition-all duration-200">
+            <div key={inf.slug} onClick={() => router.push(`/entities/${inf.entity_type}/${inf.slug}`)} className="flex items-center justify-between py-3 border-b border-zinc-900 last:border-0 cursor-pointer hover:bg-zinc-800/60 rounded-lg px-2 -mx-2 transition-all duration-200">
               <div className="flex items-center gap-3">
                 <span className="text-zinc-600 font-bold w-6">{i + 1}</span>
                 <div>
@@ -123,7 +125,7 @@ export default function HomePage() {
                 </div>
               </div>
               <span className="text-amber-400 font-semibold text-sm">{formatMoney(inf.total_donated)}</span>
-            </Link>
+            </div>
           ))}
         </div>
       </div>
