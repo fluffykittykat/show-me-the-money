@@ -12,6 +12,10 @@ import type {
   InsiderTimingResponse,
   HiddenConnectionsSummary,
   HiddenConnectionsFeedItem,
+  V2HomepageResponse,
+  V2OfficialResponse,
+  V2BillResponse,
+  V2EntityResponse,
 } from './types';
 
 const API_BASE = '/api';
@@ -701,6 +705,26 @@ export interface MoneyToBillsResponse {
 
 export async function getMoneyToBills(slug: string): Promise<MoneyToBillsResponse> {
   return apiFetch<MoneyToBillsResponse>(`/entities/${encodeURIComponent(slug)}/money-to-bills`);
+}
+
+// ---------------------------------------------------------------------------
+// V2 API functions
+// ---------------------------------------------------------------------------
+
+export async function getV2Homepage(): Promise<V2HomepageResponse> {
+  return apiFetch<V2HomepageResponse>('/v2/homepage');
+}
+
+export async function getV2Official(slug: string): Promise<V2OfficialResponse> {
+  return apiFetch<V2OfficialResponse>(`/v2/official/${encodeURIComponent(slug)}`);
+}
+
+export async function getV2Bill(slug: string): Promise<V2BillResponse> {
+  return apiFetch<V2BillResponse>(`/v2/bill/${encodeURIComponent(slug)}`);
+}
+
+export async function getV2Entity(slug: string): Promise<V2EntityResponse> {
+  return apiFetch<V2EntityResponse>(`/v2/entity/${encodeURIComponent(slug)}`);
 }
 
 export { ApiError };

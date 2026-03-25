@@ -211,3 +211,139 @@ export interface HiddenConnectionsFeedItem {
   severity: string;
   timestamp: string | null;
 }
+
+// ─── V2 Types ────────────────────────────────────────────────────────
+
+export interface V2MoneyTrail {
+  industry: string;
+  verdict: 'NORMAL' | 'CONNECTED' | 'INFLUENCED' | 'OWNED';
+  dot_count: number;
+  dots: string[];
+  narrative: string;
+  total_amount: number;
+  chain: {
+    donors?: Array<{ name: string; slug: string; amount: number }>;
+    committees?: Array<{ name: string; slug: string }>;
+    bills?: Array<{ name: string; slug: string }>;
+    middlemen?: Array<{ name: string; slug: string; amount_in: number; amount_out: number }>;
+    lobbying?: Array<{ firm: string; client: string; issue: string }>;
+    dots?: string[];
+  };
+}
+
+export type Verdict = 'NORMAL' | 'CONNECTED' | 'INFLUENCED' | 'OWNED';
+
+export interface V2Donor {
+  slug: string;
+  name: string;
+  entity_type: string;
+  total_donated: number;
+}
+
+export interface V2Committee {
+  slug: string;
+  name: string;
+  role: string;
+}
+
+export interface V2OfficialResponse {
+  entity: Entity;
+  overall_verdict: string;
+  total_dots: number;
+  money_trails: V2MoneyTrail[];
+  top_donors: V2Donor[];
+  middlemen: V2Donor[];
+  committees: V2Committee[];
+  briefing: string | null;
+  freshness: {
+    fec_cycle: string | null;
+    last_refreshed: string | null;
+    has_donors: boolean;
+    has_committees: boolean;
+  };
+}
+
+export interface V2Sponsor {
+  slug: string;
+  name: string;
+  party: string;
+  state: string;
+  role: string;
+  top_donor: string | null;
+  verdict: string | null;
+}
+
+export interface V2BillResponse {
+  entity: Entity;
+  status_label: string;
+  sponsors: V2Sponsor[];
+  briefing: string | null;
+}
+
+export interface V2MoneyFlow {
+  slug: string;
+  name: string;
+  entity_type: string;
+  amount_usd: number;
+  amount_label: string | null;
+}
+
+export interface V2EntityResponse {
+  entity: Entity;
+  money_in: V2MoneyFlow[];
+  money_out: V2MoneyFlow[];
+  briefing: string | null;
+}
+
+export interface V2StoryCard {
+  story_type: string;
+  headline: string;
+  narrative: string;
+  verdict: string;
+  officials: Array<{ name: string; slug: string; party: string }>;
+  total_amount: number;
+  industry: string;
+}
+
+export interface V2HomepageStats {
+  officials_count: number;
+  bills_count: number;
+  donations_total: number;
+  relationship_count: number;
+}
+
+export interface V2TopOfficial {
+  slug: string;
+  name: string;
+  party: string;
+  state: string;
+  verdict: string;
+  dot_count: number;
+}
+
+export interface V2TopInfluencer {
+  slug: string;
+  name: string;
+  entity_type: string;
+  total_donated: number;
+  officials_funded: number;
+}
+
+export interface V2RevolvingDoor {
+  lobbyist_name: string;
+  lobbyist_slug: string;
+  former_position: string;
+  current_employer: string;
+  official_name: string;
+  official_slug: string;
+  official_party: string;
+  official_state: string;
+}
+
+export interface V2HomepageResponse {
+  top_stories: V2StoryCard[];
+  stats: V2HomepageStats;
+  top_officials: V2TopOfficial[];
+  top_influencers: V2TopInfluencer[];
+  revolving_door: V2RevolvingDoor[];
+}
