@@ -41,6 +41,17 @@ def _format_amount(cents: int) -> str:
     return f"${dollars:,.0f}"
 
 
+def _json_default(obj):
+    """Custom JSON serializer for types json module can't handle."""
+    if isinstance(obj, Decimal):
+        return int(obj)
+    if isinstance(obj, uuid.UUID):
+        return str(obj)
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
 async def _build_story_feed(session: AsyncSession) -> list[dict]:
     """Build the homepage story feed from pre-computed money trails.
 
@@ -239,13 +250,13 @@ async def _build_story_feed(session: AsyncSession) -> list[dict]:
     # ── Store in app_config ──────────────────────────────────────────
     existing = await session.get(AppConfig, "v2_story_feed")
     if existing:
-        existing.value = json.dumps(stories)
+        existing.value = json.dumps(stories, default=_json_default)
         existing.is_secret = False
         existing.updated_at = datetime.now(timezone.utc)
     else:
         config = AppConfig(
             key="v2_story_feed",
-            value=json.dumps(stories),
+            value=json.dumps(stories, default=_json_default),
             is_secret=False,
         )
         session.add(config)
