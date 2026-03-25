@@ -18,7 +18,7 @@ export default function AIBriefing({ briefing, slug, className = '' }: AIBriefin
     setLoading(true);
     try {
       const res = await getBriefing(slug, true);
-      setText(res.briefing);
+      setText(res.briefing_text);
     } catch {
       // silently fail
     } finally {
