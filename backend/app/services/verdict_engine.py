@@ -294,7 +294,6 @@ async def compute_verdicts(
         "united", "states", "federal", "employees", "international",
         "voluntary", "the", "for", "and", "fka", "formerly", "known",
     }
-    valid_canonical = set(CANONICAL_INDUSTRIES.keys()) | set(CANONICAL_INDUSTRIES.values())
     cleaned_donors: dict[str, list[tuple[Entity, Relationship]]] = defaultdict(list)
     for kw, donor_list in industry_donors.items():
         if kw in _STOPWORDS or kw == "general":
