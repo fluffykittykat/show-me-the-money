@@ -12,7 +12,7 @@ interface MoneyTrailCardProps {
 
 export default function MoneyTrailCard({ trail, officialName, officialSlug }: MoneyTrailCardProps) {
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 mb-4">
+    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 mb-4 transition-all duration-200 hover:border-zinc-600 hover:bg-zinc-800/60">
       <div className="flex justify-between items-start mb-3">
         <div>
           <div className="text-lg font-semibold">{trail.industry}</div>

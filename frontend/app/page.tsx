@@ -99,31 +99,31 @@ export default function HomePage() {
         <div>
           <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">Top Officials by Verdict</h2>
           {top_officials.map((o, i) => (
-            <div key={o.slug} className="flex items-center justify-between py-3 border-b border-zinc-900 last:border-0">
+            <Link key={o.slug} href={`/officials/${o.slug}`} className="flex items-center justify-between py-3 border-b border-zinc-900 last:border-0 cursor-pointer hover:bg-zinc-800/60 rounded-lg px-2 -mx-2 transition-all duration-200">
               <div className="flex items-center gap-3">
                 <span className="text-zinc-600 font-bold w-6">{i + 1}</span>
                 <div>
-                  <Link href={`/officials/${o.slug}`} className="font-semibold hover:text-amber-400 transition-colors">{o.name}</Link>
+                  <span className="font-semibold">{o.name}</span>
                   <div className="text-xs text-zinc-500">{o.party?.charAt(0)} · {o.state}</div>
                 </div>
               </div>
               <VerdictBadge verdict={o.verdict} />
-            </div>
+            </Link>
           ))}
         </div>
         <div>
           <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">Top Influencers</h2>
           {top_influencers.map((inf, i) => (
-            <div key={inf.slug} className="flex items-center justify-between py-3 border-b border-zinc-900 last:border-0">
+            <Link key={inf.slug} href={`/entities/${inf.entity_type}/${inf.slug}`} className="flex items-center justify-between py-3 border-b border-zinc-900 last:border-0 cursor-pointer hover:bg-zinc-800/60 rounded-lg px-2 -mx-2 transition-all duration-200">
               <div className="flex items-center gap-3">
                 <span className="text-zinc-600 font-bold w-6">{i + 1}</span>
                 <div>
-                  <Link href={`/entities/${inf.entity_type}/${inf.slug}`} className="font-semibold hover:text-amber-400 transition-colors">{inf.name}</Link>
+                  <span className="font-semibold">{inf.name}</span>
                   <div className="text-xs text-zinc-500">{inf.entity_type} · {inf.officials_funded} recipients</div>
                 </div>
               </div>
               <span className="text-amber-400 font-semibold text-sm">{formatMoney(inf.total_donated)}</span>
-            </div>
+            </Link>
           ))}
         </div>
       </div>
