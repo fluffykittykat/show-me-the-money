@@ -543,3 +543,52 @@ class SchedulerJobStatus(BaseModel):
 class SchedulerStatusResponse(BaseModel):
     jobs: list[SchedulerJobStatus]
     scheduler_running: bool
+
+
+# ---------------------------------------------------------------------------
+# V2 single-response-per-page schemas
+# ---------------------------------------------------------------------------
+
+
+class V2MoneyTrail(BaseModel):
+    industry: str
+    verdict: str
+    dot_count: int
+    dots: list[str]
+    narrative: str | None
+    total_amount: int
+    chain: dict
+
+
+class V2OfficialResponse(BaseModel):
+    entity: EntityResponse
+    overall_verdict: str
+    total_dots: int
+    money_trails: list[V2MoneyTrail]
+    top_donors: list[dict]
+    middlemen: list[dict]
+    committees: list[dict]
+    briefing: str | None
+    freshness: dict
+
+
+class V2BillResponse(BaseModel):
+    entity: EntityResponse
+    status_label: str
+    sponsors: list[dict]
+    briefing: str | None
+
+
+class V2EntityResponse(BaseModel):
+    entity: EntityResponse
+    money_in: list[dict]
+    money_out: list[dict]
+    briefing: str | None
+
+
+class V2HomepageResponse(BaseModel):
+    top_stories: list[dict]
+    stats: dict
+    top_officials: list[dict]
+    top_influencers: list[dict]
+    revolving_door: list[dict]
