@@ -216,22 +216,48 @@ def _sanitize(text: str) -> str:
     return text.encode("ascii", errors="ignore").decode("ascii")
 
 
+_VALID_INDUSTRY_TERMS: set[str] = set()
+
+def _build_valid_industry_terms() -> set[str]:
+    """Build the set of recognised industry keywords from all maps."""
+    if _VALID_INDUSTRY_TERMS:
+        return _VALID_INDUSTRY_TERMS
+    # From COMMITTEE_INDUSTRY_MAP values
+    for kws in COMMITTEE_INDUSTRY_MAP.values():
+        _VALID_INDUSTRY_TERMS.update(kw.lower() for kw in kws)
+    # From KNOWN_INDUSTRY_ENTITIES values
+    for kws in KNOWN_INDUSTRY_ENTITIES.values():
+        _VALID_INDUSTRY_TERMS.update(kw.lower() for kw in kws)
+    # Canonical industry names themselves
+    _VALID_INDUSTRY_TERMS.update([
+        "finance", "energy", "health", "defense", "technology", "agriculture",
+        "environment", "legal", "transportation", "international", "government",
+        "native affairs", "education", "labor", "veterans", "intelligence",
+        "retail", "construction", "manufacturing", "telecommunications",
+        "entertainment", "real estate", "insurance", "banking", "securities",
+    ])
+    return _VALID_INDUSTRY_TERMS
+
+
 def _extract_industry_keywords(entity: Entity) -> list[str]:
-    """Pull industry-related keywords — checks known entities first."""
+    """Pull industry-related keywords — checks known entities first,
+    then metadata fields, filtering to only recognised industry terms."""
+    valid = _build_valid_industry_terms()
     name_lower = _sanitize(entity.name).lower()
     # Check known entities map first
     for known_name, keywords in KNOWN_INDUSTRY_ENTITIES.items():
         if known_name in name_lower:
             return keywords
-    # Fall back to word extraction
-    words: list[str] = []
-    words.extend(name_lower.split())
+    # Collect candidate words from name + metadata
+    candidates: list[str] = []
+    candidates.extend(name_lower.split())
     meta = entity.metadata_ or {}
     for key in ("industry", "sector", "category", "employer", "occupation"):
         val = meta.get(key, "")
         if val:
-            words.extend(_sanitize(str(val)).lower().split())
-    return words
+            candidates.extend(_sanitize(str(val)).lower().split())
+    # Only return words that are recognised industry terms
+    return [w for w in candidates if w in valid]
 
 
 def _industries_for_committee(committee_name: str) -> list[str]:

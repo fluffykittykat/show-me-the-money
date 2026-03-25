@@ -280,11 +280,32 @@ async def compute_verdicts(
         assigned = False
         for kw in keywords:
             kw_lower = kw.lower().strip()
-            if kw_lower and len(kw_lower) > 2:  # Skip very short words
+            if kw_lower and len(kw_lower) > 2:
                 industry_donors[kw_lower].append((donor, rel))
                 assigned = True
         if not assigned:
             industry_donors["general"].append((donor, rel))
+
+    # ── Step 7b: Filter out junk industry keys ──────────────────────────
+    # Only keep keys that are recognised industry terms or canonical names
+    _STOPWORDS = {
+        "pac", "political", "action", "committee", "fund", "inc", "inc.",
+        "llc", "corp", "corporation", "association", "national", "american",
+        "united", "states", "federal", "employees", "international",
+        "voluntary", "the", "for", "and", "fka", "formerly", "known",
+    }
+    valid_canonical = set(CANONICAL_INDUSTRIES.keys()) | set(CANONICAL_INDUSTRIES.values())
+    cleaned_donors: dict[str, list[tuple[Entity, Relationship]]] = defaultdict(list)
+    for kw, donor_list in industry_donors.items():
+        if kw in _STOPWORDS or kw == "general":
+            # Push stopword donors back to "general" (they'll be skipped)
+            if kw != "general":
+                cleaned_donors["general"].extend(donor_list)
+            else:
+                cleaned_donors["general"] = donor_list
+        else:
+            cleaned_donors[kw] = donor_list
+    industry_donors = cleaned_donors
 
     # ── Step 8: Merge related industry keywords ───────────────────────
     # Consolidate synonymous industry keys into canonical industries

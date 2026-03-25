@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import Link from 'next/link';
 import { formatMoney } from '@/lib/utils';
 
@@ -70,14 +71,13 @@ export default function ChainVisualization({ chain, officialName, officialSlug, 
     <div className={`grid gap-2 py-2 ${className}`}
          style={{ gridTemplateColumns: `repeat(${nodes.length * 2 - 1}, auto)`, alignItems: 'stretch' }}>
       {nodes.map((node, i) => (
-        <>
+        <React.Fragment key={i}>
           {i > 0 && (
-            <div key={`arrow-${i}`} className="flex items-center justify-center">
+            <div className="flex items-center justify-center">
               <span className="text-zinc-600 text-lg">→</span>
             </div>
           )}
           <div
-            key={i}
             className={`${node.color.bg} border ${node.color.border} rounded-lg px-3 py-2.5 text-center flex flex-col justify-center`}
             style={{ minWidth: '120px', maxWidth: '160px' }}
           >
@@ -95,7 +95,7 @@ export default function ChainVisualization({ chain, officialName, officialSlug, 
               <span className={`block text-xs mt-1 font-medium ${node.color.accent}`}>{node.amount}</span>
             )}
           </div>
-        </>
+        </React.Fragment>
       ))}
     </div>
   );
