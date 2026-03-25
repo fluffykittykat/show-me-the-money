@@ -9,6 +9,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +20,15 @@ from app.models import AppConfig, Entity, IngestionJob, MoneyTrail, Relationship
 from app.services.verdict_engine import compute_overall_verdict, compute_verdicts
 
 logger = logging.getLogger(__name__)
+
+
+def _to_int(value) -> int:
+    """Coerce Decimal/float/None to int for JSON serialization."""
+    if value is None:
+        return 0
+    if isinstance(value, Decimal):
+        return int(value)
+    return int(value)
 
 
 def _format_amount(cents: int) -> str:
@@ -68,7 +78,7 @@ async def _build_story_feed(session: AsyncSession) -> list[dict]:
                 "max_dots": 0,
             }
         owned_by_official[oid]["industries"].append(trail.industry)
-        owned_by_official[oid]["total_amount"] += trail.total_amount
+        owned_by_official[oid]["total_amount"] += _to_int(trail.total_amount)
         owned_by_official[oid]["max_dots"] = max(
             owned_by_official[oid]["max_dots"], trail.dot_count
         )
@@ -137,7 +147,7 @@ async def _build_story_feed(session: AsyncSession) -> list[dict]:
             ),
             "verdict": "INFLUENCED",
             "officials": [{"name": official.name, "slug": official.slug, "party": party}],
-            "total_amount": trail.total_amount,
+            "total_amount": _to_int(trail.total_amount),
             "industry": trail.industry,
         })
         seen_official_ids.add(oid)
@@ -172,7 +182,7 @@ async def _build_story_feed(session: AsyncSession) -> list[dict]:
 
     for row in middleman_rows:
         pac_name, pac_slug, inflow, recipient_count = row
-        inflow_val = inflow or 0
+        inflow_val = _to_int(inflow)
         stories.append({
             "story_type": "middleman",
             "headline": f"{pac_name} funneled money to {recipient_count} officials",
@@ -213,7 +223,7 @@ async def _build_story_feed(session: AsyncSession) -> list[dict]:
             ),
             "verdict": "REVOLVING_DOOR",
             "officials": [{"name": to_ent.name, "slug": to_ent.slug, "party": ""}],
-            "total_amount": rel.amount_usd or 0,
+            "total_amount": _to_int(rel.amount_usd),
             "industry": "",
         })
 
@@ -269,7 +279,7 @@ async def run_precompute(force: bool = False) -> str:
         # ── Load all officials with bioguide_id ──────────────────────
         officials_q = (
             select(Entity)
-            .where(Entity.entity_type == "official")
+            .where(Entity.entity_type == "person")
         )
         result = await session.execute(officials_q)
         officials = result.scalars().all()
