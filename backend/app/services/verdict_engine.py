@@ -335,6 +335,17 @@ async def compute_verdicts(
         "economics": "finance",
     }
 
+    def _canonicalize_keywords(keywords: list[str]) -> set[str]:
+        """Convert raw keywords to canonical industry names."""
+        canonical = set()
+        for kw in keywords:
+            kw_lower = kw.lower().strip()
+            if kw_lower in CANONICAL_INDUSTRIES:
+                canonical.add(CANONICAL_INDUSTRIES[kw_lower])
+            else:
+                canonical.add(kw_lower)
+        return canonical
+
     # Regroup by canonical industry
     canonical_donors: dict[str, list[tuple[Entity, Relationship]]] = defaultdict(list)
     for raw_kw, donor_list in industry_donors.items():
@@ -380,7 +391,8 @@ async def compute_verdicts(
 
         # ── Dot 2: REGULATING_COMMITTEE ───────────────────────────────
         for cid, kws in committee_industries.items():
-            if _keyword_overlap(kws, [industry]):
+            canon_kws = _canonicalize_keywords(kws)
+            if industry in canon_kws:
                 entity = entities_by_id.get(cid)
                 if entity and not any(
                     c["slug"] == entity.slug for c in chain_committees
@@ -418,6 +430,14 @@ async def compute_verdicts(
             if connected:
                 meta = rel.metadata_ or {}
                 issue = meta.get("issue", meta.get("general_issue_code", ""))
+                description = meta.get("description", "")
+                # Filter: only count if lobbying issue/description
+                # overlaps with the current industry
+                issue_text = f"{issue} {description}".lower()
+                issue_words = [w.strip() for w in issue_text.split() if len(w.strip()) > 2]
+                canon_issue_kws = _canonicalize_keywords(issue_words)
+                if industry not in canon_issue_kws and not _keyword_overlap(issue_words, [industry]):
+                    continue
                 chain_lobbying.append({
                     "firm": _sanitize(firm.name) if firm else "Unknown",
                     "client": _sanitize(client.name) if client else "Unknown",
