@@ -44,7 +44,7 @@ The algorithm doesn't guess — it counts connected dots from verified public da
 - Bonus severity: donor lobbies those bills (LDA), money via middleman PAC, multiple donors same industry
 - The chain is complete.
 
-**⚫ CAPTURED (4+ dots, multi-industry)**
+**⚫ OWNED (4+ dots, multi-industry)**
 - Full machine visible across multiple industries. Same playbook repeated.
 - Required: Full INFLUENCED chain AND pattern repeats across 2+ industries
 - When multiple industries run the same play, the official isn't leading — they're being led.
@@ -86,7 +86,19 @@ No tabs. Everything scrolls vertically:
 - Auto-fetch PAC donors from FEC on first visit, cache for future
 - AI assessment
 
-### 7. Everything Clickable (OLAP Principle)
+### 7. AI Summary on Every Page
+
+Every page type gets a Claude Sonnet-generated briefing displayed prominently:
+- **Format:** Bullet points + short narrative. Easy to scan. Concise.
+- **Content:** Connects the dots specific to this entity. Not generic — references actual dollar amounts, names, bills.
+- **Officials:** "Fetterman received $1.1M through DSCC funded by Amalgamated Bank. He then sponsored 8 finance bills."
+- **Bills:** "This bill's sponsor received $1.8M from AISLE 518. ABA PAC also donated to the cosponsor and lobbies on banking regulation."
+- **PACs/Companies:** "The DSCC acts as a middleman between banks and senators. Its top funder, Amalgamated Bank, is regulated by the Banking Committee where DSCC recipients serve."
+- **Committees:** "3 members of this committee received donations from industries they regulate."
+- **Regenerate button** on every briefing — user can force a fresh AI analysis
+- **Pre-generated** in background jobs for speed. Only regenerated on user request or when underlying data changes.
+
+### 8. Everything Clickable (OLAP Principle)
 
 Every data point is a doorway:
 - Official name → their full profile with money trails
@@ -147,6 +159,18 @@ After completion: green toast with summary + freshness badges per data source.
 | Congress.gov | Committee assignments, sponsored bills, bill text & status | api.congress.gov/v3 |
 | Senate LDA | Lobbying filings, revolving door disclosures, client-lobbyist relationships | lda.senate.gov/api |
 | congress-legislators | Bioguide → FEC ID crosswalk (100% match accuracy) | GitHub YAML |
+| House Clerk FD | Financial disclosures, stock holdings, periodic transaction reports (trades) | disclosures-clerk.house.gov (XML index + PDF parsing) |
+| Senate eFD | Financial disclosures, stock trades, spouse income | efdsearch.senate.gov (web scraping + PDF parsing) |
+
+### Stock Trade Data (Phase 2)
+
+Stock trades are critical for detecting insider-trading-like patterns (e.g., Pelosi's well-documented trades). Implementation requires:
+1. **House Clerk XML index** — lists all filers and filing IDs (working, tested)
+2. **PDF download and parsing** — extract stock trade details (ticker, date, amount, buy/sell)
+3. **Timeline correlation** — match trade dates against committee hearing schedules, bill votes, and private briefings
+4. **The "Pelosi pattern"** — did the official (or spouse) trade stocks in companies affected by legislation they had advance knowledge of?
+
+This adds a 5th dot to the algorithm: Donor → Committee → Legislation → **Stock Trade** → Personal Profit. When an official sponsors a bill that benefits an industry AND holds/trades stock in that industry, the chain becomes personal enrichment, not just influence.
 
 **Every claim on the site links to its source.** Dollar amounts link to FEC filings. Committee assignments link to Congress.gov. Lobbying data links to Senate LDA records.
 
