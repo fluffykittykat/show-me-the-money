@@ -5,7 +5,7 @@ from alembic import context
 from sqlalchemy import create_engine, pool
 
 from app.database import Base
-from app.models import AppConfig, DataSource, Entity, Relationship  # noqa: F401 - ensure models loaded
+from app.models import AppConfig, DataSource, Entity, IngestionJob, MoneyTrail, Relationship  # noqa: F401 - ensure models loaded
 
 config = context.config
 
