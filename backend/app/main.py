@@ -247,6 +247,11 @@ async def admin_ingest(slug: str):
         from app.services.ingestion.fix_totals_best_cycle import run_fix_totals_best_cycle
         _aio.create_task(run_fix_totals_best_cycle())
         return {"status": "started", "message": "Fixing totals to use best FEC cycle (2018-2024)"}
+    elif slug == "precompute":
+        import asyncio as _aio
+        from app.services.precompute import run_precompute
+        _aio.create_task(run_precompute())
+        return {"status": "started", "message": "Pre-computing verdicts + briefings for all officials"}
     elif slug == "party-money":
         import asyncio as _aio
         from app.services.ingestion.ingest_party_money import run_party_money_ingestion
