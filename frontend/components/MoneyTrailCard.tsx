@@ -28,6 +28,9 @@ export default function MoneyTrailCard({ trail, officialName, officialSlug }: Mo
   const committees = chain.committees || [];
   const bills = chain.bills || [];
   const lobbying = chain.lobbying || [];
+  const timingHits = ((chain as Record<string, unknown>).timing_hits || []) as Array<{
+    donor: string; donation_date: string; bill: string; bill_date: string; days_before: number;
+  }>;
   const donorCount = (chain as Record<string, unknown>).donor_count as number || donors.length || 0;
   const trailAny = trail as unknown as Record<string, unknown>;
   const totalCampaign = (trailAny.total_campaign as number) || 0;
@@ -64,6 +67,11 @@ export default function MoneyTrailCard({ trail, officialName, officialSlug }: Mo
               {bills.length > 0 && (
                 <span className="text-zinc-500 text-xs">
                   · {bills.length} bill{bills.length !== 1 ? 's' : ''}
+                </span>
+              )}
+              {timingHits.length > 0 && (
+                <span className="text-red-500 text-xs font-semibold">
+                  · ⚠ {timingHits.length} timing hit{timingHits.length !== 1 ? 's' : ''}
                 </span>
               )}
             </div>
@@ -241,6 +249,37 @@ export default function MoneyTrailCard({ trail, officialName, officialSlug }: Mo
                     <div className="text-xs text-zinc-500">
                       on behalf of {l.client}{l.issue ? ` — "${l.issue}"` : ''}
                       {l.date && <span className="text-zinc-600 ml-2">{fmtDate(l.date)}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* SUSPICIOUS TIMING */}
+          {timingHits.length > 0 && (
+            <div className="mt-4">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-base">⚠</span>
+                <span className="text-xs font-bold uppercase tracking-widest text-red-500">
+                  Suspicious Timing ({timingHits.length} correlation{timingHits.length !== 1 ? 's' : ''})
+                </span>
+              </div>
+              <div className="space-y-2">
+                {timingHits.sort((a, b) => a.days_before - b.days_before).map((hit, i) => (
+                  <div key={i} className="bg-red-950/20 border border-red-500/20 rounded-lg p-3">
+                    <div className="text-sm text-zinc-200">
+                      <span className="text-emerald-400">{hit.donor}</span>
+                      {' donated '}
+                      <span className="text-amber-400 font-bold">
+                        {hit.days_before === 0 ? 'the same day' : `${hit.days_before} days before`}
+                      </span>
+                      {' '}
+                      <span className="text-red-400">{hit.bill}</span>
+                      {' was introduced'}
+                    </div>
+                    <div className="text-xs text-zinc-500 mt-1">
+                      Donation: {fmtDate(hit.donation_date)} → Bill introduced: {fmtDate(hit.bill_date)}
                     </div>
                   </div>
                 ))}

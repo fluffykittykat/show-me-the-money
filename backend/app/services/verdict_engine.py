@@ -108,6 +108,7 @@ def _generate_narrative(
     middlemen: list[dict],
     total_amount: int,
     total_campaign: int = 0,
+    timing_hits: list[dict] | None = None,
 ) -> str:
     """Build a human-readable narrative for an industry trail."""
     parts: list[str] = []
@@ -139,6 +140,28 @@ def _generate_narrative(
     if middlemen:
         mid_names = ", ".join(m["name"] for m in middlemen[:2])
         parts.append(f"Money flowed through {mid_names}.")
+
+    if timing_hits:
+        closest = min(timing_hits, key=lambda h: h["days_before"])
+        if closest["days_before"] == 0:
+            parts.append(
+                f"⚠ TIMING: {closest['donor']} donated the SAME DAY "
+                f"{closest['bill']} was introduced ({closest['bill_date']})."
+            )
+        elif closest["days_before"] <= 14:
+            parts.append(
+                f"⚠ TIMING: {closest['donor']} donated just "
+                f"{closest['days_before']} days before "
+                f"{closest['bill']} was introduced ({closest['bill_date']})."
+            )
+        else:
+            parts.append(
+                f"⚠ TIMING: {closest['donor']} donated "
+                f"{closest['days_before']} days before "
+                f"{closest['bill']} was introduced."
+            )
+        if len(timing_hits) > 1:
+            parts.append(f"{len(timing_hits)} total suspicious timing correlations found.")
 
     return " ".join(parts)
 
@@ -538,6 +561,41 @@ async def compute_verdicts(
         if total_amount >= 500_000_00:  # $500K in cents
             dots.append("major_money")
 
+        # ── Dot 8: SUSPICIOUS_TIMING ────────────────────────────────
+        # If any donation came within 90 days BEFORE a related bill
+        # was introduced, that's a timing signal.
+        timing_window_days = 90
+        timing_hits: list[dict] = []
+        for donor_entry in chain_donors:
+            d_date_str = donor_entry.get("date")
+            if not d_date_str:
+                continue
+            try:
+                from datetime import date as date_type
+                d_date = date_type.fromisoformat(d_date_str[:10])
+            except (ValueError, TypeError):
+                continue
+            for bill_entry in chain_bills:
+                b_date_str = bill_entry.get("date")
+                if not b_date_str:
+                    continue
+                try:
+                    b_date = date_type.fromisoformat(b_date_str[:10])
+                except (ValueError, TypeError):
+                    continue
+                # Donation came before the bill (or same day)
+                delta = (b_date - d_date).days
+                if 0 <= delta <= timing_window_days:
+                    timing_hits.append({
+                        "donor": donor_entry["name"],
+                        "donation_date": d_date_str[:10],
+                        "bill": bill_entry["name"],
+                        "bill_date": b_date_str[:10],
+                        "days_before": delta,
+                    })
+        if timing_hits:
+            dots.append("suspicious_timing")
+
         # ── Build trail ───────────────────────────────────────────────
         dot_count = len(dots)
         verdict = _verdict_for_dots(dot_count)
@@ -551,6 +609,7 @@ async def compute_verdicts(
             middlemen=chain_middlemen,
             total_amount=total_amount,
             total_campaign=total_campaign,
+            timing_hits=timing_hits,
         )
 
         # Build "other top donors" — biggest donors NOT in this industry
@@ -576,6 +635,7 @@ async def compute_verdicts(
                 "bills": chain_bills,
                 "middlemen": chain_middlemen,
                 "lobbying": chain_lobbying,
+                "timing_hits": timing_hits,
             },
             "narrative": narrative,
             "total_amount": total_amount,
