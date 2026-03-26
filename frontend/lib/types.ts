@@ -222,12 +222,13 @@ export interface V2MoneyTrail {
   narrative: string;
   total_amount: number;
   chain: {
-    donors?: Array<{ name: string; slug: string; amount: number }>;
+    donors?: Array<{ name: string; slug: string; amount: number; date?: string | null }>;
     committees?: Array<{ name: string; slug: string }>;
-    bills?: Array<{ name: string; slug: string }>;
+    bills?: Array<{ name: string; slug: string; date?: string | null; role?: string }>;
     middlemen?: Array<{ name: string; slug: string; amount_in: number; amount_out: number }>;
-    lobbying?: Array<{ firm: string; client: string; issue: string }>;
+    lobbying?: Array<{ firm: string; client: string; issue: string; date?: string | null }>;
     dots?: string[];
+    donor_count?: number;
   };
 }
 
