@@ -52,6 +52,29 @@ def _json_default(obj):
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
+def _latest_event_date(trail) -> str:
+    """Get the most recent event date from a trail's chain data."""
+    chain = trail.chain or {}
+    dates: list[str] = []
+    # Donation dates
+    for d in chain.get("donors", []):
+        if d.get("date"):
+            dates.append(d["date"][:10])
+    # Bill dates
+    for b in chain.get("bills", []):
+        if b.get("date"):
+            dates.append(b["date"][:10])
+    # Lobbying dates
+    for l in chain.get("lobbying", []):
+        if l.get("date"):
+            dates.append(l["date"][:10])
+    if dates:
+        return max(dates)  # most recent date
+    if trail.computed_at:
+        return trail.computed_at.strftime("%Y-%m-%d")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
 async def _build_story_feed(session: AsyncSession) -> list[dict]:
     """Build the homepage story feed from pre-computed money trails.
 
@@ -161,7 +184,7 @@ async def _build_story_feed(session: AsyncSession) -> list[dict]:
             "officials": [{"name": official.name, "slug": official.slug, "party": party}],
             "total_amount": _to_int(trail.total_amount),
             "industry": trail.industry,
-            "date": trail.computed_at.strftime("%Y-%m-%d") if trail.computed_at else datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "date": _latest_event_date(trail),
         })
         seen_official_ids.add(oid)
         influenced_count += 1

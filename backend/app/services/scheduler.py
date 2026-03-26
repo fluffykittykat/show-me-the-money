@@ -560,6 +560,17 @@ async def _weekly_lobbying():
             )
 
 
+async def _run_precompute():
+    """Re-compute verdicts + briefings for all officials."""
+    try:
+        from app.services.precompute import run_precompute
+        logger.info("[Scheduler] Starting precompute job")
+        result = await run_precompute()
+        logger.info(f"[Scheduler] Precompute complete: {result}")
+    except Exception as exc:
+        logger.error(f"[Scheduler] precompute failed: {exc}")
+
+
 # ---------------------------------------------------------------------------
 # Job registry
 # ---------------------------------------------------------------------------
@@ -594,6 +605,11 @@ JOB_REGISTRY = {
         "func": _weekly_lobbying,
         "trigger": CronTrigger(day_of_week="sun", hour=2, minute=0),
         "description": "Update lobbying disclosures",
+    },
+    "precompute_verdicts": {
+        "func": _run_precompute,
+        "trigger": IntervalTrigger(hours=6),
+        "description": "Re-compute money trail verdicts and briefings",
     },
 }
 
