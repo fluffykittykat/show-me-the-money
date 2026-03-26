@@ -12,6 +12,13 @@ import AIBriefing from '@/components/AIBriefing';
 import MoneyAmount from '@/components/MoneyAmount';
 import PageControls from '@/components/PageControls';
 
+function fmtDate(d: string | null | undefined): string {
+  if (!d) return '';
+  try {
+    return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch { return ''; }
+}
+
 export default function EntityPage() {
   const { slug } = useParams<{ type: string; slug: string }>();
   const [data, setData] = useState<V2EntityResponse | null>(null);
@@ -71,7 +78,12 @@ export default function EntityPage() {
           >
             <div className="min-w-0 mr-3">
               <div className="text-sm font-medium truncate">{item.name}</div>
-              <span className="text-xs text-zinc-600">{item.entity_type}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-zinc-600">{item.entity_type}</span>
+                {!!(item as unknown as Record<string, unknown>).date && (
+                  <span className="text-xs text-zinc-700">{fmtDate((item as unknown as Record<string, unknown>).date as string)}</span>
+                )}
+              </div>
             </div>
             <MoneyAmount amount={item.amount_usd} label={item.amount_label} />
           </Link>

@@ -385,6 +385,7 @@ async def v2_entity(slug: str, db: AsyncSession = Depends(get_db)):
             "entity_type": from_entity.entity_type,
             "amount_usd": rel.amount_usd or 0,
             "amount_label": rel.amount_label,
+            "date": rel.date_start.isoformat() if rel.date_start else None,
         })
 
     # --- Money out: donated_to where this entity is from_entity ---
@@ -406,6 +407,7 @@ async def v2_entity(slug: str, db: AsyncSession = Depends(get_db)):
             "entity_type": to_entity.entity_type,
             "amount_usd": rel.amount_usd or 0,
             "amount_label": rel.amount_label,
+            "date": rel.date_start.isoformat() if rel.date_start else None,
         })
 
     briefing = meta.get("fbi_briefing")
