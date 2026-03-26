@@ -606,6 +606,62 @@ async def v2_entity(slug: str, db: AsyncSession = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
+# GET /v2/trades
+# ---------------------------------------------------------------------------
+
+
+@router.get("/trades")
+async def v2_trades(db: AsyncSession = Depends(get_db), limit: int = 50, offset: int = 0):
+    """Return recent stock trades with official info."""
+    trade_q = (
+        select(Relationship, Entity)
+        .join(Entity, Entity.id == Relationship.from_entity_id)
+        .where(Relationship.relationship_type.in_(["stock_trade", "holds_stock"]))
+        .order_by(Relationship.date_start.desc().nullslast())
+        .limit(limit)
+        .offset(offset)
+    )
+    rows = (await db.execute(trade_q)).all()
+
+    # Load stock entities
+    stock_ids = [r[0].to_entity_id for r in rows]
+    stock_entities = {}
+    if stock_ids:
+        se_result = await db.execute(select(Entity).where(Entity.id.in_(stock_ids)))
+        stock_entities = {e.id: e for e in se_result.scalars().all()}
+
+    trades = []
+    for rel, official in rows:
+        stock = stock_entities.get(rel.to_entity_id)
+        r_meta = rel.metadata_ or {}
+        o_meta = official.metadata_ or {}
+        trades.append({
+            "official_name": official.name,
+            "official_slug": official.slug,
+            "official_party": o_meta.get("party", ""),
+            "official_state": o_meta.get("state", ""),
+            "ticker": r_meta.get("ticker", stock.name if stock else "?"),
+            "asset_name": stock.name if stock else r_meta.get("description", "Unknown"),
+            "transaction_type": r_meta.get("transaction_type", "Unknown"),
+            "amount_range": rel.amount_label or r_meta.get("amount_range", ""),
+            "trade_date": rel.date_start.isoformat() if rel.date_start else None,
+            "notification_date": r_meta.get("notification_date"),
+            "owner": r_meta.get("owner", ""),
+            "source_url": rel.source_url,
+        })
+
+    # Count total
+    count_q = (
+        select(func.count())
+        .select_from(Relationship)
+        .where(Relationship.relationship_type.in_(["stock_trade", "holds_stock"]))
+    )
+    total = (await db.execute(count_q)).scalar() or 0
+
+    return {"trades": trades, "total": total}
+
+
+# ---------------------------------------------------------------------------
 # GET /v2/homepage
 # ---------------------------------------------------------------------------
 
