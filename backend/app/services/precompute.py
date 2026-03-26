@@ -333,7 +333,7 @@ async def run_precompute(force: bool = False) -> str:
                         verdict=trail["verdict"],
                         dot_count=trail["dot_count"],
                         narrative=trail.get("narrative"),
-                        chain=trail.get("chain", {}),
+                        chain={**trail.get("chain", {}), "donor_count": trail.get("donor_count", 0)},
                         total_amount=trail.get("total_amount", 0),
                         computed_at=now,
                     )
