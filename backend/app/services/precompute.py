@@ -121,6 +121,7 @@ async def _build_story_feed(session: AsyncSession) -> list[dict]:
             "officials": [{"name": off.name, "slug": off.slug, "party": party}],
             "total_amount": entry["total_amount"],
             "industry": entry["industries"][0] if entry["industries"] else "",
+            "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         })
         seen_official_ids.add(str(off.id))
 
@@ -160,6 +161,7 @@ async def _build_story_feed(session: AsyncSession) -> list[dict]:
             "officials": [{"name": official.name, "slug": official.slug, "party": party}],
             "total_amount": _to_int(trail.total_amount),
             "industry": trail.industry,
+            "date": trail.computed_at.strftime("%Y-%m-%d") if trail.computed_at else datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         })
         seen_official_ids.add(oid)
         influenced_count += 1
@@ -205,6 +207,7 @@ async def _build_story_feed(session: AsyncSession) -> list[dict]:
             "officials": [],
             "total_amount": inflow_val,
             "industry": "",
+            "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         })
 
     # ── 4. Revolving door stories ────────────────────────────────────
@@ -236,6 +239,7 @@ async def _build_story_feed(session: AsyncSession) -> list[dict]:
             "officials": [{"name": to_ent.name, "slug": to_ent.slug, "party": ""}],
             "total_amount": _to_int(rel.amount_usd),
             "industry": "",
+            "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         })
 
     # ── Sort: OWNED first, then INFLUENCED by amount, middleman, revolving door

@@ -2,13 +2,22 @@
 
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { Clock } from 'lucide-react';
 import type { V2StoryCard } from '@/lib/types';
 import VerdictBadge from './VerdictBadge';
+
+function fmtDate(d: string | null | undefined): string {
+  if (!d) return '';
+  try {
+    return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch { return ''; }
+}
 
 export default function StoryCard({ story }: { story: V2StoryCard }) {
   const router = useRouter();
   const primaryOfficial = story.officials[0];
   const cardHref = primaryOfficial ? `/officials/${primaryOfficial.slug}` : undefined;
+  const storyDate = (story as unknown as Record<string, unknown>).date as string | undefined;
 
   return (
     <div
@@ -19,7 +28,15 @@ export default function StoryCard({ story }: { story: V2StoryCard }) {
     >
       <div className="flex justify-between items-start gap-3 mb-2.5">
         <div className="text-[1.05rem] font-semibold leading-snug">{story.headline}</div>
-        <VerdictBadge verdict={story.verdict} className="flex-shrink-0" />
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {storyDate && (
+            <span className="flex items-center gap-1 text-xs text-zinc-600">
+              <Clock className="w-3 h-3" />
+              {fmtDate(storyDate)}
+            </span>
+          )}
+          <VerdictBadge verdict={story.verdict} />
+        </div>
       </div>
       <p className="text-zinc-400 text-sm leading-relaxed mb-2.5">
         {story.narrative.split(/(\$[\d,.]+[KMB]?)/).map((part, i) =>
