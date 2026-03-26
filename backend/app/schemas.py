@@ -577,7 +577,7 @@ class V2BillResponse(BaseModel):
     status_label: str
     sponsors: list[dict]
     briefing: str | None
-    policy_area: str = ""
+    policy_area: str | None = ""
     total_money_behind: int = 0
     top_donors_across: list = []
     votes: list = []

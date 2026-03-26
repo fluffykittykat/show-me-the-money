@@ -216,6 +216,7 @@ def _parse_bill_status(raw: str | None) -> str:
 @router.get("/bill/{slug}", response_model=V2BillResponse)
 async def v2_bill(slug: str, db: AsyncSession = Depends(get_db)):
     """Return everything the Bill page needs in one response."""
+    import traceback as _tb
 
     entity = (
         await db.execute(select(Entity).where(Entity.slug == slug))
@@ -223,6 +224,17 @@ async def v2_bill(slug: str, db: AsyncSession = Depends(get_db)):
 
     if not entity or entity.entity_type != "bill":
         raise HTTPException(status_code=404, detail="Bill not found")
+
+    try:
+        return await _v2_bill_inner(entity, slug, db)
+    except Exception as e:
+        print(f"[v2] Bill endpoint error for {slug}: {e}")
+        _tb.print_exc()
+        raise
+
+
+async def _v2_bill_inner(entity, slug: str, db):
+    """Inner bill logic — separated for error tracing."""
 
     meta = entity.metadata_ or {}
     status_label = _parse_bill_status(meta.get("status"))
@@ -326,8 +338,8 @@ async def v2_bill(slug: str, db: AsyncSession = Depends(get_db)):
     policy_area = meta.get("policy_area", "")
 
     # --- Vote data (cached in metadata, fetched from Congress.gov if missing) ---
-    votes = meta.get("votes", [])
-    if not votes:
+    votes = meta.get("votes") or []
+    if not votes and isinstance(votes, list):
         congress_api_key = os.getenv("CONGRESS_API_KEY", "")
         congress_num = meta.get("congress")
         bill_number = meta.get("bill_number")
