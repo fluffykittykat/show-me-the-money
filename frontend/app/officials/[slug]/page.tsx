@@ -34,10 +34,22 @@ export default function OfficialPage() {
     if (!slug) return;
     setLoading(true);
     getV2Official(slug)
-      .then(d => { setData(d); setBriefing(d.briefing); })
+      .then(d => {
+        // If this person has no official data (no donors, no trails, no committees),
+        // redirect to the entity page which shows all relationship types
+        const isEmpty = !d.top_donors?.length && !d.money_trails?.length && !d.committees?.length;
+        const meta = (d.entity?.metadata || d.entity?.metadata_) as Record<string, unknown> | undefined;
+        const isNotOfficial = !meta?.bioguide_id;
+        if (isEmpty && isNotOfficial) {
+          router.replace(`/entities/${d.entity?.entity_type || 'person'}/${slug}`);
+          return;
+        }
+        setData(d);
+        setBriefing(d.briefing);
+      })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
-  }, [slug]);
+  }, [slug, router]);
 
   if (loading) return <div className="max-w-[900px] mx-auto p-6"><LoadingState variant="profile" /></div>;
   if (error || !data) return (
