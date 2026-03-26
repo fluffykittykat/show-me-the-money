@@ -53,9 +53,9 @@ export default function FreshnessBar({ freshness, className = '' }: FreshnessBar
         <span>Data: {refreshLabel}</span>
       </div>
       {freshness.fec_cycle && (
-        <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+        <div className="flex items-center gap-1.5 text-xs text-zinc-500" title="FEC data is reported in 2-year election cycles. The latest available cycle may lag the current year.">
           <Database className="w-3.5 h-3.5" />
-          <span>FEC {freshness.fec_cycle}</span>
+          <span>FEC {freshness.fec_cycle} cycle (latest available)</span>
         </div>
       )}
       <div className="flex items-center gap-1.5 text-xs text-zinc-500">

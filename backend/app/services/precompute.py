@@ -344,6 +344,7 @@ async def run_precompute(force: bool = False) -> str:
                 meta = dict(official.metadata_ or {})
                 meta["v2_verdict"] = overall_verdict
                 meta["v2_dot_count"] = total_dots
+                meta["last_refreshed"] = datetime.now(timezone.utc).isoformat()
                 official.metadata_ = meta
 
                 await session.commit()
