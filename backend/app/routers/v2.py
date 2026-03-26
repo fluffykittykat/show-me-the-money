@@ -80,7 +80,8 @@ async def v2_official(slug: str, db: AsyncSession = Depends(get_db)):
     donor_q = (
         select(
             Relationship.from_entity_id,
-            func.sum(Relationship.amount_usd).label("total"),
+            func.sum(Relationship.amount_usd).label("total_donated"),
+            func.max(Relationship.date_start).label("latest_date"),
         )
         .where(Relationship.to_entity_id == entity.id)
         .where(Relationship.relationship_type == "donated_to")
@@ -101,7 +102,7 @@ async def v2_official(slug: str, db: AsyncSession = Depends(get_db)):
 
     top_donors = []
     middlemen = []
-    for donor_id, total_donated in donor_rows:
+    for donor_id, total_donated, latest_date in donor_rows:
         de = donor_entities.get(donor_id)
         if not de:
             continue
@@ -110,6 +111,7 @@ async def v2_official(slug: str, db: AsyncSession = Depends(get_db)):
             "name": de.name,
             "entity_type": de.entity_type,
             "total_donated": total_donated or 0,
+            "latest_date": latest_date.isoformat() if latest_date else None,
         }
         top_donors.append(entry)
         if de.entity_type == "pac":
@@ -248,6 +250,7 @@ async def v2_bill(slug: str, db: AsyncSession = Depends(get_db)):
                     "slug": de.slug,
                     "entity_type": de.entity_type,
                     "amount": amt,
+                    "date": None,
                 })
                 sponsor_total += amt
                 # Track across all sponsors

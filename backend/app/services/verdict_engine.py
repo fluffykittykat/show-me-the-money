@@ -450,6 +450,7 @@ async def compute_verdicts(
                 "name": _sanitize(donor_entity.name),
                 "slug": donor_entity.slug,
                 "amount": rel.amount_usd or 0,
+                "date": rel.date_start.isoformat() if rel.date_start else None,
             })
 
         # ── Dot 2: REGULATING_COMMITTEE ───────────────────────────────
@@ -474,9 +475,11 @@ async def compute_verdicts(
                 if entity and not any(
                     b["slug"] == entity.slug for b in chain_bills
                 ):
+                    bill_meta = entity.metadata_ or {}
                     chain_bills.append({
                         "name": _sanitize(entity.name),
                         "slug": entity.slug,
+                        "date": bill_meta.get("introduced_date"),
                     })
         if chain_bills:
             dots.append("sponsored_aligned_bills")
@@ -505,6 +508,7 @@ async def compute_verdicts(
                     "firm": _sanitize(firm.name) if firm else "Unknown",
                     "client": _sanitize(client.name) if client else "Unknown",
                     "issue": _sanitize(str(issue)) if issue else "",
+                    "date": rel.date_start.isoformat() if rel.date_start else None,
                 })
         if chain_lobbying:
             dots.append("donor_lobbies")
