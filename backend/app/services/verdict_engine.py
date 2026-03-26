@@ -80,9 +80,9 @@ def _industry_keywords_for_policy_area(policy_area: str) -> list[str]:
 
 def _verdict_for_dots(dot_count: int) -> str:
     """Map dot count to verdict string."""
-    if dot_count >= 3:
+    if dot_count >= 4:
         return "INFLUENCED"
-    if dot_count == 2:
+    if dot_count >= 2:
         return "CONNECTED"
     return "NORMAL"
 
@@ -111,10 +111,13 @@ def _generate_narrative(
     """Build a human-readable narrative for an industry trail."""
     parts: list[str] = []
 
-    donor_names = ", ".join(d["name"] for d in donors[:3])
-    if len(donors) > 3:
-        donor_names += f" and {len(donors) - 3} others"
-    parts.append(f"{donor_names} donated {_fmt_amount(total_amount)} to this official")
+    if len(donors) == 1:
+        parts.append(f"{donors[0]['name']} donated {_fmt_amount(total_amount)} to this official")
+    else:
+        top_names = ", ".join(d["name"] for d in donors[:3])
+        if len(donors) > 3:
+            top_names += f" and {len(donors) - 3} others"
+        parts.append(f"{len(donors)} {industry} donors gave {_fmt_amount(total_amount)} total (top: {top_names})")
 
     if committees:
         committee_names = ", ".join(c["name"] for c in committees[:2])
@@ -480,6 +483,14 @@ async def compute_verdicts(
         if chain_middlemen:
             dots.append("middleman_pac")
 
+        # ── Dot 6: SIGNIFICANT_MONEY ────────────────────────────────
+        # Factor in the aggregate dollar amount from this industry
+        # $50K+ = 1 additional dot, $500K+ = 2 additional dots
+        if total_amount >= 50_000_00:  # $50K in cents
+            dots.append("significant_money")
+        if total_amount >= 500_000_00:  # $500K in cents
+            dots.append("major_money")
+
         # ── Build trail ───────────────────────────────────────────────
         dot_count = len(dots)
         verdict = _verdict_for_dots(dot_count)
@@ -508,6 +519,7 @@ async def compute_verdicts(
             },
             "narrative": narrative,
             "total_amount": total_amount,
+            "donor_count": len(unique_donors),
         })
 
     # Sort trails: highest dot count first, then by total amount
@@ -519,9 +531,9 @@ async def compute_verdicts(
 def compute_overall_verdict(trails: list[dict]) -> tuple[str, int]:
     """Given all industry trails, compute the official's overall verdict.
 
-    OWNED      = 2+ industries at INFLUENCED level
-    INFLUENCED = any industry at 3+ dots
-    CONNECTED  = any industry at 2 dots
+    OWNED      = 2+ industries at INFLUENCED level, OR total > $1M with 1+ INFLUENCED
+    INFLUENCED = any industry at 4+ dots
+    CONNECTED  = any industry at 2+ dots
     NORMAL     = all industries at 1 dot or less
 
     Returns (verdict, total_dots_across_all_industries)
@@ -530,9 +542,12 @@ def compute_overall_verdict(trails: list[dict]) -> tuple[str, int]:
         return ("NORMAL", 0)
 
     total_dots = sum(t["dot_count"] for t in trails)
-    influenced_count = sum(1 for t in trails if t["dot_count"] >= 3)
+    total_money = sum(t["total_amount"] for t in trails)
+    influenced_count = sum(1 for t in trails if t["verdict"] == "INFLUENCED")
 
     if influenced_count >= 2:
+        return ("OWNED", total_dots)
+    if influenced_count >= 1 and total_money >= 1_000_000_00:  # $1M in cents
         return ("OWNED", total_dots)
     if influenced_count >= 1:
         return ("INFLUENCED", total_dots)
