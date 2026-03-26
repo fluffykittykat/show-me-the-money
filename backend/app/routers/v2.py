@@ -195,7 +195,7 @@ async def v2_bill(slug: str, db: AsyncSession = Depends(get_db)):
     meta = entity.metadata_ or {}
     status_label = _parse_bill_status(meta.get("status"))
 
-    # --- Sponsors / cosponsors ---
+    # --- Sponsors / cosponsors with their top donors ---
     sponsor_q = (
         select(Relationship, Entity)
         .join(Entity, Entity.id == Relationship.from_entity_id)
@@ -207,25 +207,100 @@ async def v2_bill(slug: str, db: AsyncSession = Depends(get_db)):
     sponsor_rows = (await db.execute(sponsor_q)).all()
 
     sponsors = []
+    total_money_behind = 0
+    all_donor_names: dict[str, int] = {}  # donor_name -> total amount
+
     for rel, sponsor_entity in sponsor_rows:
         s_meta = sponsor_entity.metadata_ or {}
+
+        # Load this sponsor's top donors
+        donor_q = (
+            select(
+                Relationship.from_entity_id,
+                func.sum(Relationship.amount_usd).label("total"),
+            )
+            .where(Relationship.to_entity_id == sponsor_entity.id)
+            .where(Relationship.relationship_type == "donated_to")
+            .group_by(Relationship.from_entity_id)
+            .order_by(func.sum(Relationship.amount_usd).desc())
+            .limit(5)
+        )
+        donor_rows = (await db.execute(donor_q)).all()
+        donor_ids = [r[0] for r in donor_rows]
+        donor_entities = {}
+        if donor_ids:
+            de_result = await db.execute(
+                select(Entity).where(Entity.id.in_(donor_ids))
+            )
+            donor_entities = {e.id: e for e in de_result.scalars().all()}
+
+        top_donors = []
+        sponsor_total = 0
+        for did, amount in donor_rows:
+            de = donor_entities.get(did)
+            if de:
+                amt = amount or 0
+                top_donors.append({
+                    "name": de.name,
+                    "slug": de.slug,
+                    "entity_type": de.entity_type,
+                    "amount": amt,
+                })
+                sponsor_total += amt
+                # Track across all sponsors
+                all_donor_names[de.name] = all_donor_names.get(de.name, 0) + amt
+
+        total_money_behind += sponsor_total
+
+        # Load money trails for this sponsor (from precomputed)
+        trail_q = (
+            select(MoneyTrail)
+            .where(MoneyTrail.official_id == sponsor_entity.id)
+            .order_by(MoneyTrail.dot_count.desc())
+            .limit(3)
+        )
+        trail_rows = (await db.execute(trail_q)).scalars().all()
+        money_trails = [
+            {
+                "industry": t.industry,
+                "verdict": t.verdict,
+                "dot_count": t.dot_count,
+                "total_amount": t.total_amount,
+            }
+            for t in trail_rows
+        ]
+
         sponsors.append({
             "slug": sponsor_entity.slug,
             "name": sponsor_entity.name,
             "party": s_meta.get("party", ""),
             "state": s_meta.get("state", ""),
-            "role": rel.relationship_type,  # "sponsored" or "cosponsored"
-            "top_donor": s_meta.get("top_donor"),
+            "role": rel.relationship_type,
             "verdict": s_meta.get("v2_verdict"),
+            "campaign_total": s_meta.get("campaign_total"),
+            "top_donors": top_donors,
+            "donor_total": sponsor_total,
+            "money_trails": money_trails,
         })
 
+    # Sort: primary sponsors first, then by donor_total desc
+    sponsors.sort(key=lambda s: (0 if s["role"] == "sponsored" else 1, -(s.get("donor_total") or 0)))
+
+    # Top donors across all sponsors (who's funding the people behind this bill)
+    top_donors_across = sorted(all_donor_names.items(), key=lambda x: -x[1])[:10]
+
     briefing = meta.get("fbi_briefing")
+    policy_area = meta.get("policy_area", "")
 
     return V2BillResponse(
         entity=EntityResponse.model_validate(entity),
         status_label=status_label,
         sponsors=sponsors,
         briefing=briefing,
+        # Extra fields passed through the dict type
+        policy_area=policy_area,
+        total_money_behind=total_money_behind,
+        top_donors_across=top_donors_across,
     )
 
 
