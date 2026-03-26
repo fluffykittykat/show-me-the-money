@@ -589,6 +589,8 @@ class V2EntityResponse(BaseModel):
     money_out: list[dict]
     money_trails: list[dict]  # traced forward: donor → PAC → official → legislation
     briefing: str | None
+    connections: list[dict] = []  # all non-donation relationships
+    dossier: dict = {}  # key metadata fields
 
 
 class V2HomepageResponse(BaseModel):

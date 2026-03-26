@@ -493,12 +493,76 @@ async def v2_entity(slug: str, db: AsyncSession = Depends(get_db)):
     # Sort trails by amount descending
     money_trails.sort(key=lambda t: -t["amount_received"])
 
+    # --- ALL other relationships (lobbying, revolving door, committees, etc.) ---
+    all_outgoing_q = (
+        select(Relationship, Entity)
+        .join(Entity, Entity.id == Relationship.to_entity_id)
+        .where(Relationship.from_entity_id == entity.id)
+        .where(Relationship.relationship_type != "donated_to")
+        .order_by(Relationship.amount_usd.desc().nullslast())
+        .limit(50)
+    )
+    all_incoming_q = (
+        select(Relationship, Entity)
+        .join(Entity, Entity.id == Relationship.from_entity_id)
+        .where(Relationship.to_entity_id == entity.id)
+        .where(Relationship.relationship_type != "donated_to")
+        .order_by(Relationship.amount_usd.desc().nullslast())
+        .limit(50)
+    )
+    outgoing_rows = (await db.execute(all_outgoing_q)).all()
+    incoming_rows = (await db.execute(all_incoming_q)).all()
+
+    connections: list[dict] = []
+    for rel, other_entity in outgoing_rows:
+        r_meta = rel.metadata_ or {}
+        connections.append({
+            "direction": "outgoing",
+            "relationship_type": rel.relationship_type,
+            "entity_name": other_entity.name,
+            "entity_slug": other_entity.slug,
+            "entity_type": other_entity.entity_type,
+            "amount_usd": rel.amount_usd or 0,
+            "amount_label": rel.amount_label,
+            "date": rel.date_start.isoformat() if rel.date_start else None,
+            "detail": r_meta.get("covered_position")
+                or r_meta.get("general_issue_code")
+                or r_meta.get("description", "")
+                or r_meta.get("client", ""),
+        })
+    for rel, other_entity in incoming_rows:
+        r_meta = rel.metadata_ or {}
+        connections.append({
+            "direction": "incoming",
+            "relationship_type": rel.relationship_type,
+            "entity_name": other_entity.name,
+            "entity_slug": other_entity.slug,
+            "entity_type": other_entity.entity_type,
+            "amount_usd": rel.amount_usd or 0,
+            "amount_label": rel.amount_label,
+            "date": rel.date_start.isoformat() if rel.date_start else None,
+            "detail": r_meta.get("covered_position")
+                or r_meta.get("general_issue_code")
+                or r_meta.get("description", "")
+                or r_meta.get("client", ""),
+        })
+
+    # Extract key dossier fields from metadata
+    dossier = {
+        "covered_position": meta.get("covered_position", ""),
+        "current_firm": meta.get("current_firm", ""),
+        "is_revolving_door": meta.get("is_revolving_door", False),
+        "lda_lobbyist_id": meta.get("lda_lobbyist_id"),
+    }
+
     return V2EntityResponse(
         entity=EntityResponse.model_validate(entity),
         money_in=money_in,
         money_out=money_out,
         money_trails=money_trails,
         briefing=briefing,
+        connections=connections,
+        dossier=dossier,
     )
 
 

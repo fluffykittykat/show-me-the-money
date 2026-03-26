@@ -44,6 +44,13 @@ export default function EntityPage() {
   );
 
   const { entity, money_in, money_out, briefing: dataBriefing } = data;
+  const dataAny = data as unknown as Record<string, unknown>;
+  const connections = (dataAny.connections || []) as Array<{
+    direction: string; relationship_type: string; entity_name: string;
+    entity_slug: string; entity_type: string; amount_usd: number;
+    amount_label: string | null; date: string | null; detail: string;
+  }>;
+  const dossier = (dataAny.dossier || {}) as Record<string, unknown>;
   const money_trails = (data as unknown as Record<string, unknown>).money_trails as Array<{
     official_name: string; official_slug: string; official_party: string;
     official_state: string; amount_received: number; verdict: string;
@@ -102,6 +109,21 @@ export default function EntityPage() {
           </span>
         </div>
         <h1 className="text-2xl font-bold">{entity.name}</h1>
+        {!!dossier.is_revolving_door && (
+          <span className="inline-block mt-1 text-xs font-bold px-2.5 py-1 rounded bg-purple-500/15 text-purple-400 border border-purple-500/30">
+            REVOLVING DOOR
+          </span>
+        )}
+        {!!dossier.covered_position && (
+          <p className="text-zinc-400 text-sm mt-2">
+            <span className="text-zinc-500">Former position:</span> {String(dossier.covered_position)}
+          </p>
+        )}
+        {!!dossier.current_firm && (
+          <p className="text-zinc-400 text-sm mt-1">
+            <span className="text-zinc-500">Current firm:</span> {String(dossier.current_firm)}
+          </p>
+        )}
         {isPac && (
           <p className="text-zinc-500 text-sm mt-1">
             Joint fundraising committees and PACs collect money from many sources and distribute to multiple candidates, party committees, and other PACs. Only tracked distributions are shown below.
@@ -243,6 +265,74 @@ export default function EntityPage() {
           </div>
         </div>
       )}
+
+      {/* Connections — lobbying, revolving door, committees, etc. */}
+      {connections.length > 0 && (() => {
+        const grouped: Record<string, typeof connections> = {};
+        for (const c of connections) {
+          const key = c.relationship_type.replace(/_/g, ' ');
+          if (!grouped[key]) grouped[key] = [];
+          grouped[key].push(c);
+        }
+
+        const TYPE_COLORS: Record<string, string> = {
+          'revolving door lobbyist': 'text-purple-500',
+          'former official now lobbyist': 'text-purple-500',
+          'lobbies on behalf of': 'text-orange-500',
+          'committee member': 'text-blue-500',
+          'stock trade': 'text-red-500',
+          'holds stock': 'text-red-500',
+          'sponsored': 'text-emerald-500',
+          'cosponsored': 'text-emerald-500',
+        };
+
+        return (
+          <div className="mt-10">
+            <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">
+              Connections & Relationships
+            </h2>
+            <div className="space-y-6">
+              {Object.entries(grouped).map(([type, rels]) => (
+                <div key={type}>
+                  <div className={`text-xs font-bold uppercase tracking-widest mb-3 ${TYPE_COLORS[type] || 'text-zinc-500'}`}>
+                    {type} ({rels.length})
+                  </div>
+                  <div className="space-y-1">
+                    {rels.map((c, i) => (
+                      <Link
+                        key={i}
+                        href={c.entity_type === 'person' ? `/officials/${c.entity_slug}` : `/entities/${c.entity_type}/${c.entity_slug}`}
+                        className="flex items-center justify-between py-2 px-3 -mx-3 rounded-lg hover:bg-zinc-800/60 transition-colors"
+                      >
+                        <div className="min-w-0 mr-3">
+                          <div className="text-sm font-medium">{c.entity_name}</div>
+                          <div className="flex items-center gap-2 text-xs text-zinc-600">
+                            <span>{c.entity_type}</span>
+                            {c.direction === 'incoming' && <span>→ this entity</span>}
+                            {c.direction === 'outgoing' && <span>← this entity</span>}
+                            {c.date && <span>{fmtDate(c.date)}</span>}
+                          </div>
+                          {c.detail && (
+                            <div className="text-xs text-zinc-500 mt-0.5 truncate">{c.detail}</div>
+                          )}
+                        </div>
+                        {c.amount_usd > 0 && (
+                          <span className="text-amber-400 font-semibold text-sm flex-shrink-0">
+                            {formatMoney(c.amount_usd)}
+                          </span>
+                        )}
+                        {!c.amount_usd && c.amount_label && (
+                          <span className="text-zinc-400 text-sm flex-shrink-0">{c.amount_label}</span>
+                        )}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
