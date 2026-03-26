@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { RefreshCw } from 'lucide-react';
 import { getV2Official } from '@/lib/api';
+import PageControls from '@/components/PageControls';
 import type { V2OfficialResponse } from '@/lib/types';
 import { formatMoney } from '@/lib/utils';
 import LoadingState from '@/components/LoadingState';
@@ -21,12 +21,13 @@ export default function OfficialPage() {
   const [data, setData] = useState<V2OfficialResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [briefing, setBriefing] = useState<string | null>(null);
 
   useEffect(() => {
     if (!slug) return;
     setLoading(true);
     getV2Official(slug)
-      .then(setData)
+      .then(d => { setData(d); setBriefing(d.briefing); })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, [slug]);
@@ -67,8 +68,17 @@ export default function OfficialPage() {
         )}
       </div>
 
+      {/* Page Controls */}
+      <PageControls
+        slug={slug}
+        onBriefingUpdate={(text) => setBriefing(text)}
+        onDataRefresh={() => {
+          getV2Official(slug).then(setData).catch(() => {});
+        }}
+      />
+
       {/* AI Briefing */}
-      <AIBriefing briefing={briefing} slug={slug} />
+      <AIBriefing briefing={briefing ?? data.briefing} />
 
       {/* Money Trails */}
       {money_trails.length > 0 ? (
@@ -127,11 +137,6 @@ export default function OfficialPage() {
         </div>
       )}
 
-      {/* Refresh + Freshness */}
-      <button className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 text-zinc-400 px-5 py-2.5 rounded-lg text-sm hover:border-amber-400 hover:text-amber-400 transition-colors">
-        <RefreshCw className="w-4 h-4" />
-        Refresh Investigation
-      </button>
       <FreshnessBar freshness={freshness} />
     </div>
   );

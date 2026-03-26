@@ -9,6 +9,7 @@ import LoadingState from '@/components/LoadingState';
 import PartyBadge from '@/components/PartyBadge';
 import VerdictBadge from '@/components/VerdictBadge';
 import AIBriefing from '@/components/AIBriefing';
+import PageControls from '@/components/PageControls';
 
 const STATUS_COLORS: Record<string, string> = {
   'BECAME LAW': 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40',
@@ -23,12 +24,13 @@ export default function BillPage() {
   const [data, setData] = useState<V2BillResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [briefing, setBriefing] = useState<string | null>(null);
 
   useEffect(() => {
     if (!slug) return;
     setLoading(true);
     getV2Bill(slug)
-      .then(setData)
+      .then(d => { setData(d); setBriefing(d.briefing); })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, [slug]);
@@ -58,7 +60,16 @@ export default function BillPage() {
         {summary && <p className="text-zinc-400 text-sm leading-relaxed">{summary}</p>}
       </div>
 
-      <AIBriefing briefing={briefing} slug={slug} />
+      {/* Page Controls */}
+      <PageControls
+        slug={slug}
+        onBriefingUpdate={(text) => setBriefing(text)}
+        onDataRefresh={() => {
+          getV2Bill(slug).then(setData).catch(() => {});
+        }}
+      />
+
+      <AIBriefing briefing={briefing ?? data.briefing} />
 
       {primarySponsors.length > 0 && (
         <div className="mb-8">

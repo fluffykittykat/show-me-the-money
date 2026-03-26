@@ -8,18 +8,20 @@ import type { V2EntityResponse } from '@/lib/types';
 import LoadingState from '@/components/LoadingState';
 import AIBriefing from '@/components/AIBriefing';
 import MoneyAmount from '@/components/MoneyAmount';
+import PageControls from '@/components/PageControls';
 
 export default function EntityPage() {
   const { slug } = useParams<{ type: string; slug: string }>();
   const [data, setData] = useState<V2EntityResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [briefing, setBriefing] = useState<string | null>(null);
 
   useEffect(() => {
     if (!slug) return;
     setLoading(true);
     getV2Entity(slug)
-      .then(setData)
+      .then(d => { setData(d); setBriefing(d.briefing); })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, [slug]);
@@ -71,7 +73,16 @@ export default function EntityPage() {
         <h1 className="text-2xl font-bold">{entity.name}</h1>
       </div>
 
-      <AIBriefing briefing={briefing} slug={slug} />
+      {/* Page Controls */}
+      <PageControls
+        slug={slug}
+        onBriefingUpdate={(text) => setBriefing(text)}
+        onDataRefresh={() => {
+          getV2Entity(slug).then(setData).catch(() => {});
+        }}
+      />
+
+      <AIBriefing briefing={briefing ?? data.briefing} />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>

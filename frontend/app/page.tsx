@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { RefreshCw, Loader2 } from 'lucide-react';
 import { getV2Homepage } from '@/lib/api';
 import type { V2HomepageResponse } from '@/lib/types';
 import { formatMoney } from '@/lib/utils';
@@ -16,6 +17,7 @@ export default function HomePage() {
   const router = useRouter();
   const [data, setData] = useState<V2HomepageResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     getV2Homepage()
@@ -23,6 +25,14 @@ export default function HomePage() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  function handleRefresh() {
+    setRefreshing(true);
+    getV2Homepage()
+      .then(setData)
+      .catch(() => {})
+      .finally(() => setRefreshing(false));
+  }
 
   if (loading) return <div className="max-w-[900px] mx-auto p-6"><LoadingState variant="profile" /></div>;
   if (!data) return <div className="max-w-[900px] mx-auto p-6 text-center text-zinc-500">Failed to load homepage data.</div>;
@@ -49,6 +59,20 @@ export default function HomePage() {
           <Link href="/officials/fetterman-john" className="text-zinc-400 hover:text-amber-400">John Fetterman</Link>{' · '}
           <Link href="/entities/organization/banking-committee" className="text-zinc-400 hover:text-amber-400">Banking Committee</Link>{' · '}
           <Link href="/entities/company/jpmorgan-chase" className="text-zinc-400 hover:text-amber-400">JPMorgan Chase</Link>
+        </div>
+        <div className="mt-4 relative">
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-zinc-700 text-zinc-400 text-sm hover:border-amber-500/50 hover:text-amber-400 disabled:opacity-50 transition-all duration-200"
+          >
+            {refreshing ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4" />
+            )}
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
         </div>
       </div>
 
