@@ -3,8 +3,10 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { ArrowDownLeft, ArrowUpRight, AlertTriangle } from 'lucide-react';
 import { getV2Entity } from '@/lib/api';
 import type { V2EntityResponse } from '@/lib/types';
+import { formatMoney } from '@/lib/utils';
 import LoadingState from '@/components/LoadingState';
 import AIBriefing from '@/components/AIBriefing';
 import MoneyAmount from '@/components/MoneyAmount';
@@ -42,21 +44,32 @@ export default function EntityPage() {
     company: 'bg-blue-500/15 text-blue-400',
     organization: 'bg-purple-500/15 text-purple-400',
     industry: 'bg-emerald-500/15 text-emerald-400',
+    donor: 'bg-emerald-500/15 text-emerald-400',
   };
 
+  const totalIn = money_in.reduce((sum, x) => sum + (x.amount_usd || 0), 0);
+  const totalOut = money_out.reduce((sum, x) => sum + (x.amount_usd || 0), 0);
+  const gap = totalIn - totalOut;
+  const hasGap = totalIn > 0 && totalOut > 0 && gap > 0;
+  const nameLower = entity.name.toLowerCase();
+  const isPac = entityType === 'pac' || nameLower.includes('pac') || nameLower.includes('fund') || nameLower.includes('committee') || nameLower.includes('victory');
+
   function MoneyList({ items, label }: { items: typeof money_in; label: string }) {
-    if (items.length === 0) return <p className="text-zinc-600 text-sm">No {label.toLowerCase()} data.</p>;
+    if (items.length === 0) return <p className="text-zinc-600 text-sm">No {label.toLowerCase()} data tracked.</p>;
     return (
-      <div className="space-y-1">
+      <div className="space-y-0.5">
         {items.map((item, i) => (
-          <div key={i} className="flex items-center justify-between py-2 border-b border-zinc-900 last:border-0">
-            <div>
-              <Link href={item.entity_type === 'person' ? `/officials/${item.slug}` : `/entities/${item.entity_type}/${item.slug}`}
-                className="text-sm font-medium hover:text-amber-400 transition-colors">{item.name}</Link>
-              <span className="text-xs text-zinc-600 ml-2">{item.entity_type}</span>
+          <Link
+            key={i}
+            href={item.entity_type === 'person' ? `/officials/${item.slug}` : `/entities/${item.entity_type}/${item.slug}`}
+            className="flex items-center justify-between py-2 px-2 -mx-2 rounded-lg hover:bg-zinc-800/60 transition-colors cursor-pointer"
+          >
+            <div className="min-w-0 mr-3">
+              <div className="text-sm font-medium truncate">{item.name}</div>
+              <span className="text-xs text-zinc-600">{item.entity_type}</span>
             </div>
             <MoneyAmount amount={item.amount_usd} label={item.amount_label} />
-          </div>
+          </Link>
         ))}
       </div>
     );
@@ -64,33 +77,88 @@ export default function EntityPage() {
 
   return (
     <div className="max-w-[900px] mx-auto px-4 py-6">
-      <div className="mb-8">
+      {/* Header */}
+      <div className="mb-6">
         <div className="flex items-center gap-3 mb-2">
           <span className={`text-xs font-bold px-2.5 py-1 rounded ${TYPE_BADGES[entityType] || 'bg-zinc-700 text-zinc-300'}`}>
             {entityType.toUpperCase()}
           </span>
         </div>
         <h1 className="text-2xl font-bold">{entity.name}</h1>
+        {isPac && (
+          <p className="text-zinc-500 text-sm mt-1">
+            Joint fundraising committees and PACs collect money from many sources and distribute to multiple candidates, party committees, and other PACs. Only tracked distributions are shown below.
+          </p>
+        )}
       </div>
 
-      {/* Page Controls */}
       <PageControls
         slug={slug}
+        entityName={entity.name}
         onBriefingUpdate={(text) => setBriefing(text)}
         onDataRefresh={() => {
-          getV2Entity(slug).then(setData).catch(() => {});
+          getV2Entity(slug).then(d => { setData(d); setBriefing(d.briefing); }).catch(() => {});
         }}
       />
 
       <AIBriefing briefing={briefing ?? dataBriefing} />
 
+      {/* Money flow summary bar */}
+      {(totalIn > 0 || totalOut > 0) && (
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-px bg-zinc-800 rounded-xl overflow-hidden mb-6">
+          <div className="bg-zinc-900 p-4 text-center">
+            <div className="text-emerald-400 text-xl font-bold">{formatMoney(totalIn)}</div>
+            <div className="text-xs text-zinc-500 uppercase tracking-wide mt-1">Total In</div>
+          </div>
+          <div className="bg-zinc-900 p-4 text-center">
+            <div className="text-red-400 text-xl font-bold">{formatMoney(totalOut)}</div>
+            <div className="text-xs text-zinc-500 uppercase tracking-wide mt-1">Tracked Out</div>
+          </div>
+          {hasGap && (
+            <div className="bg-zinc-900 p-4 text-center col-span-2 md:col-span-1">
+              <div className="text-amber-400 text-xl font-bold">{formatMoney(gap)}</div>
+              <div className="text-xs text-zinc-500 uppercase tracking-wide mt-1">Untracked</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Gap explanation */}
+      {hasGap && isPac && (
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-950/20 border border-amber-500/20 mb-6">
+          <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <div className="text-sm font-medium text-amber-400 mb-1">
+              {formatMoney(gap)} untracked
+            </div>
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              This entity received {formatMoney(totalIn)} but we only track {formatMoney(totalOut)} going out.
+              The remaining {formatMoney(gap)} likely went to other candidates, party committees (DNC/RNC, state parties),
+              or operational expenses. Our data only shows distributions to officials we track.
+              {money_out.length === 1 && (
+                <> Only <span className="text-zinc-200">{money_out[0].name}</span> is in our database as a tracked recipient.</>
+              )}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Money In / Money Out split */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
-          <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">Money In <span className="text-sm font-normal text-zinc-500">({money_in.length})</span></h2>
+          <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800 flex items-center gap-2">
+            <ArrowDownLeft className="w-5 h-5 text-emerald-500" />
+            Money In
+            <span className="text-sm font-normal text-zinc-500">({money_in.length})</span>
+          </h2>
           <MoneyList items={money_in} label="Money In" />
         </div>
         <div>
-          <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">Money Out <span className="text-sm font-normal text-zinc-500">({money_out.length})</span></h2>
+          <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800 flex items-center gap-2">
+            <ArrowUpRight className="w-5 h-5 text-red-500" />
+            Money Out
+            <span className="text-sm font-normal text-zinc-500">({money_out.length})</span>
+          </h2>
           <MoneyList items={money_out} label="Money Out" />
         </div>
       </div>
