@@ -22,6 +22,13 @@ const STATUS_COLORS: Record<string, string> = {
   'FAILED': 'bg-red-500/20 text-red-400 border-red-500/40',
 };
 
+function fmtDate(d: string | null | undefined): string {
+  if (!d) return '';
+  try {
+    return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch { return ''; }
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function SponsorCard({ s, expanded, onToggle }: { s: any; expanded: boolean; onToggle: () => void }) {
   const router = useRouter();
@@ -72,14 +79,17 @@ function SponsorCard({ s, expanded, onToggle }: { s: any; expanded: boolean; onT
                 </span>
               </div>
               <div className="space-y-0.5">
-                {topDonors.map((d: { name: string; slug: string; entity_type: string; amount: number }, i: number) => (
+                {topDonors.map((d: { name: string; slug: string; entity_type: string; amount: number; date?: string }, i: number) => (
                   <div
                     key={i}
                     className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-zinc-800/60 cursor-pointer transition-colors"
                     onClick={(e) => { e.stopPropagation(); router.push(`/entities/${d.entity_type}/${d.slug}`); }}
                   >
                     <span className="text-sm text-zinc-300 truncate mr-3">{d.name}</span>
-                    <span className="text-amber-400 font-semibold text-sm flex-shrink-0">{formatMoney(d.amount)}</span>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      {d.date && <span className="text-xs text-zinc-600">{fmtDate(d.date)}</span>}
+                      <span className="text-amber-400 font-semibold text-sm">{formatMoney(d.amount)}</span>
+                    </div>
                   </div>
                 ))}
               </div>

@@ -13,6 +13,13 @@ interface MoneyTrailCardProps {
   officialSlug: string;
 }
 
+function fmtDate(d: string | null | undefined): string {
+  if (!d) return '';
+  try {
+    return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch { return ''; }
+}
+
 export default function MoneyTrailCard({ trail, officialName, officialSlug }: MoneyTrailCardProps) {
   const [expanded, setExpanded] = useState(false);
   const chain = trail.chain || {};
@@ -99,9 +106,10 @@ export default function MoneyTrailCard({ trail, officialName, officialSlug }: Mo
                     >
                       {d.name}
                     </Link>
-                    <span className="text-amber-400 font-semibold text-sm flex-shrink-0">
-                      {formatMoney(d.amount)}
-                    </span>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      {d.date && <span className="text-xs text-zinc-600">{fmtDate(d.date)}</span>}
+                      <span className="text-amber-400 font-semibold text-sm">{formatMoney(d.amount)}</span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -201,14 +209,16 @@ export default function MoneyTrailCard({ trail, officialName, officialSlug }: Mo
                 </span>
               </div>
               <div className="space-y-1">
-                {bills.map((b, i) => (
+                {bills.map((b, j) => (
                   <Link
-                    key={i}
+                    key={j}
                     href={`/bills/${b.slug}`}
                     className="block py-1.5 px-3 text-sm text-zinc-200 hover:text-amber-400 rounded-lg hover:bg-zinc-800/60 transition-colors"
                     onClick={(e) => e.stopPropagation()}
                   >
                     {b.name}
+                    <span className="text-xs text-zinc-600 ml-2">{b.role}</span>
+                    {b.date && <span className="text-xs text-zinc-600 ml-2">{fmtDate(b.date)}</span>}
                   </Link>
                 ))}
               </div>
@@ -230,6 +240,7 @@ export default function MoneyTrailCard({ trail, officialName, officialSlug }: Mo
                     <div className="text-sm text-zinc-200">{l.firm}</div>
                     <div className="text-xs text-zinc-500">
                       on behalf of {l.client}{l.issue ? ` — "${l.issue}"` : ''}
+                      {l.date && <span className="text-zinc-600 ml-2">{fmtDate(l.date)}</span>}
                     </div>
                   </div>
                 ))}
