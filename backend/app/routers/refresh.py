@@ -96,7 +96,7 @@ async def refresh_entity(slug: str, db: AsyncSession = Depends(get_db)):
             # 2. Fetch best cycle totals
             best_receipts = 0
             best_cycle = None
-            for cycle in [2024, 2022, 2020, 2018]:
+            for cycle in [2026, 2024, 2022, 2020, 2018]:
                 await asyncio.sleep(DELAY)
                 try:
                     totals = await fec_client.fetch_candidate_totals(candidate_id, cycle=cycle)
