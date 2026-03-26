@@ -107,33 +107,40 @@ def _generate_narrative(
     lobbying: list[dict],
     middlemen: list[dict],
     total_amount: int,
+    total_campaign: int = 0,
 ) -> str:
     """Build a human-readable narrative for an industry trail."""
     parts: list[str] = []
 
     if len(donors) == 1:
-        parts.append(f"{donors[0]['name']} donated {_fmt_amount(total_amount)} to this official")
+        parts.append(f"{donors[0]['name']} donated {_fmt_amount(total_amount)} to this official.")
     else:
         top_names = ", ".join(d["name"] for d in donors[:3])
         if len(donors) > 3:
             top_names += f" and {len(donors) - 3} others"
-        parts.append(f"{len(donors)} {industry} donors gave {_fmt_amount(total_amount)} total (top: {top_names})")
+        parts.append(f"{len(donors)} {industry} donors gave {_fmt_amount(total_amount)} total (top: {top_names}).")
 
     if committees:
         committee_names = ", ".join(c["name"] for c in committees[:2])
-        parts.append(f"who sits on {committee_names}")
+        parts.append(f"This official sits on {committee_names} which regulates the {industry} industry.")
 
     if bills:
-        parts.append(f"and sponsored {len(bills)} related bill{'s' if len(bills) != 1 else ''}")
+        parts.append(f"They sponsored {len(bills)} bill{'s' if len(bills) != 1 else ''} affecting this sector.")
+
+    if total_campaign > 0 and total_campaign > total_amount:
+        parts.append(
+            f"Total campaign donations: {_fmt_amount(total_campaign)}"
+            f" — {industry} industry represents {_fmt_amount(total_amount)} of that."
+        )
 
     if lobbying:
-        parts.append(f"while {len(lobbying)} lobbying connection{'s' if len(lobbying) != 1 else ''} exist")
+        parts.append(f"{len(lobbying)} of these donors also lobby Congress on related issues.")
 
     if middlemen:
         mid_names = ", ".join(m["name"] for m in middlemen[:2])
-        parts.append(f"with money flowing through {mid_names}")
+        parts.append(f"Money flowed through {mid_names}.")
 
-    return " ".join(parts) + "."
+    return " ".join(parts)
 
 
 # ── Main engine ──────────────────────────────────────────────────────────
@@ -400,6 +407,20 @@ async def compute_verdicts(
     # ── Step 9: Compute dots per canonical industry ───────────────────
     trails: list[dict] = []
 
+    # Pre-compute total campaign money (all donors combined)
+    total_campaign = sum(r.amount_usd or 0 for r in donor_rels)
+
+    # Build a set of all donor rels for "other donors" display
+    all_donor_entries: list[tuple[Entity, Relationship]] = []
+    all_donor_ids_seen: set[uuid.UUID] = set()
+    for rel in donor_rels:
+        donor = entities_by_id.get(rel.from_entity_id)
+        if donor and donor.id not in all_donor_ids_seen:
+            all_donor_ids_seen.add(donor.id)
+            all_donor_entries.append((donor, rel))
+    # Sort by amount desc
+    all_donor_entries.sort(key=lambda x: x[1].amount_usd or 0, reverse=True)
+
     for industry, donor_list in canonical_donors.items():
         if industry == "general":
             continue  # Skip unclassifiable donors
@@ -525,7 +546,20 @@ async def compute_verdicts(
             lobbying=chain_lobbying,
             middlemen=chain_middlemen,
             total_amount=total_amount,
+            total_campaign=total_campaign,
         )
+
+        # Build "other top donors" — biggest donors NOT in this industry
+        other_donors: list[dict] = []
+        for od_entity, od_rel in all_donor_entries[:10]:
+            if od_entity.id not in seen_donor_ids:
+                other_donors.append({
+                    "name": _sanitize(od_entity.name),
+                    "slug": od_entity.slug,
+                    "amount": od_rel.amount_usd or 0,
+                })
+            if len(other_donors) >= 5:
+                break
 
         trails.append({
             "industry": industry.title(),
@@ -541,6 +575,8 @@ async def compute_verdicts(
             },
             "narrative": narrative,
             "total_amount": total_amount,
+            "total_campaign": total_campaign,
+            "other_top_donors": other_donors,
             "donor_count": len(unique_donors),
         })
 

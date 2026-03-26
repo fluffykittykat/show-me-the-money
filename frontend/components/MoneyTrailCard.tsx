@@ -22,6 +22,9 @@ export default function MoneyTrailCard({ trail, officialName, officialSlug }: Mo
   const bills = chain.bills || [];
   const lobbying = chain.lobbying || [];
   const donorCount = (chain as Record<string, unknown>).donor_count as number || donors.length || 0;
+  const trailAny = trail as unknown as Record<string, unknown>;
+  const totalCampaign = (trailAny.total_campaign as number) || 0;
+  const otherTopDonors = (trailAny.other_top_donors as Array<{ name: string; slug: string; amount: number }>) || [];
 
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-xl mb-4 transition-all duration-200 hover:border-zinc-600">
@@ -44,8 +47,13 @@ export default function MoneyTrailCard({ trail, officialName, officialSlug }: Mo
               </div>
               <span className="text-amber-400 font-bold">{formatMoney(trail.total_amount)}</span>
               <span className="text-zinc-500 text-xs">
-                from {donorCount} donor{donorCount !== 1 ? 's' : ''}
+                from {donorCount} industry donor{donorCount !== 1 ? 's' : ''}
               </span>
+              {totalCampaign > 0 && totalCampaign > trail.total_amount && (
+                <span className="text-zinc-600 text-xs">
+                  · {formatMoney(totalCampaign)} total campaign
+                </span>
+              )}
               {bills.length > 0 && (
                 <span className="text-zinc-500 text-xs">
                   · {bills.length} bill{bills.length !== 1 ? 's' : ''}
@@ -92,6 +100,37 @@ export default function MoneyTrailCard({ trail, officialName, officialSlug }: Mo
                       {d.name}
                     </Link>
                     <span className="text-amber-400 font-semibold text-sm flex-shrink-0">
+                      {formatMoney(d.amount)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* OTHER TOP DONORS — biggest donors not from this industry */}
+          {otherTopDonors.length > 0 && (
+            <div className="mt-4">
+              <div className="flex items-center gap-2 mb-3">
+                <DollarSign className="w-4 h-4 text-zinc-500" />
+                <span className="text-xs font-bold uppercase tracking-widest text-zinc-500">
+                  Other Top Campaign Donors
+                </span>
+                {totalCampaign > 0 && (
+                  <span className="text-xs text-zinc-600">— {formatMoney(totalCampaign)} total campaign</span>
+                )}
+              </div>
+              <div className="space-y-1">
+                {otherTopDonors.map((d, i) => (
+                  <div key={i} className="flex items-center justify-between py-1.5 px-3 rounded-lg hover:bg-zinc-800/60 transition-colors">
+                    <Link
+                      href={`/entities/pac/${d.slug}`}
+                      className="text-sm text-zinc-400 hover:text-amber-400 transition-colors truncate mr-3"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {d.name}
+                    </Link>
+                    <span className="text-zinc-400 font-semibold text-sm flex-shrink-0">
                       {formatMoney(d.amount)}
                     </span>
                   </div>
