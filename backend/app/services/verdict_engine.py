@@ -109,6 +109,7 @@ def _generate_narrative(
     total_amount: int,
     total_campaign: int = 0,
     timing_hits: list[dict] | None = None,
+    trades: list[dict] | None = None,
 ) -> str:
     """Build a human-readable narrative for an industry trail."""
     parts: list[str] = []
@@ -163,6 +164,15 @@ def _generate_narrative(
         if len(timing_hits) > 1:
             parts.append(f"{len(timing_hits)} total suspicious timing correlations found.")
 
+    if trades:
+        trade_tickers = ", ".join(t.get("ticker", "?") for t in trades[:3])
+        buys = sum(1 for t in trades if t.get("transaction_type", "").lower() in ("purchase", "p", "buy"))
+        sells = sum(1 for t in trades if t.get("transaction_type", "").lower() in ("sale", "s", "sell", "sale (partial)", "sale (full)"))
+        parts.append(
+            f"🔴 STOCK TRADES: This official (or spouse) traded {trade_tickers} "
+            f"({buys} buys, {sells} sells) — stocks in the same industry they regulate and legislate."
+        )
+
     return " ".join(parts)
 
 
@@ -199,7 +209,7 @@ async def compute_verdicts(
         .where(Relationship.from_entity_id == official_id)
         .where(
             Relationship.relationship_type.in_(
-                ["committee_member", "sponsored", "cosponsored"]
+                ["committee_member", "sponsored", "cosponsored", "stock_trade", "holds_stock"]
             )
         )
     )
@@ -223,12 +233,15 @@ async def compute_verdicts(
     bill_rel_map: dict[uuid.UUID, list[Relationship]] = defaultdict(list)
     donor_rels: list[Relationship] = list(incoming_rels)
 
+    trade_rels: list[Relationship] = []
     for rel in outgoing_rels:
         entity_ids.add(rel.to_entity_id)
         if rel.relationship_type == "committee_member":
             committee_rel_map[rel.to_entity_id].append(rel)
         elif rel.relationship_type in ("sponsored", "cosponsored"):
             bill_rel_map[rel.to_entity_id].append(rel)
+        elif rel.relationship_type in ("stock_trade", "holds_stock"):
+            trade_rels.append(rel)
 
     donor_ids: set[uuid.UUID] = set()
     for rel in donor_rels:
@@ -599,6 +612,44 @@ async def compute_verdicts(
         if timing_hits:
             dots.append("suspicious_timing")
 
+        # ── Dot 9: INSIDER_TRADE ─────────────────────────────────────
+        # Did the official (or spouse) trade stocks in companies from
+        # this industry? Cross-reference trade tickers against industry.
+        chain_trades: list[dict] = []
+        for trel in trade_rels:
+            stock_entity = entities_by_id.get(trel.to_entity_id)
+            if not stock_entity:
+                continue
+            # Check if this stock relates to the current industry
+            stock_name = (stock_entity.name or "").lower()
+            stock_meta = stock_entity.metadata_ or {}
+            stock_ticker = (stock_meta.get("ticker", "") or "").lower()
+            # Match: stock name/ticker contains industry keyword, or
+            # industry keyword appears in the stock entity's industry metadata
+            stock_words = set(stock_name.split())
+            stock_industry = (stock_meta.get("industry", "") or "").lower()
+            match = (
+                industry.lower() in stock_name
+                or industry.lower() in stock_industry
+                or _keyword_overlap([industry.lower()], list(stock_words))
+                or _keyword_overlap(
+                    _extract_industry_keywords(stock_entity),
+                    [industry.lower()],
+                )
+            )
+            if match:
+                trel_meta = trel.metadata_ or {}
+                chain_trades.append({
+                    "ticker": stock_ticker.upper() or stock_entity.name,
+                    "asset": _sanitize(stock_entity.name),
+                    "transaction_type": trel_meta.get("transaction_type", "Unknown"),
+                    "amount_range": trel.amount_label or trel_meta.get("amount_range", ""),
+                    "date": trel.date_start.isoformat() if trel.date_start else None,
+                    "owner": trel_meta.get("owner", ""),
+                })
+        if chain_trades:
+            dots.append("insider_trade")
+
         # ── Build trail ───────────────────────────────────────────────
         dot_count = len(dots)
         verdict = _verdict_for_dots(dot_count)
@@ -613,6 +664,7 @@ async def compute_verdicts(
             total_amount=total_amount,
             total_campaign=total_campaign,
             timing_hits=timing_hits,
+            trades=chain_trades,
         )
 
         # Build "other top donors" — biggest donors NOT in this industry
@@ -639,6 +691,7 @@ async def compute_verdicts(
                 "middlemen": chain_middlemen,
                 "lobbying": chain_lobbying,
                 "timing_hits": timing_hits,
+                "trades": chain_trades,
             },
             "narrative": narrative,
             "total_amount": total_amount,

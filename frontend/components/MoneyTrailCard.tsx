@@ -32,6 +32,10 @@ export default function MoneyTrailCard({ trail, officialName, officialSlug }: Mo
     donor: string; donor_slug?: string; amount?: number; donation_date: string;
     bill: string; bill_slug?: string; bill_date: string; days_before: number;
   }>;
+  const trades = ((chain as Record<string, unknown>).trades || []) as Array<{
+    ticker: string; asset: string; transaction_type: string;
+    amount_range: string; date?: string; owner?: string;
+  }>;
   const donorCount = (chain as Record<string, unknown>).donor_count as number || donors.length || 0;
   const trailAny = trail as unknown as Record<string, unknown>;
   const totalCampaign = (trailAny.total_campaign as number) || 0;
@@ -73,6 +77,11 @@ export default function MoneyTrailCard({ trail, officialName, officialSlug }: Mo
               {timingHits.length > 0 && (
                 <span className="text-red-500 text-xs font-semibold">
                   · ⚠ {timingHits.length} timing hit{timingHits.length !== 1 ? 's' : ''}
+                </span>
+              )}
+              {trades.length > 0 && (
+                <span className="text-red-600 text-xs font-semibold">
+                  · 📈 {trades.length} trade{trades.length !== 1 ? 's' : ''}
                 </span>
               )}
             </div>
@@ -283,6 +292,39 @@ export default function MoneyTrailCard({ trail, officialName, officialSlug }: Mo
                     </div>
                     <div className="text-xs text-zinc-500 mt-1">
                       Donation: {fmtDate(hit.donation_date)} → Bill introduced: {fmtDate(hit.bill_date)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* STOCK TRADES */}
+          {trades.length > 0 && (
+            <div className="mt-4">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-base">📈</span>
+                <span className="text-xs font-bold uppercase tracking-widest text-red-600">
+                  Stock Trades ({trades.length}) — official or spouse traded in this industry
+                </span>
+              </div>
+              <div className="space-y-2">
+                {trades.map((t, i) => (
+                  <div key={i} className="bg-red-950/30 border border-red-500/30 rounded-lg p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm">
+                        <span className={`font-bold ${t.transaction_type.toLowerCase().includes('purchase') || t.transaction_type === 'P' ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {t.transaction_type.toLowerCase().includes('purchase') || t.transaction_type === 'P' ? 'BOUGHT' : 'SOLD'}
+                        </span>
+                        {' '}
+                        <span className="text-zinc-200 font-semibold">{t.ticker}</span>
+                        <span className="text-zinc-400 ml-1">({t.asset})</span>
+                      </div>
+                      <span className="text-amber-400 font-semibold text-sm">{t.amount_range}</span>
+                    </div>
+                    <div className="flex items-center gap-3 mt-1 text-xs text-zinc-500">
+                      {t.date && <span>{fmtDate(t.date)}</span>}
+                      {t.owner && <span>Owner: {t.owner === 'SP' ? 'Spouse' : t.owner === 'JT' ? 'Joint' : t.owner}</span>}
                     </div>
                   </div>
                 ))}
