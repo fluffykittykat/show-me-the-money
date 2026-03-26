@@ -107,6 +107,7 @@ async def refresh_entity(slug: str, db: AsyncSession = Depends(get_db)):
                         meta["total_disbursements"] = totals.get("disbursements", 0)
                         meta["individual_contributions"] = totals.get("individual_contributions", 0)
                         meta["best_fec_cycle"] = best_cycle
+                        meta["campaign_total"] = best_receipts
                 except Exception:
                     continue
             if best_cycle:
