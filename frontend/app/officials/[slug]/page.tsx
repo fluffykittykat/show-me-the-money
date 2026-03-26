@@ -66,6 +66,7 @@ export default function OfficialPage() {
             {fecCycle && <span> ({fecCycle} cycle)</span>}
           </div>
         )}
+        <FreshnessBar freshness={freshness} />
       </div>
 
       {/* Page Controls */}
@@ -138,7 +139,6 @@ export default function OfficialPage() {
         </div>
       )}
 
-      <FreshnessBar freshness={freshness} />
     </div>
   );
 }
