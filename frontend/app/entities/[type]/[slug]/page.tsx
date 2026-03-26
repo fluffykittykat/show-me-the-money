@@ -37,6 +37,11 @@ export default function EntityPage() {
   );
 
   const { entity, money_in, money_out, briefing: dataBriefing } = data;
+  const money_trails = (data as unknown as Record<string, unknown>).money_trails as Array<{
+    official_name: string; official_slug: string; official_party: string;
+    official_state: string; amount_received: number; verdict: string;
+    via?: string; bills: Array<{ name: string; slug: string; role: string }>;
+  }> || [];
   const entityType = entity.entity_type || 'organization';
 
   const TYPE_BADGES: Record<string, string> = {
@@ -162,6 +167,70 @@ export default function EntityPage() {
           <MoneyList items={money_out} label="Money Out" />
         </div>
       </div>
+
+      {/* Follow the Money — where did it ultimately go? */}
+      {money_trails.length > 0 && (
+        <div className="mt-10">
+          <h2 className="text-xl font-bold mb-2 pb-2 border-b border-zinc-800 flex items-center gap-2">
+            <ArrowUpRight className="w-5 h-5 text-amber-500" />
+            Follow the Money — Officials Funded
+          </h2>
+          <p className="text-zinc-500 text-sm mb-4">
+            Tracing where this money ultimately reached elected officials and what legislation they worked on.
+          </p>
+          <div className="space-y-3">
+            {money_trails.map((trail, i) => (
+              <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-zinc-600 transition-colors">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <Link
+                      href={`/officials/${trail.official_slug}`}
+                      className="font-semibold hover:text-amber-400 transition-colors"
+                    >
+                      {trail.official_name}
+                    </Link>
+                    {trail.official_party && (
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${
+                        trail.official_party.toLowerCase().includes('democrat') ? 'bg-blue-500/20 text-blue-400' :
+                        trail.official_party.toLowerCase().includes('republican') ? 'bg-red-500/20 text-red-400' :
+                        'bg-zinc-700 text-zinc-300'
+                      }`}>
+                        {trail.official_party}
+                      </span>
+                    )}
+                    {trail.official_state && <span className="text-xs text-zinc-500">{trail.official_state}</span>}
+                  </div>
+                  <span className="text-amber-400 font-bold">{formatMoney(trail.amount_received)}</span>
+                </div>
+                {trail.via && (
+                  <div className="text-xs text-zinc-500 mb-2">
+                    via <span className="text-amber-400/70">{trail.via}</span>
+                  </div>
+                )}
+                {trail.bills.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-zinc-800">
+                    <div className="text-xs text-red-500 font-bold uppercase tracking-widest mb-1.5">
+                      Legislation ({trail.bills.length})
+                    </div>
+                    <div className="space-y-1">
+                      {trail.bills.map((b, j) => (
+                        <Link
+                          key={j}
+                          href={`/bills/${b.slug}`}
+                          className="block text-sm text-zinc-300 hover:text-amber-400 transition-colors py-0.5"
+                        >
+                          {b.name}
+                          <span className="text-xs text-zinc-600 ml-2">{b.role}</span>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

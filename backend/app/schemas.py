@@ -583,6 +583,7 @@ class V2EntityResponse(BaseModel):
     entity: EntityResponse
     money_in: list[dict]
     money_out: list[dict]
+    money_trails: list[dict]  # traced forward: donor → PAC → official → legislation
     briefing: str | None
 
 

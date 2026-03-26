@@ -291,10 +291,92 @@ async def v2_entity(slug: str, db: AsyncSession = Depends(get_db)):
 
     briefing = meta.get("fbi_briefing")
 
+    # --- Money trails: trace money forward to officials + their legislation ---
+    # For each money_out recipient:
+    #   If recipient is an official (person with bioguide_id): show their bills
+    #   If recipient is a PAC/fund: trace where that PAC sent money to officials
+    money_trails: list[dict] = []
+    seen_officials: set[str] = set()
+
+    async def _trace_official(off_entity: Entity, amount: int, via: str | None = None):
+        """Build a trail entry for an official showing their legislation."""
+        if off_entity.slug in seen_officials:
+            return
+        seen_officials.add(off_entity.slug)
+        off_meta = off_entity.metadata_ or {}
+        # Get bills this official sponsored
+        bill_q = (
+            select(Relationship, Entity)
+            .join(Entity, Entity.id == Relationship.to_entity_id)
+            .where(Relationship.from_entity_id == off_entity.id)
+            .where(Relationship.relationship_type.in_(["sponsored", "cosponsored"]))
+            .limit(10)
+        )
+        bill_rows = (await db.execute(bill_q)).all()
+        bills = [
+            {"name": be.name, "slug": be.slug, "role": br.relationship_type}
+            for br, be in bill_rows
+        ]
+        # Get their verdict
+        verdict = off_meta.get("v2_verdict", "NORMAL")
+        trail: dict = {
+            "official_name": off_entity.name,
+            "official_slug": off_entity.slug,
+            "official_party": off_meta.get("party", ""),
+            "official_state": off_meta.get("state", ""),
+            "amount_received": amount,
+            "verdict": verdict,
+            "bills": bills,
+        }
+        if via:
+            trail["via"] = via
+        money_trails.append(trail)
+
+    for out_entry in money_out:
+        out_slug = out_entry["slug"]
+        out_entity_type = out_entry["entity_type"]
+        out_amount = out_entry["amount_usd"]
+
+        if out_entity_type == "person":
+            # Direct to official
+            off = (await db.execute(
+                select(Entity).where(Entity.slug == out_slug)
+            )).scalar_one_or_none()
+            if off and (off.metadata_ or {}).get("bioguide_id"):
+                await _trace_official(off, out_amount)
+        elif out_entity_type in ("pac", "donor"):
+            # Trace through PAC: where did this PAC send money?
+            pac = (await db.execute(
+                select(Entity).where(Entity.slug == out_slug)
+            )).scalar_one_or_none()
+            if not pac:
+                continue
+            pac_out_q = (
+                select(Relationship, Entity)
+                .join(Entity, Entity.id == Relationship.to_entity_id)
+                .where(Relationship.from_entity_id == pac.id)
+                .where(Relationship.relationship_type == "donated_to")
+                .where(Entity.entity_type == "person")
+                .order_by(Relationship.amount_usd.desc().nullslast())
+                .limit(20)
+            )
+            pac_out_rows = (await db.execute(pac_out_q)).all()
+            for pac_rel, off_entity in pac_out_rows:
+                if (off_entity.metadata_ or {}).get("bioguide_id"):
+                    await _trace_official(
+                        off_entity,
+                        pac_rel.amount_usd or 0,
+                        via=pac.name,
+                    )
+
+    # Sort trails by amount descending
+    money_trails.sort(key=lambda t: -t["amount_received"])
+
     return V2EntityResponse(
         entity=EntityResponse.model_validate(entity),
         money_in=money_in,
         money_out=money_out,
+        money_trails=money_trails,
         briefing=briefing,
     )
 
