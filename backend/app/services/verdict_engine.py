@@ -588,8 +588,11 @@ async def compute_verdicts(
                 if 0 <= delta <= timing_window_days:
                     timing_hits.append({
                         "donor": donor_entry["name"],
+                        "donor_slug": donor_entry.get("slug", ""),
+                        "amount": donor_entry.get("amount", 0),
                         "donation_date": d_date_str[:10],
                         "bill": bill_entry["name"],
+                        "bill_slug": bill_entry.get("slug", ""),
                         "bill_date": b_date_str[:10],
                         "days_before": delta,
                     })

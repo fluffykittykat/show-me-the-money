@@ -29,7 +29,8 @@ export default function MoneyTrailCard({ trail, officialName, officialSlug }: Mo
   const bills = chain.bills || [];
   const lobbying = chain.lobbying || [];
   const timingHits = ((chain as Record<string, unknown>).timing_hits || []) as Array<{
-    donor: string; donation_date: string; bill: string; bill_date: string; days_before: number;
+    donor: string; donor_slug?: string; amount?: number; donation_date: string;
+    bill: string; bill_slug?: string; bill_date: string; days_before: number;
   }>;
   const donorCount = (chain as Record<string, unknown>).donor_count as number || donors.length || 0;
   const trailAny = trail as unknown as Record<string, unknown>;
@@ -271,6 +272,8 @@ export default function MoneyTrailCard({ trail, officialName, officialSlug }: Mo
                     <div className="text-sm text-zinc-200">
                       <span className="text-emerald-400">{hit.donor}</span>
                       {' donated '}
+                      {hit.amount ? <span className="text-amber-400 font-bold">{formatMoney(hit.amount)}</span> : null}
+                      {hit.amount ? ' — ' : ''}
                       <span className="text-amber-400 font-bold">
                         {hit.days_before === 0 ? 'the same day' : `${hit.days_before} days before`}
                       </span>
