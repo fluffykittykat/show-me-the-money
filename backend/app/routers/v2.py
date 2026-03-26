@@ -138,6 +138,13 @@ async def v2_official(slug: str, db: AsyncSession = Depends(get_db)):
     # --- Briefing ---
     briefing = meta.get("fbi_briefing")
 
+    # --- Patch campaign_total fallback ---
+    if not meta.get("campaign_total") and meta.get("total_receipts"):
+        meta["campaign_total"] = meta["total_receipts"]
+        entity.metadata_ = meta
+        db.add(entity)
+        await db.commit()
+
     # --- Freshness ---
     has_donors = len(top_donors) > 0
     has_committees = len(committees) > 0
