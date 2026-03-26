@@ -15,6 +15,13 @@ import MoneyTrailCard from '@/components/MoneyTrailCard';
 import VerdictBadge from '@/components/VerdictBadge';
 import FreshnessBar from '@/components/FreshnessBar';
 
+function fmtDate(d: string | null | undefined): string {
+  if (!d) return '—';
+  try {
+    return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch { return '—'; }
+}
+
 export default function OfficialPage() {
   const { slug } = useParams<{ slug: string }>();
   const router = useRouter();
@@ -105,6 +112,7 @@ export default function OfficialPage() {
               <tr className="text-left text-xs text-zinc-500 uppercase tracking-wide">
                 <th className="pb-2 px-3">Donor</th>
                 <th className="pb-2 px-3">Type</th>
+                <th className="pb-2 px-3">Last Donation</th>
                 <th className="pb-2 px-3 text-right">Amount</th>
               </tr>
             </thead>
@@ -115,6 +123,7 @@ export default function OfficialPage() {
                     <Link href={`/entities/${d.entity_type}/${d.slug}`} className="hover:text-amber-400 transition-colors">{d.name}</Link>
                   </td>
                   <td className="py-2.5 px-3 text-zinc-500 text-sm">{d.entity_type}</td>
+                  <td className="py-2.5 px-3 text-zinc-600 text-xs">{fmtDate(d.latest_date)}</td>
                   <td className="py-2.5 px-3 text-right text-amber-400 font-semibold">{formatMoney(d.total_donated)}</td>
                 </tr>
               ))}

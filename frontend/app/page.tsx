@@ -18,6 +18,7 @@ export default function HomePage() {
   const [data, setData] = useState<V2HomepageResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadedAt] = useState(() => new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
 
   useEffect(() => {
     getV2Homepage()
@@ -73,6 +74,7 @@ export default function HomePage() {
             )}
             {refreshing ? 'Refreshing...' : 'Refresh'}
           </button>
+          <span className="text-xs text-zinc-600 ml-3">Updated {loadedAt}</span>
         </div>
       </div>
 

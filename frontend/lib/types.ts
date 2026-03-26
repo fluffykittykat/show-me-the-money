@@ -239,6 +239,7 @@ export interface V2Donor {
   name: string;
   entity_type: string;
   total_donated: number;
+  latest_date?: string | null;
 }
 
 export interface V2Committee {
