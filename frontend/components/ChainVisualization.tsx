@@ -48,9 +48,13 @@ export default function ChainVisualization({ chain, officialName, officialSlug, 
   }
 
   const middlemen = chain.middlemen || [];
+  const firstDonorSlug = donors[0]?.slug;
   if (middlemen.length > 0) {
     const m = middlemen[0];
-    nodes.push({ label: 'Middleman', name: m.name, href: `/entities/pac/${m.slug}`, amount: `${formatMoney(m.amount_in)} in → ${formatMoney(m.amount_out)} out`, color: NODE_COLORS.Middleman });
+    // Skip if middleman is the same entity as the donor
+    if (m.slug !== firstDonorSlug) {
+      nodes.push({ label: 'Middleman', name: m.name, href: `/entities/pac/${m.slug}`, amount: `${formatMoney(m.amount_in)} in → ${formatMoney(m.amount_out)} out`, color: NODE_COLORS.Middleman });
+    }
   }
 
   nodes.push({ label: 'Official', name: officialName, href: `/officials/${officialSlug}`, color: NODE_COLORS.Official });

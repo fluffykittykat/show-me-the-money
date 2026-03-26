@@ -229,6 +229,25 @@ async def compute_verdicts(
         lobby_result = await session.execute(lobby_q)
         lobby_rels = list(lobby_result.scalars().all())
 
+    # ── Step 4b: Identify true middleman PACs ─────────────────────────
+    # A PAC is a middleman only if OTHER entities donated TO it.
+    # Pre-load which donor PACs have incoming donations.
+    pac_donor_ids = {
+        did for did in donor_ids
+        if entities_by_id.get(did) and entities_by_id[did].entity_type == "pac"
+    }
+    pacs_with_incoming: set[uuid.UUID] = set()
+    if pac_donor_ids:
+        pac_incoming_q = (
+            select(Relationship.to_entity_id)
+            .where(Relationship.to_entity_id.in_(list(pac_donor_ids)))
+            .where(Relationship.relationship_type == "donated_to")
+            .where(Relationship.from_entity_id != official_id)  # exclude self-referential
+            .limit(1000)
+        )
+        pac_incoming_result = await session.execute(pac_incoming_q)
+        pacs_with_incoming = {row[0] for row in pac_incoming_result.all()}
+
     # Load any additional entities referenced by lobbying rels
     lobby_entity_ids: set[uuid.UUID] = set()
     for rel in lobby_rels:
@@ -470,15 +489,18 @@ async def compute_verdicts(
             dots.append("donor_lobbies")
 
         # ── Dot 5: MIDDLEMAN_PAC ──────────────────────────────────────
+        # Only count PACs that have incoming donations from others
+        # (i.e., money flows THROUGH them, not just FROM them)
         for donor_entity, rel in unique_donors:
-            if donor_entity.entity_type == "pac":
-                # This is a PAC acting as middleman
-                # Calculate amount_in (to PAC) and amount_out (PAC to official)
+            if (
+                donor_entity.entity_type == "pac"
+                and donor_entity.id in pacs_with_incoming
+            ):
                 chain_middlemen.append({
                     "name": _sanitize(donor_entity.name),
                     "slug": donor_entity.slug,
-                    "amount_in": rel.amount_usd or 0,  # what flowed through
-                    "amount_out": rel.amount_usd or 0,  # what reached official
+                    "amount_in": rel.amount_usd or 0,
+                    "amount_out": rel.amount_usd or 0,
                 })
         if chain_middlemen:
             dots.append("middleman_pac")
