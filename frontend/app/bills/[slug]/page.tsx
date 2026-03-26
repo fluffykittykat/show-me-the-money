@@ -261,7 +261,8 @@ export default function BillPage() {
         <div className="grid grid-cols-3 gap-px bg-zinc-800 rounded-xl overflow-hidden mb-6">
           <div className="bg-zinc-900 p-4 text-center">
             <div className="text-amber-400 text-xl font-bold">{formatMoney(totalMoneyBehind)}</div>
-            <div className="text-xs text-zinc-500 uppercase tracking-wide mt-1">Money Behind This Bill</div>
+            <div className="text-xs text-zinc-500 uppercase tracking-wide mt-1">Donors → Sponsors</div>
+            <div className="text-[0.6rem] text-zinc-600 mt-0.5">Campaign donations to officials who sponsored this bill</div>
           </div>
           <div className="bg-zinc-900 p-4 text-center">
             <div className="text-zinc-100 text-xl font-bold">{primarySponsors.length}</div>
@@ -281,7 +282,7 @@ export default function BillPage() {
             <DollarSign className="w-5 h-5 text-emerald-500" />
             Who Funded This Bill&apos;s Sponsors
           </h2>
-          <p className="text-zinc-500 text-xs mb-3">Top donors who gave money to officials sponsoring this legislation</p>
+          <p className="text-zinc-500 text-xs mb-3">These donors gave campaign money to the officials who sponsored this bill. Campaign funds are general — they support all of a sponsor&apos;s work, not just this bill.</p>
           <div className="space-y-0.5">
             {topDonorsAcross.map(([name, amount], i) => (
               <div key={i} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-zinc-800/60 transition-colors">
