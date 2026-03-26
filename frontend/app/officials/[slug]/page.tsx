@@ -71,9 +71,10 @@ export default function OfficialPage() {
       {/* Page Controls */}
       <PageControls
         slug={slug}
+        entityName={entity.name}
         onBriefingUpdate={(text) => setBriefing(text)}
         onDataRefresh={() => {
-          getV2Official(slug).then(setData).catch(() => {});
+          getV2Official(slug).then(d => { setData(d); setBriefing(d.briefing); }).catch(() => {});
         }}
       />
 
