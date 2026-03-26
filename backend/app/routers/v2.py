@@ -190,7 +190,27 @@ def _parse_bill_status(raw: str | None) -> str:
     if not raw:
         return "INTRODUCED"
     key = raw.lower().replace(" ", "_").replace("-", "_")
-    return _STATUS_MAP.get(key, raw.upper())
+    # Direct match
+    if key in _STATUS_MAP:
+        return _STATUS_MAP[key]
+    # Phrase matching for verbose clerk text
+    raw_lower = raw.lower()
+    if "became law" in raw_lower or "enacted" in raw_lower:
+        return "BECAME LAW"
+    if "passed" in raw_lower or "agreed to" in raw_lower:
+        return "PASSED"
+    if "failed" in raw_lower or "rejected" in raw_lower or "vetoed" in raw_lower:
+        return "FAILED"
+    if "committee" in raw_lower or "referred" in raw_lower:
+        return "IN COMMITTEE"
+    if "floor" in raw_lower or "calendar" in raw_lower:
+        return "ON FLOOR"
+    if "introduced" in raw_lower or "read twice" in raw_lower:
+        return "INTRODUCED"
+    # Fallback: if it mentions "motion" or other procedural text, it likely passed
+    if "motion to reconsider" in raw_lower:
+        return "PASSED"
+    return "INTRODUCED"
 
 
 @router.get("/bill/{slug}", response_model=V2BillResponse)
@@ -251,7 +271,7 @@ async def v2_bill(slug: str, db: AsyncSession = Depends(get_db)):
         for did, amount in donor_rows:
             de = donor_entities.get(did)
             if de:
-                amt = amount or 0
+                amt = int(amount or 0)
                 top_donors.append({
                     "name": de.name,
                     "slug": de.slug,
@@ -261,7 +281,7 @@ async def v2_bill(slug: str, db: AsyncSession = Depends(get_db)):
                 })
                 sponsor_total += amt
                 # Track across all sponsors
-                all_donor_names[de.name] = all_donor_names.get(de.name, 0) + amt
+                all_donor_names[de.name] = all_donor_names.get(de.name, 0) + int(amt)
 
         total_money_behind += sponsor_total
 
@@ -300,7 +320,7 @@ async def v2_bill(slug: str, db: AsyncSession = Depends(get_db)):
     sponsors.sort(key=lambda s: (0 if s["role"] == "sponsored" else 1, -(s.get("donor_total") or 0)))
 
     # Top donors across all sponsors (who's funding the people behind this bill)
-    top_donors_across = sorted(all_donor_names.items(), key=lambda x: -x[1])[:10]
+    top_donors_across = [[name, int(amt)] for name, amt in sorted(all_donor_names.items(), key=lambda x: -x[1])[:10]]
 
     briefing = meta.get("fbi_briefing")
     policy_area = meta.get("policy_area", "")
@@ -470,7 +490,7 @@ async def v2_entity(slug: str, db: AsyncSession = Depends(get_db)):
             off = (await db.execute(
                 select(Entity).where(Entity.slug == out_slug)
             )).scalar_one_or_none()
-            if off and (off.metadata_ or {}).get("bioguide_id"):
+            if off and ((off.metadata_ or {}).get("bioguide_id") or (off.metadata_ or {}).get("bioguideId")):
                 await _trace_official(off, out_amount)
         elif out_entity_type in ("pac", "donor"):
             # Trace through PAC: where did this PAC send money?
@@ -490,7 +510,7 @@ async def v2_entity(slug: str, db: AsyncSession = Depends(get_db)):
             )
             pac_out_rows = (await db.execute(pac_out_q)).all()
             for pac_rel, off_entity in pac_out_rows:
-                if (off_entity.metadata_ or {}).get("bioguide_id"):
+                if ((off_entity.metadata_ or {}).get("bioguide_id") or (off_entity.metadata_ or {}).get("bioguideId")):
                     await _trace_official(
                         off_entity,
                         pac_rel.amount_usd or 0,
