@@ -34,7 +34,7 @@ export default function EntityPage() {
     </div>
   );
 
-  const { entity, money_in, money_out, briefing } = data;
+  const { entity, money_in, money_out, briefing: dataBriefing } = data;
   const entityType = entity.entity_type || 'organization';
 
   const TYPE_BADGES: Record<string, string> = {
@@ -82,7 +82,7 @@ export default function EntityPage() {
         }}
       />
 
-      <AIBriefing briefing={briefing ?? data.briefing} />
+      <AIBriefing briefing={briefing ?? dataBriefing} />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>

@@ -43,7 +43,7 @@ export default function BillPage() {
     </div>
   );
 
-  const { entity, status_label, sponsors, briefing } = data;
+  const { entity, status_label, sponsors, briefing: dataBriefing } = data;
   const meta = (entity.metadata || entity.metadata_ || {}) as Record<string, unknown>;
   const summary = (meta.crs_summary || meta.summary || entity.summary) as string | null;
   const statusStyle = STATUS_COLORS[status_label] || STATUS_COLORS['INTRODUCED'];
@@ -69,7 +69,7 @@ export default function BillPage() {
         }}
       />
 
-      <AIBriefing briefing={briefing ?? data.briefing} />
+      <AIBriefing briefing={briefing ?? dataBriefing} />
 
       {primarySponsors.length > 0 && (
         <div className="mb-8">

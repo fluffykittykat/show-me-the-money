@@ -40,7 +40,7 @@ export default function OfficialPage() {
     </div>
   );
 
-  const { entity, overall_verdict, total_dots, money_trails, top_donors, middlemen, committees, briefing, freshness } = data;
+  const { entity, overall_verdict, total_dots, money_trails, top_donors, middlemen, committees, briefing: dataBriefing, freshness } = data;
   const meta = (entity.metadata || entity.metadata_ || {}) as Record<string, unknown>;
   const party = (meta.party as string) || '';
   const state = (meta.state as string) || '';
@@ -78,7 +78,7 @@ export default function OfficialPage() {
       />
 
       {/* AI Briefing */}
-      <AIBriefing briefing={briefing ?? data.briefing} />
+      <AIBriefing briefing={briefing ?? dataBriefing} />
 
       {/* Money Trails */}
       {money_trails.length > 0 ? (
