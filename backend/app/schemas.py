@@ -597,3 +597,4 @@ class V2HomepageResponse(BaseModel):
     top_officials: list[dict]
     top_influencers: list[dict]
     revolving_door: list[dict]
+    last_computed: str | None = None

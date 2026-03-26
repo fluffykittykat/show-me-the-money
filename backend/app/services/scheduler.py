@@ -608,8 +608,8 @@ JOB_REGISTRY = {
     },
     "precompute_verdicts": {
         "func": _run_precompute,
-        "trigger": IntervalTrigger(hours=6),
-        "description": "Re-compute money trail verdicts and briefings",
+        "trigger": IntervalTrigger(hours=1),
+        "description": "Re-compute money trail verdicts and briefings (hourly)",
     },
 }
 

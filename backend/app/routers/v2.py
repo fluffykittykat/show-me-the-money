@@ -680,10 +680,19 @@ async def v2_homepage(db: AsyncSession = Depends(get_db)):
             "official_state": o_meta.get("state", ""),
         })
 
+    # Last precompute timestamp
+    last_computed = None
+    story_config = (await db.execute(
+        select(AppConfig).where(AppConfig.key == "v2_story_feed")
+    )).scalar_one_or_none()
+    if story_config and story_config.updated_at:
+        last_computed = story_config.updated_at.isoformat()
+
     return V2HomepageResponse(
         top_stories=top_stories,
         stats=stats,
         top_officials=top_officials,
         top_influencers=top_influencers,
         revolving_door=revolving_door,
+        last_computed=last_computed,
     )

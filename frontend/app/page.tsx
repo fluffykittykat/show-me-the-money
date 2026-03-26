@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { RefreshCw, Loader2 } from 'lucide-react';
+import { RefreshCw, Loader2, Clock } from 'lucide-react';
 import { getV2Homepage } from '@/lib/api';
 import type { V2HomepageResponse } from '@/lib/types';
 import { formatMoney } from '@/lib/utils';
@@ -18,7 +18,6 @@ export default function HomePage() {
   const [data, setData] = useState<V2HomepageResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [loadedAt] = useState(() => new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
 
   useEffect(() => {
     getV2Homepage()
@@ -74,7 +73,12 @@ export default function HomePage() {
             )}
             {refreshing ? 'Refreshing...' : 'Refresh'}
           </button>
-          <span className="text-xs text-zinc-600 ml-3">Updated {loadedAt}</span>
+          {!!(data as unknown as Record<string, unknown>).last_computed && (
+            <span className="flex items-center gap-1 text-xs text-zinc-600 ml-3">
+              <Clock className="w-3 h-3" />
+              Data computed {new Date((data as unknown as Record<string, unknown>).last_computed as string).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+            </span>
+          )}
         </div>
       </div>
 
