@@ -152,6 +152,10 @@ export default function BillPage() {
   const policyArea = dataAny.policy_area || '';
   const totalMoneyBehind = dataAny.total_money_behind || 0;
   const topDonorsAcross = (dataAny.top_donors_across || []) as Array<[string, number]>;
+  const votes = (dataAny.votes || []) as Array<{
+    chamber?: string; date?: string; result?: string;
+    yea?: number; nay?: number; not_voting?: number; url?: string;
+  }>;
 
   const meta = (entity.metadata || entity.metadata_ || {}) as Record<string, unknown>;
   const summary = (meta.crs_summary || meta.summary || entity.summary) as string | null;
@@ -193,6 +197,64 @@ export default function BillPage() {
       />
 
       <AIBriefing briefing={briefing ?? dataBriefing} />
+
+      {/* Vote results */}
+      {votes.length > 0 && (
+        <div className="mb-6">
+          <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">Roll Call Votes</h2>
+          <div className="space-y-3">
+            {votes.map((vote, i) => {
+              const yea = vote.yea || 0;
+              const nay = vote.nay || 0;
+              const total = yea + nay;
+              const yeaPct = total > 0 ? (yea / total) * 100 : 0;
+              return (
+                <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-3">
+                      {vote.chamber && (
+                        <span className="text-xs font-bold uppercase tracking-wide text-zinc-400">{vote.chamber}</span>
+                      )}
+                      {vote.date && <span className="text-xs text-zinc-600">{vote.date}</span>}
+                    </div>
+                    {vote.url && (
+                      <a href={vote.url} target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-zinc-500 hover:text-amber-400 transition-colors flex items-center gap-1">
+                        <ExternalLink className="w-3 h-3" />
+                        Roll call
+                      </a>
+                    )}
+                  </div>
+                  {(yea > 0 || nay > 0) && (
+                    <>
+                      <div className="flex gap-1 h-6 rounded-lg overflow-hidden mb-2">
+                        <div className="bg-emerald-500/80 flex items-center justify-center text-xs font-bold text-white"
+                          style={{ width: `${yeaPct}%`, minWidth: yea > 0 ? '40px' : '0' }}>
+                          {yea}
+                        </div>
+                        <div className="bg-red-500/80 flex items-center justify-center text-xs font-bold text-white"
+                          style={{ width: `${100 - yeaPct}%`, minWidth: nay > 0 ? '40px' : '0' }}>
+                          {nay}
+                        </div>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-emerald-400">Yea: {yea}</span>
+                        <span className="text-red-400">Nay: {nay}</span>
+                        {vote.not_voting != null && vote.not_voting > 0 && (
+                          <span className="text-zinc-500">Not Voting: {vote.not_voting}</span>
+                        )}
+                      </div>
+                    </>
+                  )}
+                  {vote.result && (
+                    <p className="text-xs text-zinc-400 mt-2">{vote.result}</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Money summary bar */}
       {(totalMoneyBehind > 0 || sponsors.length > 0) && (

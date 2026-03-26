@@ -5,6 +5,8 @@ eliminating waterfall fetches.
 """
 
 import json
+import os
+import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
@@ -12,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models import AppConfig, Entity, MoneyTrail, Relationship
+from app.services.ingestion.congress_client import CongressClient
 from app.schemas import (
     EntityResponse,
     V2BillResponse,
@@ -292,15 +295,53 @@ async def v2_bill(slug: str, db: AsyncSession = Depends(get_db)):
     briefing = meta.get("fbi_briefing")
     policy_area = meta.get("policy_area", "")
 
+    # --- Vote data (cached in metadata, fetched from Congress.gov if missing) ---
+    votes = meta.get("votes", [])
+    if not votes:
+        congress_api_key = os.getenv("CONGRESS_API_KEY", "")
+        congress_num = meta.get("congress")
+        bill_number = meta.get("bill_number")
+        if congress_api_key and congress_num and bill_number:
+            # Determine bill type from slug or metadata
+            slug_str = slug or ""
+            # Bill types: hr, s, hres, sres, hjres, sjres, hconres, sconres
+            bill_type = "hres"  # default
+            origin = (meta.get("origin_chamber") or "").lower()
+            name_lower = (entity.name or "").lower()
+            if "joint resolution" in name_lower:
+                bill_type = "hjres" if origin == "house" else "sjres"
+            elif "concurrent resolution" in name_lower:
+                bill_type = "hconres" if origin == "house" else "sconres"
+            elif "resolution" in name_lower:
+                bill_type = "hres" if origin == "house" else "sres"
+            elif origin == "senate":
+                bill_type = "s"
+            else:
+                bill_type = "hr"
+
+            try:
+                client = CongressClient(congress_api_key)
+                votes = await client.fetch_bill_votes(
+                    int(congress_num), bill_type, int(bill_number)
+                )
+                # Cache votes in metadata
+                if votes:
+                    meta["votes"] = votes
+                    entity.metadata_ = meta
+                    db.add(entity)
+                    await db.commit()
+            except Exception as e:
+                print(f"[v2] Vote fetch error for {slug}: {e}")
+
     return V2BillResponse(
         entity=EntityResponse.model_validate(entity),
         status_label=status_label,
         sponsors=sponsors,
         briefing=briefing,
-        # Extra fields passed through the dict type
         policy_area=policy_area,
         total_money_behind=total_money_behind,
         top_donors_across=top_donors_across,
+        votes=votes,
     )
 
 

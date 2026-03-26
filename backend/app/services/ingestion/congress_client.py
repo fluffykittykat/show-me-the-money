@@ -263,6 +263,64 @@ class CongressClient:
             print(f"[CongressClient] Error fetching bill summaries: {exc}")
             return ""
 
+    async def fetch_bill_votes(
+        self, congress: int, bill_type: str, bill_number: int
+    ) -> list[dict]:
+        """Fetch roll call vote data for a bill from its actions.
+
+        Congress.gov actions contain recordedVotes entries with URLs to
+        the House Clerk or Senate roll call vote pages. We extract vote
+        counts from these.
+
+        Returns list of vote dicts: {chamber, date, result, yea, nay, not_voting, url}
+        """
+        actions = await self.fetch_bill_actions(congress, bill_type, bill_number)
+        votes: list[dict] = []
+
+        for action in actions:
+            recorded_votes = action.get("recordedVotes", [])
+            if not recorded_votes:
+                continue
+
+            for rv in recorded_votes:
+                vote_url = rv.get("url", "")
+                chamber = rv.get("chamber", "")
+                date = rv.get("date", action.get("actionDate", ""))
+
+                # Try to fetch vote totals from the API
+                # Congress.gov has /v3/bill/{congress}/{type}/{number} with
+                # actions that embed vote references
+                vote_entry: dict = {
+                    "chamber": chamber,
+                    "date": date,
+                    "url": vote_url,
+                    "result": action.get("text", ""),
+                }
+
+                # Parse vote counts from action text if available
+                # Common formats: "Agreed to (222-190)" or "Passed (64-34)"
+                import re
+                text = action.get("text", "")
+                count_match = re.search(r"\((\d+)-(\d+)(?:-(\d+))?\)", text)
+                if count_match:
+                    vote_entry["yea"] = int(count_match.group(1))
+                    vote_entry["nay"] = int(count_match.group(2))
+                    if count_match.group(3):
+                        vote_entry["not_voting"] = int(count_match.group(3))
+
+                # Also try: "Yeas - 222, Nays - 190"
+                yea_match = re.search(r"[Yy]eas?\s*[-:]\s*(\d+)", text)
+                nay_match = re.search(r"[Nn]ays?\s*[-:]\s*(\d+)", text)
+                if yea_match and "yea" not in vote_entry:
+                    vote_entry["yea"] = int(yea_match.group(1))
+                if nay_match and "nay" not in vote_entry:
+                    vote_entry["nay"] = int(nay_match.group(1))
+
+                votes.append(vote_entry)
+
+        print(f"[CongressClient] Found {len(votes)} recorded votes for {bill_type}{bill_number}")
+        return votes
+
     async def fetch_committee_members(self, committee_code: str) -> list:
         """Fetch committee members from the Congress.gov API.
 

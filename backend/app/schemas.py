@@ -580,6 +580,7 @@ class V2BillResponse(BaseModel):
     policy_area: str = ""
     total_money_behind: int = 0
     top_donors_across: list = []
+    votes: list = []
 
 
 class V2EntityResponse(BaseModel):
