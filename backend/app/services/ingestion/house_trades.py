@@ -42,14 +42,14 @@ HOUSE_PTR_PDF_URL = (
 #   JT Apple Inc. (AAPL) [ST] P 03/15/2024 04/01/2024 $15,001 - $50,000
 #   DC Microsoft Corporation (MSFT) [OP] S (Partial) 01/10/2024 02/05/2024 $50,001 - $100,000
 TRADE_LINE_RE = re.compile(
-    r"(?P<owner>SP|JT|DC|self)?\s*"
-    r"(?P<asset>.+?)\s+"
-    r"\((?P<ticker>[A-Z]{1,5})\)\s+"
-    r"\[(?P<asset_type>[A-Z]{2,4})\]\s+"
-    r"(?P<txn_type>P|S|S\s*\(Partial\)|E)\s+"
-    r"(?P<trade_date>\d{1,2}/\d{1,2}/\d{4})\s+"
-    r"(?P<notification_date>\d{1,2}/\d{1,2}/\d{4})\s+"
-    r"(?P<amount_range>\$[\d,]+\s*-\s*\$[\d,]+)",
+    r"(?P<owner>SP|JT|DC)?\s*"
+    r"(?P<asset>.+?)\s*"
+    r"\((?P<ticker>[A-Z]{1,6})\)\s*"
+    r"\[(?P<asset_type>[A-Z]{2,4})\]\s*"
+    r"(?P<txn_type>P|S|S\s*\(Partial\)|E)\s*"
+    r"(?P<trade_date>\d{1,2}/\d{1,2}/\d{4})\s*"
+    r"(?P<notification_date>\d{1,2}/\d{1,2}/\d{4})\s*"
+    r"(?P<amount_range>\$[\d,]+\s*-\s*\n?\$[\d,]+)",
     re.IGNORECASE,
 )
 
@@ -155,7 +155,7 @@ def parse_ptr_pdf(pdf_bytes: bytes) -> list[dict]:
                 "transaction_type": txn_type,
                 "trade_date": match.group("trade_date"),
                 "notification_date": match.group("notification_date"),
-                "amount_range": match.group("amount_range").strip(),
+                "amount_range": match.group("amount_range").replace("\n", "").strip(),
                 "cap_gains": cap_gains,
             }
         )
