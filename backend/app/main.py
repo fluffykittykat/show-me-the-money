@@ -248,6 +248,11 @@ async def admin_ingest(slug: str):
         from app.services.ingestion.fix_totals_best_cycle import run_fix_totals_best_cycle
         _aio.create_task(run_fix_totals_best_cycle())
         return {"status": "started", "message": "Fixing totals to use best FEC cycle (2018-2024)"}
+    elif slug == "fetch-all-cycles":
+        import asyncio as _aio
+        from app.services.ingestion.fetch_all_cycles import run_fetch_all_cycles
+        _aio.create_task(run_fetch_all_cycles())
+        return {"status": "started", "message": "Fetching ALL FEC cycles for all officials"}
     elif slug == "house-trades":
         import asyncio as _aio
         from app.services.ingestion.house_trades import ingest_house_trades
