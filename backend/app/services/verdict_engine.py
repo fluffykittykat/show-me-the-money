@@ -330,9 +330,38 @@ async def compute_verdicts(
     # industry_keyword -> list of (donor_entity, relationship)
     industry_donors: dict[str, list[tuple[Entity, Relationship]]] = defaultdict(list)
 
+    # Get official's name for self-donation detection
+    official_entity = entities_by_id.get(official_id) or (await session.get(Entity, official_id))
+    official_name_lower = (official_entity.name if official_entity else "").lower().replace(",", "").strip()
+    official_slug = (official_entity.slug if official_entity else "")
+    official_last_name = official_name_lower.split()[0] if official_name_lower else ""
+
+    def _is_self_donation(donor_entity: Entity) -> bool:
+        """Detect if a donor is the official themselves or their personal PAC."""
+        dn = donor_entity.name.lower().replace(",", "").strip()
+        ds = donor_entity.slug
+        # Same entity
+        if donor_entity.id == official_id:
+            return True
+        # Name match: "MCCORMICK, DAVE" vs "McCormick, David"
+        if official_last_name and len(official_last_name) > 2:
+            donor_parts = dn.split()
+            if donor_parts and donor_parts[0] == official_last_name:
+                return True
+        # Victory fund / campaign committee named after official
+        slug_parts = official_slug.split("-")
+        if len(slug_parts) >= 1 and slug_parts[0] in ds:
+            name_keywords = {"victory", "for congress", "for senate", "committee", "fund", "team"}
+            if any(kw in dn for kw in name_keywords):
+                return True
+        return False
+
     for rel in donor_rels:
         donor = entities_by_id.get(rel.from_entity_id)
         if not donor:
+            continue
+        # Skip self-donations — own money is not industry influence
+        if _is_self_donation(donor):
             continue
         keywords = _extract_industry_keywords(donor)
         if not keywords:
