@@ -65,10 +65,41 @@ export default function PageControls({ slug, entityName, onBriefingUpdate, onDat
     setSteps(initialSteps);
 
     try {
-      // All steps happen in one API call — we simulate progress from the response
-      updateStep(0, { status: 'running' });
+      // Animate through steps while the single API call runs in background
+      // The backend processes in a known order, so we simulate step progression
+      updateStep(0, { status: 'running', detail: 'Connecting to FEC...' });
 
-      const refreshRes = await fetch(`/api/refresh/${encodeURIComponent(slug)}`, { method: 'POST' });
+      // Start the API call (non-blocking)
+      const refreshPromise = fetch(`/api/refresh/${encodeURIComponent(slug)}`, { method: 'POST' });
+
+      // Simulate step progression while waiting (backend takes 30-60s)
+      const stepTimings = [
+        { idx: 0, delay: 2000, detail: 'Querying FEC API...' },
+        { idx: 0, delay: 4000, status: 'done' as const, detail: 'FEC Committee ID confirmed' },
+        { idx: 1, delay: 4500, status: 'running' as const, detail: 'Checking 2026, 2024, 2022, 2020, 2018...' },
+        { idx: 1, delay: 12000, status: 'done' as const, detail: 'All cycles fetched' },
+        { idx: 2, delay: 12500, status: 'running' as const, detail: 'Fetching from FEC Schedule A...' },
+        { idx: 2, delay: 18000, status: 'done' as const, detail: 'Donors retrieved' },
+        { idx: 3, delay: 18500, status: 'running' as const, detail: 'Following the money through PACs...' },
+        { idx: 3, delay: 22000, status: 'done' as const, detail: 'PAC chains traced' },
+        { idx: 4, delay: 22500, status: 'running' as const, detail: 'Connecting donors → committees → bills...' },
+        { idx: 5, delay: 26000, status: 'running' as const, detail: 'Counting dots...' },
+        { idx: 6, delay: 30000, status: 'running' as const, detail: 'Claude Sonnet analyzing patterns...' },
+      ];
+
+      const timers: ReturnType<typeof setTimeout>[] = [];
+      for (const step of stepTimings) {
+        timers.push(setTimeout(() => {
+          updateStep(step.idx, { status: step.status || 'running', detail: step.detail });
+        }, step.delay));
+      }
+
+      // Wait for the actual API response
+      const refreshRes = await refreshPromise;
+
+      // Clear timers — real results are in
+      timers.forEach(t => clearTimeout(t));
+
       if (!refreshRes.ok) {
         const errorText = await refreshRes.text().catch(() => 'Unknown error');
         throw new Error(`Refresh failed (${refreshRes.status}): ${errorText}`);
@@ -76,39 +107,23 @@ export default function PageControls({ slug, entityName, onBriefingUpdate, onDat
       const refreshData = await refreshRes.json();
       const actions: string[] = refreshData.actions || [];
 
-      // Parse actions to update steps with real results
+      // Now update ALL steps with real results from the API
       const findAction = (keyword: string) => actions.find(a => a.toLowerCase().includes(keyword.toLowerCase())) || '';
 
-      // Step 1: Committee ID
-      const committeeAction = findAction('committee') || findAction('resolved');
-      updateStep(0, { status: 'done', detail: committeeAction || 'Committee ID confirmed' });
-
-      // Step 2: Cycle totals
+      updateStep(0, { status: 'done', detail: findAction('committee') || findAction('resolved') || 'Committee ID confirmed' });
       updateStep(1, { status: 'done', detail: findAction('FEC cycles') || findAction('totals') || 'Cycle data fetched' });
+      updateStep(2, { status: 'done', detail: findAction('donors') || 'Donor data current' });
 
-      // Step 3: Donors
-      const donorAction = findAction('donors');
-      updateStep(2, { status: 'done', detail: donorAction || 'Donor data current' });
-
-      // Step 4: PAC middlemen
       const pacActions = actions.filter(a => a.includes('donors for PAC'));
       updateStep(3, { status: 'done', detail: pacActions.length > 0 ? `${pacActions.length} PAC chains traced` : 'No PAC middlemen found' });
 
-      // Step 5: Money trails
-      const trailAction = findAction('money trails') || findAction('trail');
-      updateStep(4, { status: 'done', detail: trailAction || 'Money trails computed' });
+      updateStep(4, { status: 'done', detail: findAction('money trails') || findAction('trail') || 'Money trails computed' });
+      updateStep(5, { status: 'done', detail: findAction('verdict') || 'Verdict assigned' });
 
-      // Step 6: Verdict
-      const verdictAction = findAction('verdict');
-      updateStep(5, { status: 'done', detail: verdictAction || 'Verdict assigned' });
-
-      // Step 7: AI briefing
-      updateStep(6, { status: 'running' });
       const briefingAction = findAction('briefing');
       if (briefingAction.includes('generated')) {
         updateStep(6, { status: 'done', detail: briefingAction });
       } else {
-        // Briefing may have been generated as part of refresh — fetch it
         try {
         const briefRes = await getBriefing(slug, true);
         onBriefingUpdate?.(briefRes.briefing_text);
