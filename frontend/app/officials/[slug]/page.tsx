@@ -162,7 +162,10 @@ export default function OfficialPage() {
             <div key={i} onClick={() => router.push(`/entities/pac/${m.slug}`)} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-3 flex justify-between items-center cursor-pointer hover:border-amber-500/50 hover:bg-zinc-800/80 transition-all duration-200">
               <div>
                 <span className="font-semibold">{m.name}</span>
-                <div className="text-xs text-zinc-500">{m.entity_type}</div>
+                <div className="flex items-center gap-2 text-xs text-zinc-500">
+                  <span>{m.entity_type}</span>
+                  {m.latest_date && <span className="text-zinc-600">{fmtDate(m.latest_date)}</span>}
+                </div>
               </div>
               <div className="text-amber-400 font-semibold">{formatMoney(m.total_donated)}</div>
             </div>

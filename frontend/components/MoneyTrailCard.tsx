@@ -69,6 +69,16 @@ export default function MoneyTrailCard({ trail, officialName, officialSlug }: Mo
                   · {formatMoney(totalCampaign)} total campaign
                 </span>
               )}
+              {trail.date_range && (
+                <span className="text-zinc-600 text-xs">
+                  · {trail.date_range}
+                </span>
+              )}
+              {!trail.date_range && trail.computed_at && (
+                <span className="text-zinc-600 text-xs">
+                  · computed {fmtDate(trail.computed_at)}
+                </span>
+              )}
               {bills.length > 0 && (
                 <span className="text-zinc-500 text-xs">
                   · {bills.length} bill{bills.length !== 1 ? 's' : ''}
