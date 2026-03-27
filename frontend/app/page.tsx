@@ -1,23 +1,202 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { RefreshCw, Loader2, Clock } from 'lucide-react';
+import { Search, TrendingUp, Users, Shield, AlertTriangle, ArrowRight } from 'lucide-react';
 import { getV2Homepage } from '@/lib/api';
-import type { V2HomepageResponse } from '@/lib/types';
+import type { V2HomepageResponse, V2StoryCard, V2TopOfficial } from '@/lib/types';
 import { formatMoney } from '@/lib/utils';
-import SearchBar from '@/components/SearchBar';
-import LoadingState from '@/components/LoadingState';
-import StoryCard from '@/components/StoryCard';
-import HighlightCard from '@/components/HighlightCard';
-import VerdictBadge from '@/components/VerdictBadge';
+import PartyBadge from '@/components/PartyBadge';
+
+// ---------------------------------------------------------------------------
+// Verdict helpers
+// ---------------------------------------------------------------------------
+
+const VERDICT_CONFIG: Record<string, { dot: string; bg: string; text: string; border: string; label: string }> = {
+  NORMAL: { dot: 'bg-green-500', bg: 'bg-green-500/10', text: 'text-green-400', border: 'border-green-500/30', label: 'NORMAL' },
+  CONNECTED: { dot: 'bg-yellow-500', bg: 'bg-yellow-500/10', text: 'text-yellow-400', border: 'border-yellow-500/30', label: 'CONNECTED' },
+  INFLUENCED: { dot: 'bg-red-500', bg: 'bg-red-500/10', text: 'text-red-400', border: 'border-red-500/30', label: 'INFLUENCED' },
+  OWNED: { dot: 'bg-red-800', bg: 'bg-red-900/30', text: 'text-red-300', border: 'border-red-800/50', label: 'OWNED' },
+};
+
+function getVerdict(v: string | undefined) {
+  if (!v) return VERDICT_CONFIG.NORMAL;
+  return VERDICT_CONFIG[v.toUpperCase()] ?? VERDICT_CONFIG.NORMAL;
+}
+
+const VERDICT_SEVERITY: Record<string, number> = { OWNED: 4, INFLUENCED: 3, CONNECTED: 2, NORMAL: 1 };
+
+function verdictSeverity(v: string | undefined): number {
+  if (!v) return 0;
+  return VERDICT_SEVERITY[v.toUpperCase()] ?? 0;
+}
+
+const STORY_TYPE_LABELS: Record<string, { label: string; color: string }> = {
+  owned: { label: 'OWNED', color: 'text-red-300 bg-red-900/30 border-red-800/50' },
+  influenced: { label: 'INFLUENCED', color: 'text-red-400 bg-red-500/10 border-red-500/30' },
+  middleman: { label: 'MIDDLEMAN', color: 'text-amber-400 bg-amber-500/10 border-amber-500/30' },
+  revolving_door: { label: 'REVOLVING DOOR', color: 'text-purple-400 bg-purple-500/10 border-purple-500/30' },
+};
+
+// ---------------------------------------------------------------------------
+// Skeleton components
+// ---------------------------------------------------------------------------
+
+function SkeletonBar({ className }: { className?: string }) {
+  return <div className={`animate-pulse rounded bg-zinc-800 ${className ?? ''}`} />;
+}
+
+function SkeletonStoryCard() {
+  return (
+    <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-5 mb-4">
+      <div className="flex items-center gap-2 mb-3">
+        <SkeletonBar className="w-3 h-3 rounded-full" />
+        <SkeletonBar className="h-5 w-3/4" />
+      </div>
+      <SkeletonBar className="h-4 w-full mb-2" />
+      <SkeletonBar className="h-4 w-5/6 mb-4" />
+      <div className="flex gap-2">
+        <SkeletonBar className="h-6 w-20 rounded-full" />
+        <SkeletonBar className="h-6 w-24 rounded-full" />
+      </div>
+    </div>
+  );
+}
+
+function SkeletonOfficialCard() {
+  return (
+    <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
+      <SkeletonBar className="h-5 w-2/3 mb-2" />
+      <SkeletonBar className="h-4 w-1/3 mb-3" />
+      <SkeletonBar className="h-6 w-24 rounded-full" />
+    </div>
+  );
+}
+
+function LoadingSkeleton() {
+  return (
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+      {/* Header skeleton */}
+      <div className="text-center pt-16 pb-12 px-4">
+        <SkeletonBar className="h-4 w-48 mx-auto mb-4" />
+        <SkeletonBar className="h-10 w-96 mx-auto mb-8" />
+        <SkeletonBar className="h-14 w-full max-w-xl mx-auto rounded-xl" />
+      </div>
+
+      <div className="max-w-6xl mx-auto px-4">
+        {/* Stories skeleton */}
+        <SkeletonBar className="h-7 w-48 mb-6" />
+        <div className="space-y-4 mb-12">
+          <SkeletonStoryCard />
+          <SkeletonStoryCard />
+          <SkeletonStoryCard />
+        </div>
+
+        {/* Officials skeleton */}
+        <SkeletonBar className="h-7 w-64 mb-6" />
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-12">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <SkeletonOfficialCard key={i} />
+          ))}
+        </div>
+
+        {/* Stats skeleton */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-zinc-800 rounded-xl overflow-hidden">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="bg-zinc-900 p-6 text-center">
+              <SkeletonBar className="h-8 w-24 mx-auto mb-2" />
+              <SkeletonBar className="h-3 w-20 mx-auto" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Story Card
+// ---------------------------------------------------------------------------
+
+function StoryFeedCard({ story }: { story: V2StoryCard }) {
+  const v = getVerdict(story.verdict);
+  const storyType = STORY_TYPE_LABELS[story.story_type] ?? { label: story.story_type.toUpperCase(), color: 'text-zinc-400 bg-zinc-800 border-zinc-700' };
+
+  return (
+    <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-5 mb-4 hover:border-zinc-700 transition-colors">
+      {/* Header: verdict dot + headline */}
+      <div className="flex items-start gap-3 mb-3">
+        <span className={`mt-1.5 w-3 h-3 rounded-full shrink-0 ${v.dot}`} />
+        <h3 className="font-bold text-lg leading-snug">{story.headline}</h3>
+      </div>
+
+      {/* Narrative */}
+      <p className="text-zinc-400 text-sm leading-relaxed mb-4 ml-6">{story.narrative}</p>
+
+      {/* Footer: officials, amount, type badge */}
+      <div className="flex flex-wrap items-center gap-2 ml-6">
+        {story.officials.map((o) => (
+          <Link
+            key={o.slug}
+            href={`/officials/${o.slug}`}
+            className="inline-flex items-center gap-1.5 text-sm hover:text-[#d4a017] transition-colors"
+          >
+            <span className="font-medium">{o.name}</span>
+            <PartyBadge party={o.party} className="text-[0.6rem] px-1.5 py-0" />
+          </Link>
+        ))}
+
+        {story.total_amount > 0 && (
+          <span className="text-money-success font-semibold text-sm ml-auto">
+            {formatMoney(story.total_amount)}
+          </span>
+        )}
+
+        <span className={`text-[0.65rem] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full border ${storyType.color}`}>
+          {storyType.label}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Official Card
+// ---------------------------------------------------------------------------
+
+function OfficialCard({ official }: { official: V2TopOfficial }) {
+  const v = getVerdict(official.verdict);
+
+  return (
+    <Link
+      href={`/officials/${official.slug}`}
+      className="block rounded-xl bg-zinc-900 border border-zinc-800 p-4 hover:border-zinc-600 transition-colors group"
+    >
+      <div className="font-semibold group-hover:text-[#d4a017] transition-colors mb-1">{official.name}</div>
+      <div className="flex items-center gap-2 mb-3">
+        <PartyBadge party={official.party} className="text-[0.65rem]" />
+        <span className="text-xs text-zinc-500">{official.state}</span>
+      </div>
+      <div className="flex items-center justify-between">
+        <span className={`text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${v.bg} ${v.text} ${v.border}`}>
+          {v.label}
+        </span>
+        <span className="text-xs text-zinc-500">{official.dot_count} dots</span>
+      </div>
+    </Link>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main Page
+// ---------------------------------------------------------------------------
 
 export default function HomePage() {
   const router = useRouter();
   const [data, setData] = useState<V2HomepageResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     getV2Homepage()
@@ -26,138 +205,125 @@ export default function HomePage() {
       .finally(() => setLoading(false));
   }, []);
 
-  function handleRefresh() {
-    setRefreshing(true);
-    getV2Homepage()
-      .then(setData)
-      .catch(() => {})
-      .finally(() => setRefreshing(false));
+  function handleSearch(e: FormEvent) {
+    e.preventDefault();
+    const q = searchQuery.trim();
+    if (q) router.push(`/search?q=${encodeURIComponent(q)}`);
   }
 
-  if (loading) return <div className="max-w-[900px] mx-auto p-6"><LoadingState variant="profile" /></div>;
-  if (!data) return <div className="max-w-[900px] mx-auto p-6 text-center text-zinc-500">Failed to load homepage data.</div>;
+  if (loading) return <LoadingSkeleton />;
 
-  const { top_stories, stats, top_officials, top_influencers, revolving_door } = data;
-  const mostBought = top_officials[0];
-  const biggestTrail = top_stories.find(s => s.story_type === 'influenced');
-  const biggestMiddleman = top_stories.find(s => s.story_type === 'middleman');
+  if (!data) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <div className="text-center text-zinc-500">
+          <AlertTriangle className="w-10 h-10 mx-auto mb-3 text-zinc-600" />
+          <p className="text-lg">Failed to load homepage data.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const { top_stories, stats, top_officials } = data;
+
+  // Sort officials by verdict severity (worst first)
+  const sortedOfficials = [...top_officials].sort((a, b) => verdictSeverity(b.verdict) - verdictSeverity(a.verdict));
 
   return (
-    <div className="max-w-[900px] mx-auto px-4 py-6">
-      {/* Hero */}
-      <div className="text-center py-12 pb-10 relative">
-        <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(ellipse at center, rgba(245,158,11,0.06) 0%, transparent 70%)' }} />
-        <h1 className="text-4xl font-extrabold mb-2 relative">
-          Follow the <span className="text-amber-500">Money</span>
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+      {/* ----------------------------------------------------------------- */}
+      {/* HEADER                                                            */}
+      {/* ----------------------------------------------------------------- */}
+      <header className="relative text-center pt-16 pb-12 px-4 overflow-hidden">
+        {/* Subtle radial glow */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{ background: 'radial-gradient(ellipse at center top, rgba(212,160,23,0.08) 0%, transparent 60%)' }}
+        />
+
+        <p className="relative text-xs font-bold uppercase tracking-[0.35em] text-[#d4a017] mb-4">
+          Follow the Money
+        </p>
+        <h1 className="relative text-4xl md:text-5xl font-extrabold mb-8 leading-tight">
+          Who Owns Your Representative?
         </h1>
-        <p className="text-zinc-400 mb-7 relative">See what they don&apos;t want you to see.</p>
-        <div className="max-w-[560px] mx-auto relative">
-          <SearchBar size="large" />
-        </div>
-        <div className="text-xs text-zinc-600 mt-3 relative">
-          Try:{' '}
-          <Link href="/officials/fetterman-john" className="text-zinc-400 hover:text-amber-400">John Fetterman</Link>{' · '}
-          <Link href="/entities/organization/banking-committee" className="text-zinc-400 hover:text-amber-400">Banking Committee</Link>{' · '}
-          <Link href="/entities/company/jpmorgan-chase" className="text-zinc-400 hover:text-amber-400">JPMorgan Chase</Link>
-        </div>
-        <div className="mt-4 relative">
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-zinc-700 text-zinc-400 text-sm hover:border-amber-500/50 hover:text-amber-400 disabled:opacity-50 transition-all duration-200"
-          >
-            {refreshing ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <RefreshCw className="w-4 h-4" />
-            )}
-            {refreshing ? 'Refreshing...' : 'Refresh'}
-          </button>
-          {!!(data as unknown as Record<string, unknown>).last_computed && (
-            <span className="flex items-center gap-1 text-xs text-zinc-600 ml-3">
-              <Clock className="w-3 h-3" />
-              Data computed {new Date((data as unknown as Record<string, unknown>).last_computed as string).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-            </span>
-          )}
-        </div>
-      </div>
 
-      {/* Highlight Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-10">
-        {mostBought && (
-          <HighlightCard label="Most Bought" name={mostBought.name} href={`/officials/${mostBought.slug}`}
-            detail={`${mostBought.dot_count} dots`} verdict={mostBought.verdict} borderColor="border-zinc-600/50" />
-        )}
-        {biggestTrail && (
-          <HighlightCard label="Biggest Trail" name={biggestTrail.headline.split(':')[0] || biggestTrail.headline}
-            href={biggestTrail.officials[0] ? `/officials/${biggestTrail.officials[0].slug}` : '#'}
-            detail={formatMoney(biggestTrail.total_amount)} verdict="INFLUENCED" borderColor="border-red-500/30" />
-        )}
-        {biggestMiddleman && (
-          <HighlightCard label="Biggest Middleman" name={biggestMiddleman.headline.split(' funneled')[0] || biggestMiddleman.headline}
-            href="#" detail={formatMoney(biggestMiddleman.total_amount)} verdict="MIDDLEMAN" borderColor="border-amber-500/30" />
-        )}
-        <HighlightCard label="Revolving Door" name={`${revolving_door.length} Lobbyists`}
-          href="#revolving-door" detail="Former staff now lobbying" verdict="REVOLVING_DOOR" borderColor="border-purple-500/30" />
-      </div>
-
-      {/* Story Feed */}
-      {top_stories.length > 0 && (
-        <div className="mb-10">
-          <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">Latest Stories</h2>
-          {top_stories.map((story, i) => (
-            <StoryCard key={i} story={story} />
-          ))}
-        </div>
-      )}
-
-      {/* Stats Bar */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-zinc-800 rounded-xl overflow-hidden mb-10">
-        {[
-          { n: stats.officials_count.toLocaleString(), label: 'Officials' },
-          { n: stats.bills_count.toLocaleString(), label: 'Bills' },
-          { n: formatMoney(stats.donations_total), label: 'Donations' },
-          { n: stats.relationship_count.toLocaleString(), label: 'Relationships' },
-        ].map((s, i) => (
-          <div key={i} className="bg-zinc-900 p-4 text-center">
-            <div className="text-xl font-bold text-amber-400">{s.n}</div>
-            <div className="text-[0.7rem] text-zinc-500 uppercase tracking-wide mt-1">{s.label}</div>
+        {/* Search bar */}
+        <form onSubmit={handleSearch} className="relative max-w-xl mx-auto">
+          <div className="flex items-center bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden focus-within:border-[#d4a017]/60 transition-colors">
+            <Search className="w-5 h-5 text-zinc-500 ml-4 shrink-0" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search officials, bills, companies..."
+              className="w-full bg-transparent px-4 py-4 text-zinc-100 placeholder:text-zinc-500 outline-none text-base"
+            />
+            <button
+              type="submit"
+              className="shrink-0 bg-[#d4a017] hover:bg-[#b8891a] text-zinc-950 font-semibold px-6 py-4 transition-colors"
+            >
+              Search
+            </button>
           </div>
-        ))}
-      </div>
+        </form>
+      </header>
 
-      {/* Two-Column */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div>
-          <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">Top Officials by Verdict</h2>
-          {top_officials.map((o, i) => (
-            <div key={o.slug} onClick={() => router.push(`/officials/${o.slug}`)} className="flex items-center justify-between py-3 border-b border-zinc-900 last:border-0 cursor-pointer hover:bg-zinc-800/60 rounded-lg px-2 -mx-2 transition-all duration-200">
-              <div className="flex items-center gap-3">
-                <span className="text-zinc-600 font-bold w-6">{i + 1}</span>
-                <div>
-                  <span className="font-semibold">{o.name}</span>
-                  <div className="text-xs text-zinc-500">{o.party?.charAt(0)} · {o.state}</div>
-                </div>
-              </div>
-              <VerdictBadge verdict={o.verdict} />
+      <div className="max-w-6xl mx-auto px-4 pb-16">
+        {/* ----------------------------------------------------------------- */}
+        {/* STORY FEED                                                        */}
+        {/* ----------------------------------------------------------------- */}
+        {top_stories.length > 0 && (
+          <section className="mb-14">
+            <div className="flex items-center gap-2 mb-6">
+              <TrendingUp className="w-5 h-5 text-[#d4a017]" />
+              <h2 className="text-xl font-bold">Top Money Trails</h2>
             </div>
-          ))}
-        </div>
-        <div>
-          <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">Top Influencers</h2>
-          {top_influencers.map((inf, i) => (
-            <div key={inf.slug} onClick={() => router.push(`/entities/${inf.entity_type}/${inf.slug}`)} className="flex items-center justify-between py-3 border-b border-zinc-900 last:border-0 cursor-pointer hover:bg-zinc-800/60 rounded-lg px-2 -mx-2 transition-all duration-200">
-              <div className="flex items-center gap-3">
-                <span className="text-zinc-600 font-bold w-6">{i + 1}</span>
-                <div>
-                  <span className="font-semibold">{inf.name}</span>
-                  <div className="text-xs text-zinc-500">{inf.entity_type} · {inf.officials_funded} recipients</div>
-                </div>
-              </div>
-              <span className="text-amber-400 font-semibold text-sm">{formatMoney(inf.total_donated)}</span>
+            {top_stories.map((story, i) => (
+              <StoryFeedCard key={i} story={story} />
+            ))}
+          </section>
+        )}
+
+        {/* ----------------------------------------------------------------- */}
+        {/* TOP OFFICIALS BY VERDICT                                          */}
+        {/* ----------------------------------------------------------------- */}
+        {sortedOfficials.length > 0 && (
+          <section className="mb-14">
+            <div className="flex items-center gap-2 mb-6">
+              <Shield className="w-5 h-5 text-[#d4a017]" />
+              <h2 className="text-xl font-bold">Top Officials by Verdict</h2>
             </div>
-          ))}
-        </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {sortedOfficials.map((o) => (
+                <OfficialCard key={o.slug} official={o} />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* ----------------------------------------------------------------- */}
+        {/* STATS BAR                                                         */}
+        {/* ----------------------------------------------------------------- */}
+        <section>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-zinc-800 rounded-xl overflow-hidden">
+            {[
+              { icon: Users, n: stats.officials_count.toLocaleString(), label: 'Officials Profiled' },
+              { icon: Shield, n: stats.bills_count.toLocaleString(), label: 'Bills Tracked' },
+              { icon: TrendingUp, n: formatMoney(stats.donations_total), label: 'Money Mapped' },
+              { icon: ArrowRight, n: stats.relationship_count.toLocaleString(), label: 'Relationships' },
+            ].map((s, i) => {
+              const Icon = s.icon;
+              return (
+                <div key={i} className="bg-zinc-900 p-6 text-center">
+                  <Icon className="w-5 h-5 text-zinc-600 mx-auto mb-2" />
+                  <div className="text-2xl font-bold text-[#d4a017]">{s.n}</div>
+                  <div className="text-[0.7rem] text-zinc-500 uppercase tracking-wide mt-1">{s.label}</div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
       </div>
     </div>
   );
