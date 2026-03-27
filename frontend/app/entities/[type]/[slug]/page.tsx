@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowDownLeft, ArrowUpRight, AlertTriangle } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, AlertTriangle, Clock, Database } from 'lucide-react';
 import { getV2Entity } from '@/lib/api';
 import type { V2EntityResponse } from '@/lib/types';
 import { formatMoney } from '@/lib/utils';
@@ -139,6 +139,20 @@ export default function EntityPage() {
           getV2Entity(slug).then(d => { setData(d); setBriefing(d.briefing); }).catch(() => {});
         }}
       />
+
+      {/* Page-level freshness */}
+      <div className="flex flex-wrap items-center gap-4 mb-4 text-xs text-zinc-500">
+        <div className="flex items-center gap-1.5">
+          <Clock className="w-3.5 h-3.5" />
+          <span>Last refreshed: {data.freshness?.last_refreshed ? fmtDate(data.freshness.last_refreshed) : (entity.updated_at ? fmtDate(entity.updated_at) : 'Unknown')}</span>
+        </div>
+        {data.freshness?.fec_cycle && (
+          <div className="flex items-center gap-1.5">
+            <Database className="w-3.5 h-3.5" />
+            <span>FEC {data.freshness.fec_cycle} cycle</span>
+          </div>
+        )}
+      </div>
 
       <AIBriefing briefing={briefing ?? dataBriefing} />
 
