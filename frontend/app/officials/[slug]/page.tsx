@@ -148,40 +148,26 @@ export default function OfficialPage() {
               )}
             </div>
 
-            {/* Bar chart */}
-            <div className="flex items-end gap-2 h-40 mb-4">
+            {/* Bar chart — uses sqrt scaling so small cycles are visible next to large ones */}
+            <div className="flex items-end gap-3 mb-4" style={{ height: '120px' }}>
               {sorted.map((c) => {
-                const heightPct = Math.max((c.receipts / maxReceipts) * 100, 2);
-                const spentPct = c.disbursements > 0 ? Math.min((c.disbursements / c.receipts) * 100, 100) : 0;
+                // Use square root scaling so $5M is visible next to $100M
+                const sqrtMax = Math.sqrt(maxReceipts);
+                const sqrtVal = Math.sqrt(c.receipts);
+                const heightPct = Math.max((sqrtVal / sqrtMax) * 100, 8);
                 return (
-                  <div key={c.cycle} className="flex-1 flex flex-col items-center gap-1">
-                    <div className="text-[10px] text-amber-400 font-semibold">
+                  <div key={c.cycle} className="flex-1 flex flex-col items-center justify-end h-full">
+                    <div className="text-[10px] text-amber-400 font-semibold mb-1">
                       {formatMoney(Math.round(c.receipts * 100))}
                     </div>
-                    <div className="w-full relative rounded-t" style={{ height: `${heightPct}%` }}>
-                      <div className="absolute inset-0 bg-amber-500/30 rounded-t" />
-                      <div
-                        className="absolute bottom-0 left-0 right-0 bg-amber-500/60 rounded-t"
-                        style={{ height: `${spentPct}%` }}
-                        title={`Spent: ${formatMoney(Math.round(c.disbursements * 100))}`}
-                      />
-                    </div>
-                    <div className="text-xs font-mono text-zinc-500">{c.cycle}</div>
+                    <div
+                      className="w-full bg-gradient-to-t from-amber-500/60 to-amber-500/20 rounded-t border border-amber-500/30 border-b-0"
+                      style={{ height: `${heightPct}%`, minHeight: '8px' }}
+                    />
+                    <div className="text-xs font-mono text-zinc-400 mt-1.5 border-t border-zinc-800 pt-1 w-full text-center">{c.cycle}</div>
                   </div>
                 );
               })}
-            </div>
-
-            {/* Legend */}
-            <div className="flex items-center gap-4 text-xs text-zinc-500 mb-4">
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded bg-amber-500/30" />
-                <span>Raised</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded bg-amber-500/60" />
-                <span>Spent</span>
-              </div>
             </div>
 
             {/* Detail table */}
