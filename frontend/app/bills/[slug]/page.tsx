@@ -7,6 +7,7 @@ import { DollarSign, Users, ScrollText, ExternalLink, ChevronDown, ChevronUp } f
 import { getV2Bill } from '@/lib/api';
 import type { V2BillResponse } from '@/lib/types';
 import { formatMoney } from '@/lib/utils';
+import { Clock } from 'lucide-react';
 import LoadingState from '@/components/LoadingState';
 import PartyBadge from '@/components/PartyBadge';
 import VerdictBadge from '@/components/VerdictBadge';
@@ -34,6 +35,13 @@ function SponsorCard({ s, expanded, onToggle }: { s: any; expanded: boolean; onT
   const router = useRouter();
   const topDonors = s.top_donors || [];
   const moneyTrails = s.money_trails || [];
+  const latestDonorDate = topDonors.length > 0
+    ? topDonors.reduce((latest: string | null, d: { date?: string }) => {
+        if (!d.date) return latest;
+        if (!latest) return d.date;
+        return d.date > latest ? d.date : latest;
+      }, null as string | null)
+    : null;
 
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden hover:border-zinc-600 transition-colors">
@@ -57,7 +65,10 @@ function SponsorCard({ s, expanded, onToggle }: { s: any; expanded: boolean; onT
           </div>
           <div className="flex items-center gap-3">
             {s.donor_total > 0 && (
-              <span className="text-amber-400 font-bold text-sm">{formatMoney(s.donor_total)}</span>
+              <div className="flex flex-col items-end">
+                <span className="text-amber-400 font-bold text-sm">{formatMoney(s.donor_total)}</span>
+                {latestDonorDate && <span className="text-[0.6rem] text-zinc-600">{fmtDate(latestDonorDate)}</span>}
+              </div>
             )}
             {s.verdict && <VerdictBadge verdict={s.verdict} />}
             {(topDonors.length > 0 || moneyTrails.length > 0) && (
@@ -184,7 +195,7 @@ export default function BillPage() {
           <span className={`text-xs font-bold px-2.5 py-1 rounded border ${statusStyle}`}>{status_label}</span>
           {policyArea && <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded">{policyArea}</span>}
           {originChamber && <span className="text-xs text-zinc-600">{originChamber}</span>}
-          {introducedDate && <span className="text-xs text-zinc-600">Introduced {introducedDate}</span>}
+          {introducedDate && <span className="text-xs text-zinc-600">Introduced {fmtDate(introducedDate) || introducedDate}</span>}
         </div>
         <h1 className="text-2xl font-bold mb-2">{entity.name}</h1>
         {summary ? (
@@ -212,6 +223,14 @@ export default function BillPage() {
         }}
       />
 
+      {/* Page-level freshness */}
+      <div className="flex flex-wrap items-center gap-4 mb-4 text-xs text-zinc-500">
+        <div className="flex items-center gap-1.5">
+          <Clock className="w-3.5 h-3.5" />
+          <span>Last refreshed: {data.freshness?.last_refreshed ? fmtDate(data.freshness.last_refreshed) : (entity.updated_at ? fmtDate(entity.updated_at) : 'Unknown')}</span>
+        </div>
+      </div>
+
       <AIBriefing briefing={briefing ?? dataBriefing} />
 
       {/* Vote results */}
@@ -231,7 +250,7 @@ export default function BillPage() {
                       {vote.chamber && (
                         <span className="text-xs font-bold uppercase tracking-wide text-zinc-400">{vote.chamber}</span>
                       )}
-                      {vote.date && <span className="text-xs text-zinc-600">{vote.date}</span>}
+                      {vote.date && <span className="text-xs text-zinc-600">{fmtDate(vote.date) || vote.date}</span>}
                     </div>
                     {vote.url && (
                       <a href={vote.url} target="_blank" rel="noopener noreferrer"
