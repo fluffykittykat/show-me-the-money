@@ -169,7 +169,7 @@ async def v2_official(slug: str, db: AsyncSession = Depends(get_db)):
 
     # --- FEC cycle breakdown ---
     fec_cycles = meta.get("fec_all_cycles", [])
-    total_all_cycles = sum(c.get("receipts", 0) for c in fec_cycles) if fec_cycles else 0
+    total_all_cycles = int(sum(c.get("receipts", 0) for c in fec_cycles)) if fec_cycles else 0
 
     # --- Freshness ---
     has_donors = len(top_donors) > 0
