@@ -22,6 +22,186 @@ function fmtDate(d: string | null | undefined): string {
   } catch { return '—'; }
 }
 
+// ---------------------------------------------------------------------------
+// Campaign Finance Trend with expandable cycle donors
+// ---------------------------------------------------------------------------
+
+interface CycleDonor {
+  name: string;
+  amount: number;
+  date: string | null;
+  employer: string;
+}
+
+function CycleTrend({ sorted, maxReceipts, totalRaised, totalSpent, trendPct, previous, recent, slug }: {
+  sorted: { cycle: number; receipts: number; disbursements: number }[];
+  maxReceipts: number;
+  totalRaised: number;
+  totalSpent: number;
+  trendPct: number | null;
+  previous: { cycle: number; receipts: number } | null;
+  recent: { cycle: number; receipts: number };
+  slug: string;
+}) {
+  const [expandedCycle, setExpandedCycle] = useState<number | null>(null);
+  const [cycleDonors, setCycleDonors] = useState<CycleDonor[]>([]);
+  const [loadingDonors, setLoadingDonors] = useState(false);
+
+  const handleCycleClick = async (cycle: number) => {
+    if (expandedCycle === cycle) {
+      setExpandedCycle(null);
+      return;
+    }
+    setExpandedCycle(cycle);
+    setLoadingDonors(true);
+    setCycleDonors([]);
+    try {
+      const res = await fetch(`/api/entities/${slug}/pac-donors?cycle=${cycle}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCycleDonors(data.donors || []);
+      }
+    } catch { /* ignore */ }
+    setLoadingDonors(false);
+  };
+
+  return (
+    <div className="mb-8">
+      <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">
+        Campaign Finance Trend
+      </h2>
+
+      {/* Summary row */}
+      <div className="flex flex-wrap gap-6 mb-5">
+        <div>
+          <div className="text-xs text-zinc-500 uppercase tracking-wide">Total Raised</div>
+          <div className="text-2xl font-bold text-amber-400">{formatMoney(Math.round(totalRaised * 100))}</div>
+        </div>
+        <div>
+          <div className="text-xs text-zinc-500 uppercase tracking-wide">Total Spent</div>
+          <div className="text-2xl font-bold text-zinc-400">{formatMoney(Math.round(totalSpent * 100))}</div>
+        </div>
+        <div>
+          <div className="text-xs text-zinc-500 uppercase tracking-wide">Cycles</div>
+          <div className="text-2xl font-bold text-zinc-300">{sorted.length}</div>
+        </div>
+        {trendPct !== null && (
+          <div>
+            <div className="text-xs text-zinc-500 uppercase tracking-wide">Trend ({previous?.cycle}→{recent.cycle})</div>
+            <div className={`text-2xl font-bold ${trendPct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              {trendPct >= 0 ? '+' : ''}{trendPct}%
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Bar chart — clickable bars */}
+      <div className="flex items-end gap-3 mb-4" style={{ height: '120px' }}>
+        {sorted.map((c) => {
+          const sqrtMax = Math.sqrt(maxReceipts);
+          const sqrtVal = Math.sqrt(c.receipts);
+          const heightPct = Math.max((sqrtVal / sqrtMax) * 100, 8);
+          const isExpanded = expandedCycle === c.cycle;
+          return (
+            <div
+              key={c.cycle}
+              className="flex-1 flex flex-col items-center justify-end h-full cursor-pointer group"
+              onClick={() => handleCycleClick(c.cycle)}
+            >
+              <div className="text-[10px] text-amber-400 font-semibold mb-1">
+                {formatMoney(Math.round(c.receipts * 100))}
+              </div>
+              <div
+                className={`w-full rounded-t border border-b-0 transition-all ${
+                  isExpanded
+                    ? 'bg-gradient-to-t from-amber-500/80 to-amber-500/40 border-amber-400'
+                    : 'bg-gradient-to-t from-amber-500/60 to-amber-500/20 border-amber-500/30 group-hover:border-amber-400/60'
+                }`}
+                style={{ height: `${heightPct}%`, minHeight: '8px' }}
+              />
+              <div className={`text-xs font-mono mt-1.5 border-t pt-1 w-full text-center ${
+                isExpanded ? 'text-amber-400 border-amber-500/50' : 'text-zinc-400 border-zinc-800'
+              }`}>
+                {c.cycle}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Expanded cycle donors */}
+      {expandedCycle !== null && (
+        <div className="bg-zinc-900 border border-amber-500/30 rounded-xl p-4 mb-4">
+          <h3 className="text-sm font-bold text-amber-400 mb-3">
+            {expandedCycle} Cycle — Top Donors
+          </h3>
+          {loadingDonors ? (
+            <div className="flex items-center gap-2 text-sm text-zinc-500 py-4">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-600 border-t-amber-400" />
+              Fetching {expandedCycle} cycle donors from FEC...
+            </div>
+          ) : cycleDonors.length > 0 ? (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-zinc-500 uppercase tracking-wide">
+                  <th className="pb-2 px-2">Donor</th>
+                  <th className="pb-2 px-2">Employer</th>
+                  <th className="pb-2 px-2 text-right">Amount</th>
+                  <th className="pb-2 px-2">Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cycleDonors.map((d, i) => (
+                  <tr key={i} className="border-t border-zinc-800">
+                    <td className="py-2 px-2 text-zinc-200">{d.name}</td>
+                    <td className="py-2 px-2 text-zinc-500 text-xs">{d.employer || '--'}</td>
+                    <td className="py-2 px-2 text-right text-amber-400 font-semibold">{formatMoney(d.amount)}</td>
+                    <td className="py-2 px-2 text-zinc-500 text-xs">{fmtDate(d.date)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-zinc-500 text-sm py-2">No donor details available for this cycle. Try refreshing the investigation.</p>
+          )}
+        </div>
+      )}
+
+      {/* Detail table */}
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-xs text-zinc-500 uppercase tracking-wide">
+            <th className="pb-2 px-3">Cycle</th>
+            <th className="pb-2 px-3 text-right">Raised</th>
+            <th className="pb-2 px-3 text-right">Spent</th>
+            <th className="pb-2 px-3 text-right">Net</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((c) => (
+            <tr key={c.cycle} className="border-t border-zinc-900 cursor-pointer hover:bg-zinc-800/50" onClick={() => handleCycleClick(c.cycle)}>
+              <td className="py-2 px-3 font-mono">{c.cycle}</td>
+              <td className="py-2 px-3 text-right text-amber-400 font-semibold">{formatMoney(Math.round(c.receipts * 100))}</td>
+              <td className="py-2 px-3 text-right text-zinc-400">{formatMoney(Math.round(c.disbursements * 100))}</td>
+              <td className={`py-2 px-3 text-right font-semibold ${c.receipts - c.disbursements >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {formatMoney(Math.round((c.receipts - c.disbursements) * 100))}
+              </td>
+            </tr>
+          ))}
+          <tr className="border-t-2 border-zinc-700 font-bold">
+            <td className="py-2 px-3">Total</td>
+            <td className="py-2 px-3 text-right text-amber-400">{formatMoney(Math.round(totalRaised * 100))}</td>
+            <td className="py-2 px-3 text-right text-zinc-400">{formatMoney(Math.round(totalSpent * 100))}</td>
+            <td className={`py-2 px-3 text-right font-semibold ${totalRaised - totalSpent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              {formatMoney(Math.round((totalRaised - totalSpent) * 100))}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function OfficialPage() {
   const { slug } = useParams<{ slug: string }>();
   const router = useRouter();
@@ -111,98 +291,22 @@ export default function OfficialPage() {
         const maxReceipts = Math.max(...sorted.map(c => c.receipts), 1);
         const totalRaised = sorted.reduce((s, c) => s + c.receipts, 0);
         const totalSpent = sorted.reduce((s, c) => s + c.disbursements, 0);
-        // Trend: compare most recent to previous
         const recent = sorted[sorted.length - 1];
         const previous = sorted.length > 1 ? sorted[sorted.length - 2] : null;
         const trendPct = previous && previous.receipts > 0
           ? Math.round(((recent.receipts - previous.receipts) / previous.receipts) * 100)
           : null;
 
-        return (
-          <div className="mb-8">
-            <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">
-              Campaign Finance Trend
-            </h2>
-
-            {/* Summary row */}
-            <div className="flex flex-wrap gap-6 mb-5">
-              <div>
-                <div className="text-xs text-zinc-500 uppercase tracking-wide">Total Raised</div>
-                <div className="text-2xl font-bold text-amber-400">{formatMoney(Math.round(totalRaised * 100))}</div>
-              </div>
-              <div>
-                <div className="text-xs text-zinc-500 uppercase tracking-wide">Total Spent</div>
-                <div className="text-2xl font-bold text-zinc-400">{formatMoney(Math.round(totalSpent * 100))}</div>
-              </div>
-              <div>
-                <div className="text-xs text-zinc-500 uppercase tracking-wide">Cycles</div>
-                <div className="text-2xl font-bold text-zinc-300">{sorted.length}</div>
-              </div>
-              {trendPct !== null && (
-                <div>
-                  <div className="text-xs text-zinc-500 uppercase tracking-wide">Trend ({previous?.cycle}→{recent.cycle})</div>
-                  <div className={`text-2xl font-bold ${trendPct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {trendPct >= 0 ? '+' : ''}{trendPct}%
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Bar chart — uses sqrt scaling so small cycles are visible next to large ones */}
-            <div className="flex items-end gap-3 mb-4" style={{ height: '120px' }}>
-              {sorted.map((c) => {
-                // Use square root scaling so $5M is visible next to $100M
-                const sqrtMax = Math.sqrt(maxReceipts);
-                const sqrtVal = Math.sqrt(c.receipts);
-                const heightPct = Math.max((sqrtVal / sqrtMax) * 100, 8);
-                return (
-                  <div key={c.cycle} className="flex-1 flex flex-col items-center justify-end h-full">
-                    <div className="text-[10px] text-amber-400 font-semibold mb-1">
-                      {formatMoney(Math.round(c.receipts * 100))}
-                    </div>
-                    <div
-                      className="w-full bg-gradient-to-t from-amber-500/60 to-amber-500/20 rounded-t border border-amber-500/30 border-b-0"
-                      style={{ height: `${heightPct}%`, minHeight: '8px' }}
-                    />
-                    <div className="text-xs font-mono text-zinc-400 mt-1.5 border-t border-zinc-800 pt-1 w-full text-center">{c.cycle}</div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Detail table */}
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-zinc-500 uppercase tracking-wide">
-                  <th className="pb-2 px-3">Cycle</th>
-                  <th className="pb-2 px-3 text-right">Raised</th>
-                  <th className="pb-2 px-3 text-right">Spent</th>
-                  <th className="pb-2 px-3 text-right">Net</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((c) => (
-                  <tr key={c.cycle} className="border-t border-zinc-900">
-                    <td className="py-2 px-3 font-mono">{c.cycle}</td>
-                    <td className="py-2 px-3 text-right text-amber-400 font-semibold">{formatMoney(Math.round(c.receipts * 100))}</td>
-                    <td className="py-2 px-3 text-right text-zinc-400">{formatMoney(Math.round(c.disbursements * 100))}</td>
-                    <td className={`py-2 px-3 text-right font-semibold ${c.receipts - c.disbursements >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {formatMoney(Math.round((c.receipts - c.disbursements) * 100))}
-                    </td>
-                  </tr>
-                ))}
-                <tr className="border-t-2 border-zinc-700 font-bold">
-                  <td className="py-2 px-3">Total</td>
-                  <td className="py-2 px-3 text-right text-amber-400">{formatMoney(Math.round(totalRaised * 100))}</td>
-                  <td className="py-2 px-3 text-right text-zinc-400">{formatMoney(Math.round(totalSpent * 100))}</td>
-                  <td className={`py-2 px-3 text-right font-semibold ${totalRaised - totalSpent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {formatMoney(Math.round((totalRaised - totalSpent) * 100))}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        );
+        return (<CycleTrend
+          sorted={sorted}
+          maxReceipts={maxReceipts}
+          totalRaised={totalRaised}
+          totalSpent={totalSpent}
+          trendPct={trendPct}
+          previous={previous}
+          recent={recent}
+          slug={slug}
+        />);
       })()}
 
       {/* Money Trails */}

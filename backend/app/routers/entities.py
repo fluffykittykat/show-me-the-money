@@ -295,7 +295,7 @@ async def get_influence_map(slug: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{slug}/pac-donors")
-async def get_pac_donors(slug: str, db: AsyncSession = Depends(get_db)):
+async def get_pac_donors(slug: str, cycle: int | None = None, db: AsyncSession = Depends(get_db)):
     """Fetch PAC/committee donors on-the-fly from the FEC API.
 
     1. Loads the entity by slug
@@ -322,8 +322,8 @@ async def get_pac_donors(slug: str, db: AsyncSession = Depends(get_db)):
     )
     cached = cached_rels.scalars().all()
 
-    if cached:
-        # Fetch the donor entities
+    if cached and not cycle:
+        # Fetch the donor entities (skip cache if specific cycle requested)
         donor_ids = [r.from_entity_id for r in cached]
         donor_result = await db.execute(
             select(Entity).where(Entity.id.in_(donor_ids))
@@ -410,6 +410,7 @@ async def get_pac_donors(slug: str, db: AsyncSession = Depends(get_db)):
                     "committee_id": fec_committee_id,
                     "per_page": 20,
                     "sort": "-contribution_receipt_amount",
+                    **({"two_year_transaction_period": cycle} if cycle else {}),
                 },
             )
             donors_resp.raise_for_status()
