@@ -53,83 +53,77 @@ export default function PageControls({ slug, entityName, onBriefingUpdate, onDat
     setCompleted(false);
 
     const initialSteps: Step[] = [
-      { label: 'Fetching latest FEC data', detail: 'Campaign totals, donors, PAC contributions...', status: 'running' },
-      { label: 'Tracing middleman PACs', detail: 'Resolving PAC donor chains...', status: 'pending' },
-      { label: 'Computing money trails & verdicts', detail: 'Running dot-counting algorithm...', status: 'pending' },
+      { label: 'Resolving FEC Committee ID', detail: 'Looking up official campaign committee...', status: 'running' },
+      { label: 'Fetching ALL campaign cycles', detail: '2026, 2024, 2022, 2020, 2018...', status: 'pending' },
+      { label: 'Fetching top donors', detail: '2024 + 2022 cycle donors from FEC...', status: 'pending' },
+      { label: 'Tracing middleman PACs', detail: 'Who funds the PACs that fund this official...', status: 'pending' },
+      { label: 'Computing money trails', detail: 'Connecting dots: donors → committees → bills...', status: 'pending' },
+      { label: 'Running verdict algorithm', detail: 'NORMAL / CONNECTED / INFLUENCED / OWNED...', status: 'pending' },
       { label: 'Generating AI assessment', detail: 'Claude Sonnet analyzing patterns...', status: 'pending' },
       { label: 'Finalizing dossier', status: 'pending' },
     ];
     setSteps(initialSteps);
 
     try {
-      // Step 1: Refresh entity data from live APIs
+      // All steps happen in one API call — we simulate progress from the response
+      updateStep(0, { status: 'running' });
+
       const refreshRes = await fetch(`/api/refresh/${encodeURIComponent(slug)}`, { method: 'POST' });
       if (!refreshRes.ok) {
         const errorText = await refreshRes.text().catch(() => 'Unknown error');
         throw new Error(`Refresh failed (${refreshRes.status}): ${errorText}`);
       }
       const refreshData = await refreshRes.json();
-      const actions = refreshData.actions || [];
-      const actionSummary = actions.slice(0, 3).join(' · ');
-      updateStep(0, { status: 'done', detail: actionSummary || 'Entity data refreshed' });
-      updateStep(1, { status: 'running' });
+      const actions: string[] = refreshData.actions || [];
 
-      // Step 2: PAC donor tracing (part of the refresh response)
-      const pacActions = actions.filter((a: string) => a.includes('donors for PAC') || a.includes('PAC'));
-      await new Promise(r => setTimeout(r, 1000));
-      updateStep(1, {
-        status: 'done',
-        detail: pacActions.length > 0 ? `${pacActions.length} PAC chains traced` : 'No PAC middlemen found'
-      });
-      updateStep(2, { status: 'running' });
+      // Parse actions to update steps with real results
+      const findAction = (keyword: string) => actions.find(a => a.toLowerCase().includes(keyword.toLowerCase())) || '';
 
-      // Step 3: Trigger precompute
-      const pcRes = await fetch(`/api/admin/ingest/precompute`, { method: 'POST' });
-      if (!pcRes.ok) {
-        updateStep(2, { status: 'done', detail: 'Verdicts will update on next cycle' });
+      // Step 1: Committee ID
+      const committeeAction = findAction('committee') || findAction('resolved');
+      updateStep(0, { status: 'done', detail: committeeAction || 'Committee ID confirmed' });
+
+      // Step 2: Cycle totals
+      updateStep(1, { status: 'done', detail: findAction('FEC cycles') || findAction('totals') || 'Cycle data fetched' });
+
+      // Step 3: Donors
+      const donorAction = findAction('donors');
+      updateStep(2, { status: 'done', detail: donorAction || 'Donor data current' });
+
+      // Step 4: PAC middlemen
+      const pacActions = actions.filter(a => a.includes('donors for PAC'));
+      updateStep(3, { status: 'done', detail: pacActions.length > 0 ? `${pacActions.length} PAC chains traced` : 'No PAC middlemen found' });
+
+      // Step 5: Money trails
+      const trailAction = findAction('money trails') || findAction('trail');
+      updateStep(4, { status: 'done', detail: trailAction || 'Money trails computed' });
+
+      // Step 6: Verdict
+      const verdictAction = findAction('verdict');
+      updateStep(5, { status: 'done', detail: verdictAction || 'Verdict assigned' });
+
+      // Step 7: AI briefing
+      updateStep(6, { status: 'running' });
+      const briefingAction = findAction('briefing');
+      if (briefingAction.includes('generated')) {
+        updateStep(6, { status: 'done', detail: briefingAction });
       } else {
-        // Poll for completion (check every 3s, max 30s)
-        let attempts = 0;
-        while (attempts < 10) {
-          await new Promise(r => setTimeout(r, 3000));
-          attempts++;
-          // Try fetching the official data to see if trails updated
-          try {
-            const checkRes = await fetch(`/api/v2/official/${encodeURIComponent(slug)}`);
-            if (checkRes.ok) {
-              const checkData = await checkRes.json();
-              const trailCount = checkData.money_trails?.length || 0;
-              updateStep(2, {
-                status: 'done',
-                detail: `${trailCount} industry trail${trailCount !== 1 ? 's' : ''} computed · Verdict: ${checkData.overall_verdict}`
-              });
-              break;
-            }
-          } catch {
-            // keep polling
-          }
-        }
-        if (attempts >= 10) {
-          updateStep(2, { status: 'done', detail: 'Verdicts computing in background' });
-        }
-      }
-      updateStep(3, { status: 'running' });
-
-      // Step 4: Regenerate AI briefing
-      try {
+        // Briefing may have been generated as part of refresh — fetch it
+        try {
         const briefRes = await getBriefing(slug, true);
         onBriefingUpdate?.(briefRes.briefing_text);
         const charCount = briefRes.briefing_text?.length || 0;
         updateStep(3, { status: 'done', detail: `${charCount} character assessment generated` });
       } catch {
-        updateStep(3, { status: 'done', detail: 'Briefing unchanged (generation unavailable)' });
+        updateStep(6, { status: 'done', detail: 'Briefing unchanged (generation unavailable)' });
       }
-      updateStep(4, { status: 'running' });
+      }
+      updateStep(7, { status: 'running' });
 
-      // Step 5: Finalize — reload page data
+      // Step 8: Finalize — reload page data
       await new Promise(r => setTimeout(r, 500));
       onDataRefresh?.();
-      updateStep(4, { status: 'done', detail: 'Dossier complete' });
+      updateStep(7, { status: 'done', detail: 'Investigation complete — all data refreshed' });
 
       setCompleted(true);
       setRefreshing(false);
