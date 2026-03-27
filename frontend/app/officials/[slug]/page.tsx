@@ -79,10 +79,10 @@ export default function OfficialPage() {
           {committees.length > 0 && <span>{committees.map(c => c.name).join(' · ')}</span>}
         </div>
         <VerdictPill verdict={overall_verdict} dotCount={total_dots} />
-        {campaignTotal != null && (
+        {campaignTotal != null && campaignTotal > 0 && (
           <div className="text-sm text-zinc-400 mt-2">
-            Campaign total: <span className="text-amber-400 font-semibold text-base">{formatMoney(campaignTotal)}</span>
-            {fecCycle && <span> ({fecCycle} cycle)</span>}
+            Campaign total: <span className="text-amber-400 font-semibold text-base">{formatMoney(Math.round(campaignTotal * 100))}</span>
+            {fecCycle && <span className="text-zinc-500"> (best cycle: {fecCycle})</span>}
           </div>
         )}
         <FreshnessBar freshness={freshness} />
