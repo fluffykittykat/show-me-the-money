@@ -283,6 +283,58 @@ async def refresh_entity(slug: str, db: AsyncSession = Depends(get_db)):
                 except Exception:
                     pass
 
+        # 7. Commit all data changes before computing verdicts
+        await db.commit()
+
+        # 8. Compute money trail verdicts (connect the dots)
+        try:
+            from app.services.verdict_engine import compute_verdicts, compute_overall_verdict
+            from app.models import MoneyTrail
+            trails = await compute_verdicts(db, entity.id)
+            # Delete old trails and insert new ones
+            old_trails = await db.execute(
+                select(MoneyTrail).where(MoneyTrail.official_id == entity.id)
+            )
+            for old in old_trails.scalars().all():
+                await db.delete(old)
+            for trail in trails:
+                db.add(MoneyTrail(
+                    official_id=entity.id,
+                    industry=trail["industry"],
+                    verdict=trail["verdict"],
+                    dot_count=trail["dot_count"],
+                    narrative=trail.get("narrative"),
+                    chain=trail.get("chain", {}),
+                    total_amount=trail.get("total_amount", 0),
+                ))
+            overall_verdict, total_dots = compute_overall_verdict(trails)
+            # Reload entity after commit
+            result2 = await db.execute(select(Entity).where(Entity.id == entity.id))
+            entity2 = result2.scalar_one_or_none()
+            if entity2:
+                m2 = dict(entity2.metadata_ or {})
+                m2["v2_verdict"] = overall_verdict
+                m2["v2_dot_count"] = total_dots
+                entity2.metadata_ = _ascii_safe(m2)
+                db.add(entity2)
+            await db.commit()
+            actions.append(f"computed {len(trails)} money trails → verdict: {overall_verdict} ({total_dots} dots)")
+        except Exception as e:
+            actions.append(f"verdict computation failed: {e}")
+
+        # 9. Generate fresh AI briefing
+        try:
+            from app.services.ai_service import ai_briefing_service
+            briefing = await ai_briefing_service.generate_briefing(
+                entity_slug=slug,
+                context_data={"metadata": meta},
+                session=db,
+                force_refresh=True,
+            )
+            actions.append(f"generated AI briefing ({len(briefing)} chars)")
+        except Exception as e:
+            actions.append(f"briefing generation failed: {e}")
+
     # --- PAC / ORGANIZATION / COMPANY ---
     elif entity_type in ("pac", "organization", "company"):
         # Fetch donors for this entity from FEC
