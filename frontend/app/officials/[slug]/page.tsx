@@ -129,16 +129,26 @@ export default function OfficialPage() {
               </tr>
             </thead>
             <tbody>
-              {top_donors.map((d, i) => (
+              {top_donors.map((d, i) => {
+                const dn = (d.name || '').toLowerCase().replace(/[^a-z]/g, '');
+                const on = (entity.name || '').toLowerCase().replace(/[^a-z]/g, '');
+                const slugParts = slug.split('-');
+                const isSelf = (dn.length > 5 && on.length > 5 && (dn.includes(on.slice(0, 6)) || on.includes(dn.slice(0, 6))))
+                  || (slugParts[0] && dn.includes(slugParts[0]) && (dn.includes('victory') || dn.includes('forcongress') || dn.includes('forsenate') || dn.includes('fund') || dn.includes('committee') || (slugParts[1] && dn.includes(slugParts[1]))));
+                return (
                 <tr key={i} className="border-t border-zinc-900 cursor-pointer hover:bg-zinc-800/60 transition-colors" onClick={() => router.push(`/entities/${d.entity_type}/${d.slug}`)}>
                   <td className="py-2.5 px-3">
-                    <Link href={`/entities/${d.entity_type}/${d.slug}`} className="hover:text-amber-400 transition-colors">{d.name}</Link>
+                    <div className="flex items-center gap-2">
+                      <Link href={`/entities/${d.entity_type}/${d.slug}`} className="hover:text-amber-400 transition-colors">{d.name}</Link>
+                      {isSelf && <span className="text-[10px] font-medium text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded">SELF-FUNDED</span>}
+                    </div>
                   </td>
                   <td className="py-2.5 px-3 text-zinc-500 text-sm">{d.entity_type}</td>
                   <td className="py-2.5 px-3 text-zinc-600 text-xs">{fmtDate(d.latest_date)}</td>
                   <td className="py-2.5 px-3 text-right text-amber-400 font-semibold">{formatMoney(d.total_donated)}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

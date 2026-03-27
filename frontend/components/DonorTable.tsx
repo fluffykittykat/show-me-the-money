@@ -12,6 +12,8 @@ interface DonorTableProps {
   donations: Relationship[];
   fecTotalReceipts?: number | null;
   fecCycle?: number | string | null;
+  officialSlug?: string;
+  officialName?: string;
 }
 
 function slugify(name: string): string {
@@ -31,7 +33,37 @@ function RecipientBadge({ slug }: { slug: string }) {
   );
 }
 
-export default function DonorTable({ donations, fecTotalReceipts, fecCycle }: DonorTableProps) {
+function isSelfDonation(donorName: string, officialSlug?: string, officialName?: string): boolean {
+  if (!donorName) return false;
+  const dn = donorName.toLowerCase().replace(/[^a-z]/g, '');
+  // Check if donor name matches official name
+  if (officialName) {
+    const on = officialName.toLowerCase().replace(/[^a-z]/g, '');
+    // "MCCORMICK, DAVE" vs "McCormick, David" — check if last name matches + first few chars
+    const donorParts = donorName.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/);
+    const officialParts = officialName.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/);
+    if (donorParts[0] && officialParts[0] && donorParts[0] === officialParts[0] && donorParts.length > 1 && officialParts.length > 1) {
+      return true; // Same last name in "Last, First" format
+    }
+    if (dn.length > 5 && on.length > 5 && (dn.includes(on.slice(0, 6)) || on.includes(dn.slice(0, 6)))) {
+      return true;
+    }
+  }
+  // Check slug match
+  if (officialSlug) {
+    const slugParts = officialSlug.split('-');
+    if (slugParts[0] && dn.includes(slugParts[0]) && (
+      dn.includes('victory') || dn.includes('forcongress') || dn.includes('forsenate') ||
+      dn.includes('committee') || dn.includes('fund') ||
+      (slugParts[1] && dn.includes(slugParts[1]))
+    )) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export default function DonorTable({ donations, fecTotalReceipts, fecCycle, officialSlug, officialName }: DonorTableProps) {
   if (donations.length === 0) {
     return (
       <p className="py-8 text-center text-sm text-zinc-500">
@@ -159,6 +191,7 @@ export default function DonorTable({ donations, fecTotalReceipts, fecCycle }: Do
                   ? `/officials/${entity.slug}`
                   : `/entities/${entity.entity_type}/${entity.slug}`
                 : null;
+              const selfFunded = entity ? isSelfDonation(entity.name, officialSlug, officialName) : false;
 
               return (
                 <tr
@@ -166,7 +199,7 @@ export default function DonorTable({ donations, fecTotalReceipts, fecCycle }: Do
                   className="border-b border-zinc-800/50 transition-colors hover:bg-zinc-800/30"
                 >
                   <td className="px-4 py-3">
-                    <div className="flex items-center flex-wrap">
+                    <div className="flex items-center flex-wrap gap-2">
                       {href && entity ? (
                         <Link
                           href={href}
@@ -177,7 +210,12 @@ export default function DonorTable({ donations, fecTotalReceipts, fecCycle }: Do
                       ) : (
                         <span className="text-zinc-300">Unknown</span>
                       )}
-                      {entity?.slug && <RecipientBadge slug={entity.slug} />}
+                      {selfFunded && (
+                        <span className="text-[10px] font-medium text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded">
+                          SELF-FUNDED
+                        </span>
+                      )}
+                      {entity?.slug && !selfFunded && <RecipientBadge slug={entity.slug} />}
                     </div>
                   </td>
                   <td className="px-4 py-3 text-zinc-400">{donorType}</td>
