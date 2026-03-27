@@ -206,6 +206,8 @@ def _build_system_prompt(entity_type: str) -> str:
         "- Do NOT use vague language like 'potential concerns' or 'various entities'.\n"
         "- Do NOT pad with disclaimers or caveats mid-briefing.\n\n"
         "FORMAT (follow exactly):\n\n"
+        "SUMMARY: [For bills: 2-3 sentence plain-English summary of what this bill/entity "
+        "does and who it affects. For officials: skip this section.]\n\n"
         "KEY FINDINGS:\n"
         "- [3-5 bullet points. Each connects multiple dots into one chain.]\n\n"
         "[1-2 SHORT paragraphs tracing the money flow. No repetition of KEY FINDINGS.]\n\n"
@@ -252,13 +254,17 @@ def _build_system_prompt(entity_type: str) -> str:
             "5. THE QUESTION: What are they getting for their money?"
         ),
         "bill": (
-            "\n\nFOR THIS BILL, FOLLOW THE MONEY:\n"
-            "1. Who voted YES? Who voted NO?\n"
+            "\n\nFOR THIS BILL:\n"
+            "FIRST: Start with a plain-English summary paragraph explaining what "
+            "this bill does, what it aims to achieve, and who it affects. Write "
+            "this so anyone can understand it — no jargon, no legalese. This "
+            "summary goes BEFORE the KEY FINDINGS section.\n\n"
+            "THEN FOLLOW THE MONEY:\n"
+            "1. Who sponsored/cosponsored this bill? What are their top donors?\n"
             "2. What industries benefit from this bill passing?\n"
-            "3. Did those industries donate to the YES voters?\n"
+            "3. Did those industries donate to the sponsors?\n"
             "4. Did companies lobby for this bill? Which ones?\n"
-            "5. Do any YES voters hold stock in companies that benefit?\n"
-            "6. THE QUESTION: Was this bill's passage influenced by money?"
+            "5. THE QUESTION: Was this bill influenced by money?"
         ),
         "committee": (
             "\n\nFOR THIS COMMITTEE, FIND THE CONFLICTS:\n"
