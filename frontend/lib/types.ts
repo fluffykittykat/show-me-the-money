@@ -221,6 +221,8 @@ export interface V2MoneyTrail {
   dots: string[];
   narrative: string;
   total_amount: number;
+  computed_at?: string | null;
+  date_range?: string | null;
   chain: {
     donors?: Array<{ name: string; slug: string; amount: number; date?: string | null }>;
     committees?: Array<{ name: string; slug: string }>;
@@ -280,6 +282,10 @@ export interface V2BillResponse {
   status_label: string;
   sponsors: V2Sponsor[];
   briefing: string | null;
+  freshness?: {
+    last_refreshed: string | null;
+    introduced_date: string | null;
+  };
 }
 
 export interface V2MoneyFlow {
@@ -295,6 +301,10 @@ export interface V2EntityResponse {
   money_in: V2MoneyFlow[];
   money_out: V2MoneyFlow[];
   briefing: string | null;
+  freshness?: {
+    last_refreshed: string | null;
+    fec_cycle: string | null;
+  };
 }
 
 export interface V2StoryCard {
@@ -305,6 +315,8 @@ export interface V2StoryCard {
   officials: Array<{ name: string; slug: string; party: string }>;
   total_amount: number;
   industry: string;
+  computed_at?: string | null;
+  fec_cycle?: string | null;
 }
 
 export interface V2HomepageStats {
@@ -321,6 +333,7 @@ export interface V2TopOfficial {
   state: string;
   verdict: string;
   dot_count: number;
+  fec_cycle?: string | null;
 }
 
 export interface V2TopInfluencer {
@@ -348,4 +361,6 @@ export interface V2HomepageResponse {
   top_officials: V2TopOfficial[];
   top_influencers: V2TopInfluencer[];
   revolving_door: V2RevolvingDoor[];
+  data_as_of?: string | null;
+  fec_cycle?: string | null;
 }

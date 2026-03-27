@@ -3,11 +3,39 @@
 import { useState, useEffect, FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Search, TrendingUp, Users, Shield, AlertTriangle, ArrowRight } from 'lucide-react';
+import { Search, TrendingUp, Users, Shield, AlertTriangle, ArrowRight, Clock, Database } from 'lucide-react';
 import { getV2Homepage } from '@/lib/api';
 import type { V2HomepageResponse, V2StoryCard, V2TopOfficial } from '@/lib/types';
 import { formatMoney } from '@/lib/utils';
 import PartyBadge from '@/components/PartyBadge';
+
+// ---------------------------------------------------------------------------
+// Date helpers
+// ---------------------------------------------------------------------------
+
+function fmtDate(d: string | null | undefined): string {
+  if (!d) return '';
+  try {
+    return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch { return ''; }
+}
+
+function relativeTime(iso: string | null | undefined): string {
+  if (!iso) return '';
+  try {
+    const date = new Date(iso);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return fmtDate(iso);
+  } catch { return ''; }
+}
 
 // ---------------------------------------------------------------------------
 // Verdict helpers
@@ -163,6 +191,14 @@ function StoryFeedCard({ story }: { story: V2StoryCard }) {
         <span className={`text-[0.65rem] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full border ${storyType.color}`}>
           {storyType.label}
         </span>
+
+        {/* Date provenance */}
+        {(story.fec_cycle || story.computed_at) && (
+          <span className="text-[0.6rem] text-zinc-600 ml-auto flex items-center gap-1">
+            <Database className="w-3 h-3" />
+            {story.fec_cycle ? `${story.fec_cycle} cycle` : relativeTime(story.computed_at)}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -191,6 +227,12 @@ function OfficialCard({ official }: { official: V2TopOfficial }) {
         </span>
         <span className="text-xs text-zinc-500">{official.dot_count} dots</span>
       </div>
+      {official.fec_cycle && (
+        <div className="text-[0.6rem] text-zinc-600 mt-2 flex items-center gap-1">
+          <Database className="w-3 h-3" />
+          FEC {official.fec_cycle} cycle
+        </div>
+      )}
     </Link>
   );
 }
@@ -308,6 +350,22 @@ export default function HomePage() {
             </div>
           </section>
         )}
+
+        {/* ----------------------------------------------------------------- */}
+        {/* DATA FRESHNESS                                                    */}
+        {/* ----------------------------------------------------------------- */}
+        <div className="flex flex-wrap items-center gap-4 mb-8 text-xs text-zinc-500">
+          <div className="flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5" />
+            <span>Data as of: {data.data_as_of ? relativeTime(data.data_as_of) : fmtDate(new Date().toISOString())}</span>
+          </div>
+          {data.fec_cycle && (
+            <div className="flex items-center gap-1.5">
+              <Database className="w-3.5 h-3.5" />
+              <span>FEC {data.fec_cycle} cycle</span>
+            </div>
+          )}
+        </div>
 
         {/* ----------------------------------------------------------------- */}
         {/* STATS BAR                                                         */}
