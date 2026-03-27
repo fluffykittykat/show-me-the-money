@@ -250,6 +250,20 @@ export interface V2Committee {
   role: string;
 }
 
+export interface V2StockTrade {
+  ticker: string;
+  transaction_type: string;
+  amount_range: string;
+  date: string | null;
+  asset_name: string;
+}
+
+export interface V2FECCycle {
+  cycle: number;
+  receipts: number;
+  disbursements: number;
+}
+
 export interface V2OfficialResponse {
   entity: Entity;
   overall_verdict: string;
@@ -265,6 +279,9 @@ export interface V2OfficialResponse {
     has_donors: boolean;
     has_committees: boolean;
   };
+  stock_trades: V2StockTrade[];
+  fec_cycles: V2FECCycle[];
+  total_all_cycles: number;
 }
 
 export interface V2Sponsor {

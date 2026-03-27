@@ -59,7 +59,7 @@ export default function OfficialPage() {
     </div>
   );
 
-  const { entity, overall_verdict, total_dots, money_trails, top_donors, middlemen, committees, briefing: dataBriefing, freshness } = data;
+  const { entity, overall_verdict, total_dots, money_trails, top_donors, middlemen, committees, briefing: dataBriefing, freshness, stock_trades, fec_cycles, total_all_cycles } = data;
   const meta = (entity.metadata || entity.metadata_ || {}) as Record<string, unknown>;
   const party = (meta.party as string) || '';
   const state = (meta.state as string) || '';
@@ -79,12 +79,16 @@ export default function OfficialPage() {
           {committees.length > 0 && <span>{committees.map(c => c.name).join(' · ')}</span>}
         </div>
         <VerdictPill verdict={overall_verdict} dotCount={total_dots} />
-        {campaignTotal != null && campaignTotal > 0 && (
+        {fec_cycles && fec_cycles.length > 0 ? (
+          <div className="text-sm text-zinc-400 mt-2">
+            Total raised (all cycles): <span className="text-amber-400 font-semibold text-base">{formatMoney(Math.round(total_all_cycles * 100))}</span>
+          </div>
+        ) : campaignTotal != null && campaignTotal > 0 ? (
           <div className="text-sm text-zinc-400 mt-2">
             Campaign total: <span className="text-amber-400 font-semibold text-base">{formatMoney(Math.round(campaignTotal * 100))}</span>
             {fecCycle && <span className="text-zinc-500"> (best cycle: {fecCycle})</span>}
           </div>
-        )}
+        ) : null}
         <FreshnessBar freshness={freshness} />
       </div>
 
@@ -101,6 +105,36 @@ export default function OfficialPage() {
       {/* AI Briefing */}
       <AIBriefing briefing={briefing ?? dataBriefing} />
 
+      {/* Campaign Finance by Cycle */}
+      {fec_cycles && fec_cycles.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">Campaign Finance</h2>
+          <table className="w-full">
+            <thead>
+              <tr className="text-left text-xs text-zinc-500 uppercase tracking-wide">
+                <th className="pb-2 px-3">Cycle</th>
+                <th className="pb-2 px-3 text-right">Raised</th>
+                <th className="pb-2 px-3 text-right">Spent</th>
+              </tr>
+            </thead>
+            <tbody>
+              {fec_cycles.map((c, i) => (
+                <tr key={i} className="border-t border-zinc-900">
+                  <td className="py-2.5 px-3 font-mono">{c.cycle}</td>
+                  <td className="py-2.5 px-3 text-right text-amber-400 font-semibold">{formatMoney(Math.round(c.receipts * 100))}</td>
+                  <td className="py-2.5 px-3 text-right text-zinc-400">{formatMoney(Math.round(c.disbursements * 100))}</td>
+                </tr>
+              ))}
+              <tr className="border-t-2 border-zinc-700 font-bold">
+                <td className="py-2.5 px-3">Total</td>
+                <td className="py-2.5 px-3 text-right text-amber-400">{formatMoney(Math.round(total_all_cycles * 100))}</td>
+                <td className="py-2.5 px-3 text-right text-zinc-400">{formatMoney(Math.round(fec_cycles.reduce((s, c) => s + c.disbursements, 0) * 100))}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* Money Trails */}
       {money_trails.length > 0 ? (
         <div className="mb-8">
@@ -112,6 +146,37 @@ export default function OfficialPage() {
       ) : (
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-8 text-center">
           <p className="text-zinc-500">No money trails computed yet. Try refreshing the investigation.</p>
+        </div>
+      )}
+
+      {/* Stock Trades */}
+      {stock_trades && stock_trades.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">Stock Trades ({stock_trades.length})</h2>
+          <table className="w-full">
+            <thead>
+              <tr className="text-left text-xs text-zinc-500 uppercase tracking-wide">
+                <th className="pb-2 px-3">Date</th>
+                <th className="pb-2 px-3">Ticker</th>
+                <th className="pb-2 px-3">Type</th>
+                <th className="pb-2 px-3 text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stock_trades.map((t, i) => (
+                <tr key={i} className="border-t border-zinc-900">
+                  <td className="py-2.5 px-3 text-zinc-500 text-sm">{fmtDate(t.date)}</td>
+                  <td className="py-2.5 px-3 font-mono font-bold">{t.ticker}</td>
+                  <td className="py-2.5 px-3">
+                    <span className={t.transaction_type.toLowerCase().includes('purchase') ? 'text-green-400' : 'text-red-400'}>
+                      {t.transaction_type}
+                    </span>
+                  </td>
+                  <td className="py-2.5 px-3 text-right text-zinc-300">{t.amount_range}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 

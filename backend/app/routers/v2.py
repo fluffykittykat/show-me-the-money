@@ -145,6 +145,32 @@ async def v2_official(slug: str, db: AsyncSession = Depends(get_db)):
         db.add(entity)
         await db.commit()
 
+    # --- Stock trades ---
+    stock_q = (
+        select(Relationship)
+        .where(Relationship.from_entity_id == entity.id)
+        .where(Relationship.relationship_type.in_(["stock_trade", "holds_stock"]))
+        .order_by(Relationship.date_start.desc().nullslast())
+        .limit(50)
+    )
+    stock_result = await db.execute(stock_q)
+    stock_trades_raw = stock_result.scalars().all()
+
+    stock_trade_list = []
+    for st in stock_trades_raw:
+        m = st.metadata_ or {}
+        stock_trade_list.append({
+            "ticker": m.get("ticker", ""),
+            "transaction_type": m.get("transaction_type", ""),
+            "amount_range": st.amount_label or m.get("amount_range", ""),
+            "date": str(st.date_start) if st.date_start else None,
+            "asset_name": m.get("asset_name", m.get("asset_description", "")),
+        })
+
+    # --- FEC cycle breakdown ---
+    fec_cycles = meta.get("fec_all_cycles", [])
+    total_all_cycles = sum(c.get("receipts", 0) for c in fec_cycles) if fec_cycles else 0
+
     # --- Freshness ---
     has_donors = len(top_donors) > 0
     has_committees = len(committees) > 0
@@ -165,6 +191,9 @@ async def v2_official(slug: str, db: AsyncSession = Depends(get_db)):
         committees=committees,
         briefing=briefing,
         freshness=freshness,
+        stock_trades=stock_trade_list,
+        fec_cycles=fec_cycles,
+        total_all_cycles=total_all_cycles,
     )
 
 

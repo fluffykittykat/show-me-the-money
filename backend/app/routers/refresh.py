@@ -93,23 +93,35 @@ async def refresh_entity(slug: str, db: AsyncSession = Depends(get_db)):
                 except Exception as e:
                     actions.append(f"committee lookup failed: {e}")
 
-            # 2. Fetch best cycle totals
+            # 2. Fetch ALL cycle totals
             best_receipts = 0
             best_cycle = None
+            all_cycles = []
             for cycle in [2026, 2024, 2022, 2020, 2018]:
                 await asyncio.sleep(DELAY)
                 try:
                     totals = await fec_client.fetch_candidate_totals(candidate_id, cycle=cycle)
-                    if totals and (totals.get("receipts", 0) or 0) > best_receipts:
-                        best_receipts = totals["receipts"]
-                        best_cycle = cycle
-                        meta["total_receipts"] = best_receipts
-                        meta["total_disbursements"] = totals.get("disbursements", 0)
-                        meta["individual_contributions"] = totals.get("individual_contributions", 0)
-                        meta["best_fec_cycle"] = best_cycle
-                        meta["campaign_total"] = best_receipts
+                    if totals and (totals.get("receipts", 0) or 0) > 0:
+                        receipts = totals.get("receipts", 0) or 0
+                        disbursements = totals.get("disbursements", 0) or 0
+                        all_cycles.append({
+                            "cycle": cycle,
+                            "receipts": receipts,
+                            "disbursements": disbursements,
+                        })
+                        if receipts > best_receipts:
+                            best_receipts = receipts
+                            best_cycle = cycle
+                            meta["total_receipts"] = best_receipts
+                            meta["total_disbursements"] = disbursements
+                            meta["individual_contributions"] = totals.get("individual_contributions", 0)
+                            meta["best_fec_cycle"] = best_cycle
+                            meta["campaign_total"] = best_receipts
                 except Exception:
                     continue
+            if all_cycles:
+                meta["fec_all_cycles"] = all_cycles
+                actions.append(f"fetched {len(all_cycles)} FEC cycles")
             if best_cycle:
                 actions.append(f"totals: ${best_receipts:,.0f} (cycle {best_cycle})")
 

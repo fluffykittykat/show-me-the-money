@@ -570,6 +570,9 @@ class V2OfficialResponse(BaseModel):
     committees: list[dict]
     briefing: str | None
     freshness: dict
+    stock_trades: list[dict] = []
+    fec_cycles: list[dict] = []
+    total_all_cycles: int = 0
 
 
 class V2BillResponse(BaseModel):
