@@ -424,7 +424,33 @@ async def get_pac_donors(slug: str, cycle: int | None = None, db: AsyncSession =
             detail=f"FEC API error fetching donors: {str(e)}",
         )
 
-    # 5. Create donor entities + relationships in DB (cache)
+    # 5. If cycle-specific request, return results WITHOUT caching to DB
+    if cycle:
+        donors_list = []
+        for donor_record in fec_donors:
+            donor_name = _ascii_safe(donor_record.get("contributor_name", "UNKNOWN DONOR"))
+            amount = donor_record.get("contribution_receipt_amount")
+            amount_int = int(amount * 100) if amount else 0
+            contribution_date_str = donor_record.get("contribution_receipt_date")
+            employer = _ascii_safe(donor_record.get("contributor_employer", "") or "")
+            donors_list.append({
+                "name": donor_name,
+                "slug": _slugify(donor_name),
+                "amount": amount_int,
+                "date": contribution_date_str[:10] if contribution_date_str else None,
+                "employer": employer,
+            })
+        return {
+            "entity_slug": entity.slug,
+            "entity_name": entity.name,
+            "fec_committee_id": fec_committee_id,
+            "donors": donors_list,
+            "total_donors": len(donors_list),
+            "source": "fec_live",
+            "cycle": cycle,
+        }
+
+    # 6. Create donor entities + relationships in DB (cache — only for non-cycle requests)
     donors_list = []
     for donor_record in fec_donors:
         donor_name = _ascii_safe(
