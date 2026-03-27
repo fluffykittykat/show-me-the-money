@@ -152,12 +152,17 @@ function StoryFeedCard({ story }: { story: V2StoryCard }) {
   const v = getVerdict(story.verdict);
   const storyType = STORY_TYPE_LABELS[story.story_type] ?? { label: story.story_type.toUpperCase(), color: 'text-zinc-400 bg-zinc-800 border-zinc-700' };
 
-  const firstOfficial = story.officials[0];
+  const firstEntity = story.officials[0];
+  const getEntityHref = (o: { slug: string; entity_type?: string }) => {
+    const t = o.entity_type || 'person';
+    if (t === 'person') return `/officials/${o.slug}`;
+    return `/entities/${t}/${o.slug}`;
+  };
 
   return (
     <div
       className="block rounded-xl bg-zinc-900 border border-zinc-800 p-5 mb-4 hover:border-zinc-700 transition-colors cursor-pointer"
-      onClick={() => firstOfficial && router.push(`/officials/${firstOfficial.slug}`)}
+      onClick={() => firstEntity && router.push(getEntityHref(firstEntity))}
     >
       {/* Header: verdict dot + headline */}
       <div className="flex items-start gap-3 mb-3">
@@ -173,7 +178,7 @@ function StoryFeedCard({ story }: { story: V2StoryCard }) {
         {story.officials.map((o) => (
           <Link
             key={o.slug}
-            href={`/officials/${o.slug}`}
+            href={getEntityHref(o)}
             className="inline-flex items-center gap-1.5 text-sm hover:text-[#d4a017] transition-colors"
             onClick={(e) => e.stopPropagation()}
           >

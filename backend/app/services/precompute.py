@@ -141,7 +141,7 @@ async def _build_story_feed(session: AsyncSession) -> list[dict]:
                 f"{len(entry['industries'])} industries with verdict OWNED."
             ),
             "verdict": "OWNED",
-            "officials": [{"name": off.name, "slug": off.slug, "party": party}],
+            "officials": [{"name": off.name, "slug": off.slug, "party": party, "entity_type": off.entity_type}],
             "total_amount": entry["total_amount"],
             "industry": entry["industries"][0] if entry["industries"] else "",
             "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
@@ -227,7 +227,7 @@ async def _build_story_feed(session: AsyncSession) -> list[dict]:
                 f"and distributed funds to {recipient_count} officials."
             ),
             "verdict": "MIDDLEMAN",
-            "officials": [],
+            "officials": [{"name": pac_name, "slug": pac_slug, "party": "", "entity_type": "pac"}],
             "total_amount": inflow_val,
             "industry": "",
             "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
@@ -259,7 +259,7 @@ async def _build_story_feed(session: AsyncSession) -> list[dict]:
                 + "."
             ),
             "verdict": "REVOLVING_DOOR",
-            "officials": [{"name": to_ent.name, "slug": to_ent.slug, "party": ""}],
+            "officials": [{"name": to_ent.name, "slug": to_ent.slug, "party": (to_ent.metadata_ or {}).get("party", ""), "entity_type": to_ent.entity_type}],
             "total_amount": _to_int(rel.amount_usd),
             "industry": "",
             "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
