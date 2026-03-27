@@ -187,7 +187,13 @@ export default function BillPage() {
           {introducedDate && <span className="text-xs text-zinc-600">Introduced {introducedDate}</span>}
         </div>
         <h1 className="text-2xl font-bold mb-2">{entity.name}</h1>
-        {summary && <p className="text-zinc-400 text-sm leading-relaxed">{summary}</p>}
+        {summary ? (
+          <p className="text-zinc-400 text-sm leading-relaxed">{summary}</p>
+        ) : (
+          <p className="text-zinc-500 text-sm italic leading-relaxed">
+            {meta.status ? `Latest action: ${meta.status}` : 'No summary available for this bill yet. Click Refresh to fetch the latest data from Congress.gov.'}
+          </p>
+        )}
         {congressUrl && (
           <a href={congressUrl as string} target="_blank" rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-amber-400 mt-2 transition-colors">
