@@ -3,6 +3,7 @@ import './globals.css';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import IngestionBanner from '@/components/IngestionBanner';
+import GlobalChat from '@/components/GlobalChat';
 
 export const metadata: Metadata = {
   title: 'Follow the Money — Political Intelligence Platform',
@@ -22,6 +23,7 @@ export default function RootLayout({
         <IngestionBanner />
         <main className="flex-1">{children}</main>
         <Footer />
+        <GlobalChat />
       </body>
     </html>
   );
