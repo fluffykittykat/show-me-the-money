@@ -28,11 +28,25 @@ export default function GlobalChat() {
     entityName = slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   }
 
+  const triggerPageRefresh = () => {
+    // Find and click the PageControls refresh button on the current page
+    const refreshBtn = document.querySelector('[data-refresh-investigation]') as HTMLButtonElement;
+    if (refreshBtn) {
+      refreshBtn.click();
+    } else {
+      // Fallback: call the refresh API directly if no button found
+      fetch(`/api/refresh/${slug}`, { method: 'POST' })
+        .then(() => router.refresh())
+        .catch(() => {});
+    }
+  };
+
   return (
     <InvestigateChat
       slug={slug || 'homepage'}
       entityName={entityName}
       onDataRefresh={() => router.refresh()}
+      onTriggerRefresh={triggerPageRefresh}
     />
   );
 }

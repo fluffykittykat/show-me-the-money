@@ -181,6 +181,7 @@ export default function PageControls({ slug, entityName, onBriefingUpdate, onDat
           {briefingLoading ? 'Generating...' : 'Regenerate Briefing'}
         </button>
         <button
+          data-refresh-investigation
           onClick={handleRefresh}
           disabled={refreshing || briefingLoading}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-zinc-700 text-zinc-300 text-sm font-medium hover:border-amber-500/50 hover:text-amber-400 disabled:opacity-50 transition-all duration-200"

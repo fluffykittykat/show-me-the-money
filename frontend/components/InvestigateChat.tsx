@@ -6,6 +6,7 @@ interface InvestigateChatProps {
   slug: string;
   entityName: string;
   onDataRefresh?: () => void;
+  onTriggerRefresh?: () => void; // triggers the PageControls refresh UI
 }
 
 /** Markdown → HTML for chat messages */
@@ -345,6 +346,17 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh }: Inv
   const handleSend = async () => {
     const trimmed = input.trim();
     if (!trimmed || loading) return;
+
+    // Intercept "run investigation" commands — trigger the page UI instead
+    const refreshKeywords = ['run investigation', 'full investigation', 'refresh', 'update data', 'fetch latest', 'get fresh data', 'rerun', 're-run'];
+    const isRefreshRequest = refreshKeywords.some(kw => trimmed.toLowerCase().includes(kw));
+    if (isRefreshRequest && onTriggerRefresh) {
+      const userMsg: Message = { role: 'user', content: trimmed };
+      setMessages([...messages, userMsg, { role: 'assistant', content: "I've kicked off a **full investigation** — you should see the progress panel at the top of the page. I'll wait here while it runs. Once it's done, the page will update with fresh data and you can ask me about the results." }]);
+      setInput('');
+      onTriggerRefresh();
+      return;
+    }
 
     const userMsg: Message = { role: 'user', content: trimmed };
     const updatedMessages = [...messages, userMsg];
