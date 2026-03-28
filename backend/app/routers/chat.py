@@ -314,11 +314,87 @@ Here's what you know:
 
 @router.post("", response_model=ChatResponse)
 async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
-    # 1. Load entity
-    result = await db.execute(select(Entity).where(Entity.slug == req.slug))
-    entity = result.scalar_one_or_none()
+    # 1. Load entity — allow homepage/general questions without an entity
+    entity = None
+    if req.slug and req.slug not in ("homepage", "general", ""):
+        result = await db.execute(select(Entity).where(Entity.slug == req.slug))
+        entity = result.scalar_one_or_none()
+
+    # If no entity, build a general context with top-level stats
     if not entity:
-        raise HTTPException(status_code=404, detail=f"Entity '{req.slug}' not found")
+        # Answer general questions by querying the DB
+        from sqlalchemy import text
+        stats_result = await db.execute(text("""
+            SELECT
+                (SELECT COUNT(*) FROM entities WHERE entity_type = 'person' AND metadata->>'bioguide_id' IS NOT NULL) as officials,
+                (SELECT COUNT(*) FROM relationships WHERE relationship_type = 'donated_to') as donations,
+                (SELECT COUNT(*) FROM relationships WHERE relationship_type = 'lobbied_on') as lobbying_connections,
+                (SELECT COUNT(*) FROM entities WHERE entity_type = 'bill') as bills
+        """))
+        stats = stats_result.one()
+
+        # Get top officials by influence signals
+        top_q = await db.execute(text("""
+            SELECT e.name, e.slug, e.metadata->>'party' as party, e.metadata->>'state' as state,
+                   e.metadata->>'v2_verdict' as verdict, e.metadata->>'v2_dot_count' as dots,
+                   COUNT(*) FILTER (WHERE s.found AND s.rarity_label IN ('Rare', 'Above Baseline', 'Unusual')) as strong_signals
+            FROM entities e
+            LEFT JOIN official_influence_signals s ON s.official_id = e.id
+            WHERE e.entity_type = 'person' AND e.metadata->>'bioguide_id' IS NOT NULL
+            GROUP BY e.id, e.name, e.slug, e.metadata
+            ORDER BY strong_signals DESC, (e.metadata->>'v2_dot_count')::int DESC NULLS LAST
+            LIMIT 15
+        """))
+        top_officials = top_q.all()
+
+        general_context = f"""## Platform Overview
+Officials tracked: {stats[0]}
+Donation records: {stats[1]}
+Lobbying-to-bill connections: {stats[2]}
+Bills tracked: {stats[3]}
+
+## Most Flagged Officials (by influence signals)
+"""
+        for row in top_officials:
+            name, slug, party, state, verdict, dots, strong = row
+            general_context += f"- **{name}** ({party}-{state}) — Verdict: {verdict}, {dots} dots, {strong} strong signal(s) — /officials/{slug}\n"
+
+        # Create a fake entity-like context for the system prompt
+        context = general_context
+        entity_name = "Follow the Money Platform"
+
+        # Skip entity-specific actions, go straight to AI call
+        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+            entity_name=entity_name,
+            context=context,
+        )
+
+        messages = []
+        for msg in req.history:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": req.message})
+
+        if not CHAT_API_KEY:
+            raise HTTPException(status_code=500, detail="AI service not configured")
+
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=CHAT_API_KEY)
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=2000,
+                system=system_prompt,
+                messages=messages,
+            )
+            reply = response.content[0].text if response.content else "No response."
+        except Exception as e:
+            logger.error("Chat API error: %s", e, exc_info=True)
+            raise HTTPException(status_code=500, detail=f"AI error: {e}")
+
+        return ChatResponse(reply=reply, sources=[], action_taken=None)
 
     # 2. Search for ANY entities the user mentions — not just current page
     action_taken = None
