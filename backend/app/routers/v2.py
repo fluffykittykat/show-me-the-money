@@ -207,7 +207,8 @@ async def v2_official(slug: str, db: AsyncSession = Depends(get_db)):
         for s in signals
     ]
 
-    percentile_rank = meta.get("official_influence_percentile")
+    pct = meta.get("official_influence_percentile") or meta.get("influence_percentile")
+    percentile_rank = int(float(pct)) if pct else None
     chamber = meta.get("chamber", "")
     peer_group = "senators" if "Senate" in str(chamber) else "representatives"
     peer_count = 100 if peer_group == "senators" else 435
