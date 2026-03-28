@@ -162,9 +162,10 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh }: Inv
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
-  const [showSignIn, setShowSignIn] = useState(false);
-  const [emailInput, setEmailInput] = useState('');
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string | null>(null);
+  const [userPicture, setUserPicture] = useState<string | null>(null);
+  const [googleClientId, setGoogleClientId] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const userId = userEmail || getUserId();
@@ -172,6 +173,25 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh }: Inv
   // Check for saved email on mount
   useEffect(() => {
     setUserEmail(getUserEmail());
+    if (typeof window !== 'undefined') {
+      setUserName(localStorage.getItem('ftm_user_name'));
+      setUserPicture(localStorage.getItem('ftm_user_picture'));
+    }
+  }, []);
+
+  // Load Google Sign-In script
+  useEffect(() => {
+    if (document.getElementById('google-signin-script')) return;
+    const script = document.createElement('script');
+    script.id = 'google-signin-script';
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    document.head.appendChild(script);
+  }, []);
+
+  // Fetch Google client ID
+  useEffect(() => {
+    fetch('/api/chat/auth/config').then(r => r.json()).then(d => setGoogleClientId(d.google_client_id)).catch(() => {});
   }, []);
 
   // Load saved sessions from server on first mount
@@ -187,23 +207,47 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh }: Inv
       .catch(() => setSessionsLoaded(true));
   }, [userId]);
 
-  const handleSignIn = () => {
-    const email = emailInput.trim().toLowerCase();
-    if (!email || !email.includes('@')) return;
-    localStorage.setItem('ftm_user_email', email);
-    localStorage.setItem('ftm_user_id', email);
-    setUserEmail(email);
-    setShowSignIn(false);
-    setEmailInput('');
-    // Reload sessions for this email
-    setSessionsLoaded(false);
+  const handleGoogleSignIn = () => {
+    const google = (window as any).google;
+    if (!google || !googleClientId) return;
+
+    google.accounts.id.initialize({
+      client_id: googleClientId,
+      callback: async (response: any) => {
+        try {
+          const res = await fetch('/api/chat/auth/google', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ credential: response.credential }),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            localStorage.setItem('ftm_user_id', data.email);
+            localStorage.setItem('ftm_user_email', data.email);
+            localStorage.setItem('ftm_user_name', data.name);
+            localStorage.setItem('ftm_user_picture', data.picture || '');
+            setUserEmail(data.email);
+            setUserName(data.name);
+            setUserPicture(data.picture || null);
+            setSessionsLoaded(false); // trigger reload
+          }
+        } catch (err) {
+          console.error('Google sign-in error:', err);
+        }
+      },
+    });
+    google.accounts.id.prompt();
   };
 
   const handleSignOut = () => {
     localStorage.removeItem('ftm_user_email');
+    localStorage.removeItem('ftm_user_name');
+    localStorage.removeItem('ftm_user_picture');
     const anonId = `anon-${Math.random().toString(36).slice(2, 10)}`;
     localStorage.setItem('ftm_user_id', anonId);
     setUserEmail(null);
+    setUserName(null);
+    setUserPicture(null);
     setSessions([]);
     setSessionsLoaded(false);
   };
@@ -533,29 +577,28 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh }: Inv
             <div className="border-t border-zinc-800 pt-2 mt-1">
               {userEmail ? (
                 <div className="flex items-center justify-between px-3 py-1.5">
-                  <span className="text-[10px] text-zinc-500">Signed in as <span className="text-zinc-400">{userEmail}</span></span>
-                  <button onClick={handleSignOut} className="text-[10px] text-zinc-600 hover:text-red-400">Sign out</button>
-                </div>
-              ) : showSignIn ? (
-                <div className="px-3 py-2">
-                  <p className="text-[10px] text-zinc-500 mb-1.5">Enter email to sync sessions across devices</p>
-                  <div className="flex gap-1.5">
-                    <input
-                      value={emailInput}
-                      onChange={e => setEmailInput(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && handleSignIn()}
-                      placeholder="email@example.com"
-                      className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-amber-500/50"
-                    />
-                    <button onClick={handleSignIn} className="bg-amber-500 text-black text-xs font-semibold px-2 py-1 rounded">Save</button>
+                  <div className="flex items-center gap-2 min-w-0">
+                    {userPicture && (
+                      <img src={userPicture} alt="" className="w-5 h-5 rounded-full flex-shrink-0" referrerPolicy="no-referrer" />
+                    )}
+                    <span className="text-[10px] text-zinc-500 truncate">
+                      {userName ? <span className="text-zinc-400">{userName}</span> : <span className="text-zinc-400">{userEmail}</span>}
+                    </span>
                   </div>
+                  <button onClick={handleSignOut} className="text-[10px] text-zinc-600 hover:text-red-400 flex-shrink-0 ml-2">Sign out</button>
                 </div>
               ) : (
                 <button
-                  onClick={() => setShowSignIn(true)}
-                  className="w-full text-left text-[10px] text-zinc-600 hover:text-amber-400 px-3 py-1.5 transition-colors"
+                  onClick={handleGoogleSignIn}
+                  className="w-full flex items-center justify-center gap-2 text-xs text-zinc-300 hover:text-white px-3 py-2 rounded-lg hover:bg-zinc-800 transition-colors"
                 >
-                  Sign in to save across devices →
+                  <svg width="14" height="14" viewBox="0 0 24 24">
+                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
+                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A11.96 11.96 0 0 0 1 12c0 1.94.46 3.77 1.18 5.43l3.66-2.84z" fill="#FBBC05"/>
+                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                  </svg>
+                  Sign in with Google
                 </button>
               )}
             </div>

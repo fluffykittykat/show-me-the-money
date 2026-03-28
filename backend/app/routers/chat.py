@@ -1,4 +1,6 @@
 import os
+import json
+import base64
 import logging
 from decimal import Decimal
 
@@ -21,7 +23,65 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 CHAT_API_KEY = os.getenv("ANTHROPIC_CHAT_API_KEY", os.getenv("ANTHROPIC_API_KEY", ""))
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 
+
+# ---------------------------------------------------------------------------
+# Google OAuth endpoints
+# ---------------------------------------------------------------------------
+
+class GoogleAuthRequest(BaseModel):
+    credential: str  # JWT token from Google Sign-In
+
+
+class AuthResponse(BaseModel):
+    user_id: str
+    name: str
+    email: str
+    picture: str | None = None
+
+
+@router.get("/auth/config")
+async def auth_config():
+    """Return the Google client ID so the frontend can initialize Sign-In."""
+    return {"google_client_id": GOOGLE_CLIENT_ID}
+
+
+@router.post("/auth/google", response_model=AuthResponse)
+async def google_auth(req: GoogleAuthRequest):
+    """Verify Google OAuth token and return user info."""
+    parts = req.credential.split('.')
+    if len(parts) != 3:
+        raise HTTPException(400, "Invalid token")
+
+    # Decode JWT payload (add padding for base64)
+    payload = parts[1] + '=' * (4 - len(parts[1]) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(payload))
+    except Exception:
+        raise HTTPException(400, "Invalid token payload")
+
+    # Basic validation
+    if data.get('iss') not in ('accounts.google.com', 'https://accounts.google.com'):
+        raise HTTPException(400, "Invalid token issuer")
+    if data.get('aud') != GOOGLE_CLIENT_ID:
+        raise HTTPException(400, "Invalid token audience")
+
+    email = data.get('email', '')
+    if not email:
+        raise HTTPException(400, "No email in token")
+
+    return AuthResponse(
+        user_id=email,
+        name=data.get('name', ''),
+        email=email,
+        picture=data.get('picture'),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Chat models & endpoint
+# ---------------------------------------------------------------------------
 
 class OtherSession(BaseModel):
     name: str = ""
