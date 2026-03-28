@@ -673,3 +673,183 @@ async def compute_bill_signals(
     ]
 
     return signals
+
+
+# ── Batch pre-compute ────────────────────────────────────────────────────
+
+
+async def run_precompute_bill_signals() -> str:
+    """Pre-compute influence signals for all bills with sponsors.
+
+    1. Loads baselines from app_config
+    2. Queries all bills with at least 1 sponsor (119th congress first)
+    3. For each bill: compute signals, delete old rows, insert new
+    4. Compute percentile ranks within each policy area
+    5. Tracks via IngestionJob
+    """
+    import json
+    from datetime import datetime, timezone
+    from sqlalchemy import delete
+
+    from app.database import async_session
+    from app.models import BillInfluenceSignal, IngestionJob, AppConfig
+
+    log.info("Starting pre-compute of bill signals...")
+
+    async with async_session() as session:
+        # Create ingestion job
+        job = IngestionJob(
+            job_type="precompute_bill_signals",
+            status="running",
+            started_at=datetime.now(timezone.utc),
+        )
+        session.add(job)
+        await session.commit()
+
+        try:
+            # Step 1: Load baselines
+            config_q = select(AppConfig).where(AppConfig.key == "bill_baselines")
+            config_result = await session.execute(config_q)
+            config_row = config_result.scalar_one_or_none()
+            baselines = {}
+            if config_row and config_row.value:
+                baselines = json.loads(config_row.value)
+                log.info("Loaded baselines for %d policy areas", len(baselines))
+            else:
+                log.warning("No bill_baselines found in app_config — using defaults")
+
+            # Step 2: Get all bills with at least 1 sponsor, 119th congress first
+            bills_q = (
+                select(Entity.id, Entity.metadata_)
+                .where(Entity.entity_type == "bill")
+                .where(
+                    Entity.id.in_(
+                        select(Relationship.to_entity_id)
+                        .where(Relationship.relationship_type.in_(["sponsored", "cosponsored"]))
+                        .distinct()
+                    )
+                )
+                .order_by(
+                    # Prioritize 119th congress
+                    func.case(
+                        (Entity.metadata_["congress"].astext == "119", 0),
+                        else_=1,
+                    ),
+                    Entity.created_at.desc(),
+                )
+            )
+            bills_result = await session.execute(bills_q)
+            bills = list(bills_result.all())
+
+            log.info("Found %d bills with sponsors to process", len(bills))
+            job.total = len(bills)
+            await session.commit()
+
+            # Step 3: Process each bill
+            errors = []
+            policy_area_signals: dict[str, list[tuple[uuid.UUID, int]]] = defaultdict(list)
+
+            for idx, (bill_id, bill_meta) in enumerate(bills):
+                try:
+                    # Compute signals
+                    signals = await compute_bill_signals(session, bill_id, baselines)
+                    if not signals:
+                        continue
+
+                    # Delete old signal rows for this bill
+                    del_q = delete(BillInfluenceSignal).where(
+                        BillInfluenceSignal.bill_id == bill_id
+                    )
+                    await session.execute(del_q)
+
+                    # Insert new signal rows
+                    found_count = 0
+                    for sig in signals:
+                        row = BillInfluenceSignal(
+                            bill_id=bill_id,
+                            signal_type=sig["signal_type"],
+                            found=sig.get("found", False),
+                            confidence=0.0,  # numeric default
+                            rarity_pct=sig.get("rarity_pct"),
+                            rarity_label=sig.get("rarity_label"),
+                            p_value=sig.get("p_value"),
+                            baseline_rate=sig.get("baseline_rate"),
+                            observed_rate=sig.get("observed_rate"),
+                            description=sig.get("description", ""),
+                            evidence=sig.get("evidence", {}),
+                        )
+                        # Map confidence string to numeric
+                        conf = sig.get("confidence")
+                        if conf == "high":
+                            row.confidence = 0.9
+                        elif conf == "medium":
+                            row.confidence = 0.6
+                        elif conf == "context":
+                            row.confidence = 0.3
+                        session.add(row)
+                        if sig.get("found"):
+                            found_count += 1
+
+                    # Track for percentile calculation
+                    meta = bill_meta or {}
+                    pa = (meta.get("policy_area") or "").lower().strip()
+                    if pa:
+                        policy_area_signals[pa].append((bill_id, found_count))
+
+                    await session.commit()
+
+                except Exception as exc:
+                    log.error("Error computing signals for bill %s: %s", bill_id, exc)
+                    errors.append({"bill_id": str(bill_id), "error": str(exc)})
+                    await session.rollback()
+
+                # Log progress
+                job.progress = idx + 1
+                if (idx + 1) % 100 == 0:
+                    log.info("Progress: %d/%d bills processed", idx + 1, len(bills))
+                    await session.commit()
+
+            # Step 6: Compute percentile ranks within each policy area
+            log.info("Computing percentile ranks for %d policy areas...", len(policy_area_signals))
+            for pa, bill_found_list in policy_area_signals.items():
+                # Sort by found_count
+                sorted_bills = sorted(bill_found_list, key=lambda x: x[1])
+                n = len(sorted_bills)
+                for rank, (bill_id, found_count) in enumerate(sorted_bills):
+                    percentile = round((rank / max(n - 1, 1)) * 100, 1)
+                    # Update bill entity metadata with influence_percentile
+                    bill_entity = await session.get(Entity, bill_id)
+                    if bill_entity:
+                        meta = dict(bill_entity.metadata_ or {})
+                        meta["influence_percentile"] = percentile
+                        meta["influence_signals_found"] = found_count
+                        bill_entity.metadata_ = meta
+
+                await session.commit()
+
+            # Complete job
+            job.status = "completed"
+            job.completed_at = datetime.now(timezone.utc)
+            job.errors = errors
+            job.metadata_ = {
+                "total_bills": len(bills),
+                "total_errors": len(errors),
+                "policy_areas": len(policy_area_signals),
+            }
+            await session.commit()
+
+            summary = (
+                f"Pre-computed signals for {len(bills)} bills, "
+                f"{len(errors)} errors, "
+                f"{len(policy_area_signals)} policy areas ranked."
+            )
+            log.info(summary)
+            return summary
+
+        except Exception as exc:
+            log.exception("Fatal error in run_precompute_bill_signals: %s", exc)
+            job.status = "failed"
+            job.errors = [{"error": str(exc)}]
+            job.completed_at = datetime.now(timezone.utc)
+            await session.commit()
+            raise

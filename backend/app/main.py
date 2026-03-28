@@ -273,6 +273,22 @@ async def admin_ingest(slug: str):
         from app.services.ingestion.ingest_lda_bills import run_ingest_lda_bills
         _aio.create_task(run_ingest_lda_bills())
         return {"status": "started", "message": "Parsing bill numbers from LDA filings"}
+    elif slug == "compute-baselines":
+        import asyncio as _aio
+        from app.services.bill_baselines import compute_baselines
+        from app.database import async_session
+        async def _run():
+            async with async_session() as session:
+                result = await compute_baselines(session)
+                await session.commit()
+                return result
+        _aio.create_task(_run())
+        return {"status": "started", "message": "Computing bill baselines per policy area"}
+    elif slug == "precompute-bill-signals":
+        import asyncio as _aio
+        from app.services.bill_signals import run_precompute_bill_signals
+        _aio.create_task(run_precompute_bill_signals())
+        return {"status": "started", "message": "Pre-computing influence signals for all bills"}
     else:
         return {"status": "error", "message": f"Ingestion not supported for '{slug}'"}
     return {"status": "ok", "message": f"Ingestion complete for {slug}"}
