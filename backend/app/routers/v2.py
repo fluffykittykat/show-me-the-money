@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import AppConfig, BillInfluenceSignal, Entity, MoneyTrail, Relationship
+from app.models import AppConfig, BillInfluenceSignal, Entity, MoneyTrail, OfficialInfluenceSignal, Relationship
 from app.services.ingestion.congress_client import CongressClient
 from app.schemas import (
     EntityResponse,
@@ -185,6 +185,33 @@ async def v2_official(slug: str, db: AsyncSession = Depends(get_db)):
         "has_committees": has_committees,
     }
 
+    # --- Influence signals ---
+    signals_q = select(OfficialInfluenceSignal).where(
+        OfficialInfluenceSignal.official_id == entity.id
+    )
+    signals_result = await db.execute(signals_q)
+    signals = signals_result.scalars().all()
+
+    influence_signals = [
+        V2InfluenceSignal(
+            type=s.signal_type,
+            found=s.found,
+            rarity_label=s.rarity_label,
+            rarity_pct=s.rarity_pct,
+            p_value=s.p_value,
+            baseline_rate=s.baseline_rate,
+            observed_rate=s.observed_rate,
+            description=s.description,
+            evidence=s.evidence or {},
+        )
+        for s in signals
+    ]
+
+    percentile_rank = meta.get("official_influence_percentile")
+    chamber = meta.get("chamber", "")
+    peer_group = "senators" if "Senate" in str(chamber) else "representatives"
+    peer_count = 100 if peer_group == "senators" else 435
+
     return V2OfficialResponse(
         entity=EntityResponse.model_validate(entity),
         overall_verdict=overall_verdict,
@@ -198,6 +225,10 @@ async def v2_official(slug: str, db: AsyncSession = Depends(get_db)):
         stock_trades=stock_trade_list,
         fec_cycles=fec_cycles,
         total_all_cycles=total_all_cycles,
+        influence_signals=influence_signals,
+        percentile_rank=percentile_rank,
+        peer_count=peer_count,
+        peer_group=peer_group,
     )
 
 

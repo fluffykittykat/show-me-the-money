@@ -560,6 +560,18 @@ class V2MoneyTrail(BaseModel):
     chain: dict
 
 
+class V2InfluenceSignal(BaseModel):
+    type: str
+    found: bool
+    rarity_label: str | None = None
+    rarity_pct: float | None = None
+    p_value: float | None = None
+    baseline_rate: float | None = None
+    observed_rate: float | None = None
+    description: str | None = None
+    evidence: dict = {}
+
+
 class V2OfficialResponse(BaseModel):
     entity: EntityResponse
     overall_verdict: str
@@ -573,18 +585,10 @@ class V2OfficialResponse(BaseModel):
     stock_trades: list[dict] = []
     fec_cycles: list[dict] = []
     total_all_cycles: int = 0
-
-
-class V2InfluenceSignal(BaseModel):
-    type: str
-    found: bool
-    rarity_label: str | None = None
-    rarity_pct: float | None = None
-    p_value: float | None = None
-    baseline_rate: float | None = None
-    observed_rate: float | None = None
-    description: str | None = None
-    evidence: dict = {}
+    influence_signals: list[V2InfluenceSignal] = []
+    percentile_rank: int | None = None
+    peer_count: int = 0
+    peer_group: str = ""
 
 
 class V2SponsorVerifiedConnection(BaseModel):
