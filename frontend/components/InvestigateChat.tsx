@@ -153,7 +153,7 @@ function getUserEmail(): string | null {
   return localStorage.getItem('ftm_user_email');
 }
 
-export default function InvestigateChat({ slug, entityName, onDataRefresh }: InvestigateChatProps) {
+export default function InvestigateChat({ slug, entityName, onDataRefresh, onTriggerRefresh }: InvestigateChatProps) {
   const [expanded, setExpanded] = useState(false);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>('');
