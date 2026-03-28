@@ -432,3 +432,69 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"AI service error: {str(e)}")
 
     return ChatResponse(reply=reply, sources=[], action_taken=action_taken)
+
+
+# ---------------------------------------------------------------------------
+# Session persistence endpoints
+# ---------------------------------------------------------------------------
+
+class SessionData(BaseModel):
+    id: str
+    name: str
+    slug: str
+    messages: list[dict]
+
+class SaveSessionsRequest(BaseModel):
+    sessions: list[SessionData]
+
+@router.get("/sessions")
+async def get_sessions(db: AsyncSession = Depends(get_db)):
+    """Load all saved chat sessions."""
+    from sqlalchemy import text
+    result = await db.execute(text(
+        "SELECT id, name, slug, messages, updated_at FROM chat_sessions ORDER BY updated_at DESC"
+    ))
+    rows = result.fetchall()
+    return [
+        {
+            "id": row[0],
+            "name": row[1],
+            "slug": row[2],
+            "messages": row[3],
+            "updated_at": row[4].isoformat() if row[4] else None,
+        }
+        for row in rows
+    ]
+
+@router.post("/sessions")
+async def save_sessions(req: SaveSessionsRequest, db: AsyncSession = Depends(get_db)):
+    """Save all chat sessions (upsert)."""
+    from sqlalchemy import text
+    for s in req.sessions:
+        if not s.messages:
+            # Don't save empty sessions
+            continue
+        await db.execute(text("""
+            INSERT INTO chat_sessions (id, name, slug, messages, updated_at)
+            VALUES (:id, :name, :slug, :messages::jsonb, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+                name = :name,
+                slug = :slug,
+                messages = :messages::jsonb,
+                updated_at = NOW()
+        """), {
+            "id": s.id,
+            "name": s.name,
+            "slug": s.slug,
+            "messages": __import__('json').dumps(s.messages),
+        })
+    await db.commit()
+    return {"saved": len([s for s in req.sessions if s.messages])}
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
+    """Delete a saved chat session."""
+    from sqlalchemy import text
+    await db.execute(text("DELETE FROM chat_sessions WHERE id = :id"), {"id": session_id})
+    await db.commit()
+    return {"deleted": session_id}

@@ -146,26 +146,55 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh }: Inv
   const [editName, setEditName] = useState('');
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // When page changes, auto-create a session for this page if one doesn't exist
-  // and switch to it
+  // Load saved sessions from server on first mount
   useEffect(() => {
-    if (!slug) return;
+    fetch('/api/chat/sessions')
+      .then(r => r.ok ? r.json() : [])
+      .then((saved: ChatSession[]) => {
+        if (saved.length > 0) {
+          setSessions(saved);
+        }
+        setSessionsLoaded(true);
+      })
+      .catch(() => setSessionsLoaded(true));
+  }, []);
+
+  // When page changes, auto-create a session for this page if one doesn't exist
+  useEffect(() => {
+    if (!slug || !sessionsLoaded) return;
     setSessions(prev => {
       const existing = prev.find(s => s.slug === slug);
       if (existing) {
-        // Session for this page exists — switch to it
         setActiveSessionId(existing.id);
         return prev;
       }
-      // Create new session for this page
       const id = `page-${slug}`;
       const newSession: ChatSession = { id, name: entityName, slug, messages: [] };
       setActiveSessionId(id);
       return [...prev, newSession];
     });
-  }, [slug, entityName]);
+  }, [slug, entityName, sessionsLoaded]);
+
+  // Auto-save sessions to server after any message change (debounced)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    if (!sessionsLoaded) return;
+    // Only save sessions that have messages
+    const toSave = sessions.filter(s => s.messages.length > 0);
+    if (toSave.length === 0) return;
+
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      fetch('/api/chat/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessions: toSave }),
+      }).catch(() => {}); // silent fail — saving is best-effort
+    }, 2000); // 2 second debounce
+  }, [sessions, sessionsLoaded]);
 
   const activeSession = sessions.find(s => s.id === activeSessionId) || sessions[0];
   const messages = activeSession?.messages || [];
@@ -185,10 +214,11 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh }: Inv
   };
 
   const deleteSession = (id: string) => {
+    // Delete from server
+    fetch(`/api/chat/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
     setSessions(prev => {
       const filtered = prev.filter(s => s.id !== id);
       if (filtered.length === 0) {
-        // Always keep at least one session
         return [{ id: `page-${slug}`, name: entityName, slug, messages: [] }];
       }
       return filtered;
