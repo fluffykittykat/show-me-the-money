@@ -270,7 +270,7 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh, onTri
   }, [slug, entityName, sessionsLoaded]);
 
   // Auto-save sessions to server after any message change (debounced)
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => {
     if (!sessionsLoaded) return;
     // Only save sessions that have messages
