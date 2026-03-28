@@ -31,7 +31,7 @@ LDA_BASE_URL = "https://lda.senate.gov/api/v1/filings/"
 FILING_YEARS = [2024, 2025]
 PER_PAGE = 50
 MAX_PAGES_PER_YEAR = 5000  # ~250K filings per year at 50/page
-REQUEST_DELAY = 0.5  # seconds between paginated requests — LDA API is generous
+REQUEST_DELAY = 1.0  # seconds between paginated requests
 TIMEOUT = 30.0
 
 # Maps filing year to the congress numbers to try (most recent first)
@@ -128,8 +128,8 @@ def extract_bill_refs(description: str, filing_year: int) -> list[dict]:
 
 
 async def fetch_page(client: httpx.AsyncClient, url: str, params: dict | None = None) -> dict:
-    """Fetch a single page from the LDA API with retry."""
-    for attempt in range(3):
+    """Fetch a single page from the LDA API with aggressive retry on rate limits."""
+    for attempt in range(6):
         try:
             resp = await client.get(
                 url,
@@ -137,15 +137,23 @@ async def fetch_page(client: httpx.AsyncClient, url: str, params: dict | None = 
                 headers={"Accept": "application/json"},
                 timeout=TIMEOUT,
             )
+            if resp.status_code == 429:
+                wait = min(30, 5 * (attempt + 1))
+                logger.warning("LDA rate limited (429), waiting %ds (attempt %d)", wait, attempt + 1)
+                await asyncio.sleep(wait)
+                continue
             resp.raise_for_status()
             return resp.json()
-        except (httpx.TimeoutException, httpx.HTTPStatusError) as exc:
-            logger.warning("LDA API error (attempt %d): %s — %s", attempt + 1, type(exc).__name__, exc)
-            if attempt < 2:
-                await asyncio.sleep(2 * (attempt + 1))
+        except httpx.TimeoutException:
+            logger.warning("LDA timeout (attempt %d), retrying in %ds", attempt + 1, 3 * (attempt + 1))
+            await asyncio.sleep(3 * (attempt + 1))
+        except httpx.HTTPStatusError as exc:
+            logger.warning("LDA HTTP error %s (attempt %d)", exc.response.status_code, attempt + 1)
+            await asyncio.sleep(3 * (attempt + 1))
         except Exception as exc:
-            logger.warning("LDA API unexpected error: %s — %s", type(exc).__name__, exc)
-            return {}
+            logger.warning("LDA unexpected error: %s", exc)
+            await asyncio.sleep(5)
+    logger.error("LDA API failed after 6 attempts for %s", url[:100])
     return {}
 
 
