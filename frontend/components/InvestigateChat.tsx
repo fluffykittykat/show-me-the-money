@@ -247,37 +247,64 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh }: Inv
         historySummary = `[Earlier in this conversation, the user asked about: ${topics}]`;
       }
 
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          slug: activeSession?.slug || slug,
-          message: historySummary ? `${historySummary}\n\n${trimmed}` : trimmed,
-          history: historyToSend,
-          session_id: activeSessionId,
-          other_sessions: sessions
-            .filter(s => s.id !== activeSessionId && s.messages.length > 0)
-            .map(s => ({ name: s.name, slug: s.slug, message_count: s.messages.length, last_message: s.messages[s.messages.length - 1]?.content?.slice(0, 200) })),
-        }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setMessages([...updatedMessages, { role: 'assistant', content: data.reply }]);
-        // If the bot triggered a refresh, reload the page data
-        if (data.action_taken === 'refreshed' || data.action_taken === 'regenerated_briefing') {
-          onDataRefresh?.();
+      const payload = {
+        slug: activeSession?.slug || slug,
+        message: historySummary ? `${historySummary}\n\n${trimmed}` : trimmed,
+        history: historyToSend,
+        session_id: activeSessionId,
+        other_sessions: sessions
+          .filter(s => s.id !== activeSessionId && s.messages.length > 0)
+          .map(s => ({ name: s.name, slug: s.slug, message_count: s.messages.length, last_message: s.messages[s.messages.length - 1]?.content?.slice(0, 200) })),
+      };
+
+      // Retry logic — up to 3 attempts with increasing timeout
+      let lastError = '';
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const controller = new AbortController();
+          const timeoutMs = attempt === 0 ? 180000 : 240000; // 3 min first try, 4 min retry
+          const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+          if (attempt > 0) {
+            // Show retry message
+            setMessages([...updatedMessages, { role: 'assistant', content: `⏳ Taking longer than expected (attempt ${attempt + 1}/3)... Running full investigation, this can take a few minutes.` }]);
+          }
+
+          const res = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+
+          const data = await res.json();
+          if (res.ok) {
+            setMessages([...updatedMessages, { role: 'assistant', content: data.reply }]);
+            if (data.action_taken === 'refreshed' || data.action_taken === 'regenerated_briefing') {
+              onDataRefresh?.();
+            }
+            lastError = '';
+            break;
+          } else {
+            lastError = data.detail || 'Something went wrong.';
+            if (attempt === 2) {
+              setMessages([...updatedMessages, { role: 'assistant', content: `I ran into an issue: ${lastError}\n\nTry asking me again, or click the **Refresh Investigation** button at the top of the page instead.` }]);
+            }
+          }
+        } catch (err) {
+          const isTimeout = err instanceof DOMException && err.name === 'AbortError';
+          lastError = isTimeout ? 'Request timed out' : 'Network error';
+          if (attempt === 2) {
+            setMessages([...updatedMessages, { role: 'assistant', content: isTimeout
+              ? `The investigation is taking longer than expected. This usually means the backend is fetching a lot of data from FEC.\n\nTry clicking the **Refresh Investigation** button at the top of the page first, then ask me again once it completes.`
+              : `I'm having trouble connecting. Check that the site is running and try again.`
+            }]);
+          }
         }
-      } else {
-        setMessages([
-          ...updatedMessages,
-          { role: 'assistant', content: data.detail || 'Something went wrong. Try again.' },
-        ]);
       }
-    } catch {
-      setMessages([
-        ...updatedMessages,
-        { role: 'assistant', content: 'Network error. Please try again.' },
-      ]);
+    } catch (outerErr) {
+      setMessages([...updatedMessages, { role: 'assistant', content: 'Something unexpected happened. Try again.' }]);
     } finally {
       setLoading(false);
     }
