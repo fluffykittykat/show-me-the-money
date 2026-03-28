@@ -5,6 +5,43 @@ import { useState, useRef, useEffect } from 'react';
 interface InvestigateChatProps {
   slug: string;
   entityName: string;
+  onDataRefresh?: () => void;
+}
+
+/** Simple markdown → HTML for chat messages */
+function renderMarkdown(text: string): string {
+  return text
+    // Headers
+    .replace(/^### (.+)$/gm, '<h4 class="text-sm font-bold text-zinc-200 mt-3 mb-1">$1</h4>')
+    .replace(/^## (.+)$/gm, '<h3 class="text-sm font-bold text-amber-400 mt-3 mb-1">$1</h3>')
+    // Bold
+    .replace(/\*\*(.+?)\*\*/g, '<strong class="text-zinc-100 font-semibold">$1</strong>')
+    // Code/bill numbers
+    .replace(/`([^`]+)`/g, '<code class="bg-zinc-700/50 text-amber-300 px-1 py-0.5 rounded text-xs font-mono">$1</code>')
+    // Blockquotes
+    .replace(/^> (.+)$/gm, '<blockquote class="border-l-2 border-amber-500/60 pl-3 my-2 text-amber-200/80 italic">$1</blockquote>')
+    // Links
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="text-blue-400 hover:text-blue-300 underline">$1</a>')
+    // Horizontal rules
+    .replace(/^---$/gm, '<hr class="border-zinc-700 my-3" />')
+    // Unordered lists
+    .replace(/^- (.+)$/gm, '<li class="ml-4 list-disc text-zinc-300">$1</li>')
+    // Ordered lists
+    .replace(/^\d+\. (.+)$/gm, '<li class="ml-4 list-decimal text-zinc-300">$1</li>')
+    // Wrap consecutive <li> in <ul>/<ol>
+    .replace(/((?:<li class="ml-4 list-disc[^"]*">[^<]*<\/li>\n?)+)/g, '<ul class="my-1 space-y-0.5">$1</ul>')
+    .replace(/((?:<li class="ml-4 list-decimal[^"]*">[^<]*<\/li>\n?)+)/g, '<ol class="my-1 space-y-0.5">$1</ol>')
+    // Tables (basic)
+    .replace(/\|(.+)\|/g, (match) => {
+      const cells = match.split('|').filter(c => c.trim()).map(c => c.trim());
+      if (cells.every(c => /^[-:]+$/.test(c))) return ''; // separator row
+      const tag = 'td';
+      return '<tr>' + cells.map(c => `<${tag} class="px-2 py-1 border border-zinc-700 text-xs">${c}</${tag}>`).join('') + '</tr>';
+    })
+    // Paragraphs (double newline)
+    .replace(/\n\n/g, '</p><p class="my-2">')
+    // Single newlines
+    .replace(/\n/g, '<br />');
 }
 
 interface Message {
@@ -53,6 +90,10 @@ export default function InvestigateChat({ slug, entityName }: InvestigateChatPro
       const data = await res.json();
       if (res.ok) {
         setMessages([...updatedMessages, { role: 'assistant', content: data.reply }]);
+        // If the bot triggered a refresh, reload the page data
+        if (data.action_taken === 'refreshed' || data.action_taken === 'regenerated_briefing') {
+          onDataRefresh?.();
+        }
       } else {
         setMessages([
           ...updatedMessages,
@@ -154,7 +195,11 @@ export default function InvestigateChat({ slug, entityName }: InvestigateChatPro
                       : 'bg-zinc-800 text-zinc-200 border-l-2 border-amber-500/60 rounded-bl-sm'
                   }`}
                 >
-                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                  {msg.role === 'assistant' ? (
+                    <div className="prose-sm prose-invert" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+                  ) : (
+                    <div className="whitespace-pre-wrap">{msg.content}</div>
+                  )}
                 </div>
               </div>
             ))}

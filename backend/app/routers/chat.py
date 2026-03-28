@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -32,6 +32,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     sources: list[str] = []
+    action_taken: str | None = None  # "refreshed" | "regenerated_briefing" | None
 
 
 def _json_safe(val):
@@ -214,15 +215,32 @@ You can do everything the UI can do and more:
 
 7. **Calculate** — Add up totals, compute percentages, compare across cycles.
 
+## Actions You Can Take
+
+When the user asks you to:
+- "Run a full investigation" / "refresh the data" / "get latest" → The system will automatically trigger a full refresh. Summarize what the fresh data shows.
+- "Regenerate the briefing" / "new briefing" → The system will regenerate the AI briefing. Summarize the new briefing.
+
+## Rich Output Format
+
+Use rich markdown in ALL your responses:
+- **Bold** for key names, dollar amounts, and important findings
+- Bullet points and numbered lists for clarity
+- `code style` for bill numbers (e.g., `S. 2963`, `HR 1107`)
+- Tables when comparing data (use markdown table syntax)
+- > Blockquotes for highlighting key findings or smoking guns
+- [Link text](url) when you know the Congress.gov or FEC URL from the data
+- Use headers (### ) to organize longer responses
+- Use --- horizontal rules to separate sections
+
 ## Rules
 
 - Be factual. Reference specific data from above — dollar amounts, names, dates.
-- When you make a connection, show the chain: "X donated $Y → Official sits on Z committee → sponsored bill W"
-- When you don't have data, say so clearly: "I don't have that data. You can click Refresh Investigation to fetch the latest, or search for [entity] on the homepage."
+- When you make a connection, show the chain: **X** donated **$Y** → Official sits on **Z committee** → sponsored `Bill W`
+- When you don't have data, say so clearly and suggest: "Try asking me to **run a full investigation** to fetch the latest data."
 - Never accuse anyone of crimes. Say "the pattern suggests" or "this is statistically unusual."
-- Be concise but thorough. Use bullet points for complex answers.
-- Use markdown formatting: **bold** for emphasis, bullet points for lists.
-- When referencing other entities, mention their name so the user can search for them.
+- Be thorough. This is an investigation — give the user everything they need.
+- When referencing other entities, mention their name so the user can search for them on the site.
 """
 
 
@@ -234,7 +252,98 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
     if not entity:
         raise HTTPException(status_code=404, detail=f"Entity '{req.slug}' not found")
 
-    # 2. Build context for the primary entity
+    # 2. Detect and execute actions
+    action_taken = None
+    msg_lower = req.message.lower()
+
+    # Action: Run full investigation / refresh
+    if any(kw in msg_lower for kw in ["run investigation", "refresh", "full investigation", "update data", "fetch latest", "get fresh data", "re-run", "rerun"]):
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=180.0) as hc:
+                resp = await hc.post(f"http://localhost:8000/refresh/{entity.slug}")
+                if resp.status_code == 200:
+                    refresh_data = resp.json()
+                    action_taken = "refreshed"
+                    # Reload entity after refresh
+                    result = await db.execute(select(Entity).where(Entity.slug == req.slug))
+                    entity = result.scalar_one_or_none()
+        except Exception as e:
+            action_taken = f"refresh_failed: {e}"
+
+    # Action: Query specific data
+    elif any(kw in msg_lower for kw in ["how many donors", "how many bills", "how many", "total donated", "total raised", "count", "list all"]):
+        # Run live queries and add results to context
+        query_results = []
+
+        # Donor count + total
+        donor_q = await db.execute(
+            select(
+                func.count(Relationship.id).label("cnt"),
+                func.sum(Relationship.amount_usd).label("total"),
+            )
+            .where(Relationship.to_entity_id == entity.id)
+            .where(Relationship.relationship_type == "donated_to")
+        )
+        donor_row = donor_q.one_or_none()
+        if donor_row:
+            cnt, total = donor_row
+            query_results.append(f"Donor count: {cnt}, Total donated: {_fmt_money(total)}")
+
+        # Bill count
+        bill_q = await db.execute(
+            select(func.count(Relationship.id))
+            .where(Relationship.from_entity_id == entity.id)
+            .where(Relationship.relationship_type.in_(["sponsored", "cosponsored"]))
+        )
+        bill_count = bill_q.scalar() or 0
+        query_results.append(f"Bills sponsored/cosponsored: {bill_count}")
+
+        # Committee count
+        comm_q = await db.execute(
+            select(func.count(Relationship.id))
+            .where(Relationship.from_entity_id == entity.id)
+            .where(Relationship.relationship_type == "committee_member")
+        )
+        comm_count = comm_q.scalar() or 0
+        query_results.append(f"Committee assignments: {comm_count}")
+
+        # Stock trades
+        stock_q = await db.execute(
+            select(func.count(Relationship.id))
+            .where(Relationship.from_entity_id == entity.id)
+            .where(Relationship.relationship_type == "stock_trade")
+        )
+        stock_count = stock_q.scalar() or 0
+        query_results.append(f"Stock trades on file: {stock_count}")
+
+        # Lobbied_on connections
+        lobby_q = await db.execute(
+            select(func.count(Relationship.id))
+            .where(Relationship.to_entity_id == entity.id)
+            .where(Relationship.relationship_type == "lobbied_on")
+        )
+        lobby_count = lobby_q.scalar() or 0
+        query_results.append(f"Bills with lobbying connections: {lobby_count}")
+
+        action_taken = "queried"
+        req.message += f"\n\n[LIVE QUERY RESULTS: {'; '.join(query_results)}]"
+
+    # Action: Regenerate briefing
+    elif any(kw in msg_lower for kw in ["regenerate briefing", "new briefing", "rewrite briefing", "generate briefing", "fresh briefing", "redo briefing", "update briefing"]):
+        try:
+            from app.services.ai_service import ai_briefing_service
+            briefing = await ai_briefing_service.generate_briefing(
+                entity_slug=entity.slug,
+                context_data={"metadata": entity.metadata_ or {}},
+                session=db,
+                force_refresh=True,
+            )
+            action_taken = "regenerated_briefing"
+        except Exception as e:
+            action_taken = f"briefing_failed: {e}"
+
+    # 3. Build context for the primary entity (after any actions)
     context = await _build_context(entity, db)
 
     # 3. Check if user is asking about a related entity — pull its data too
@@ -254,7 +363,15 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
 
     full_context = context + extra_context
 
-    # 4. Build system prompt
+    # Add action result to context if applicable
+    if action_taken == "refreshed":
+        full_context += "\n\n## ACTION JUST TAKEN\nA full investigation refresh was just completed. All data above is now fresh from FEC, Congress.gov, and Senate LDA. Summarize what changed or what the new data shows."
+    elif action_taken == "regenerated_briefing":
+        full_context += "\n\n## ACTION JUST TAKEN\nThe AI briefing was just regenerated with the latest data. The briefing above is brand new."
+    elif action_taken and "failed" in action_taken:
+        full_context += f"\n\n## ACTION ATTEMPTED BUT FAILED\n{action_taken}"
+
+    # 5. Build system prompt
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
         entity_name=entity.name,
         context=full_context,
@@ -282,7 +399,7 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
         client = anthropic.Anthropic(api_key=CHAT_API_KEY)
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=1000,
+            max_tokens=2000,
             system=system_prompt,
             messages=messages,
         )
@@ -291,4 +408,4 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
         logger.error("Chat API error: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"AI service error: {str(e)}")
 
-    return ChatResponse(reply=reply, sources=[])
+    return ChatResponse(reply=reply, sources=[], action_taken=action_taken)
