@@ -8,40 +8,121 @@ interface InvestigateChatProps {
   onDataRefresh?: () => void;
 }
 
-/** Simple markdown → HTML for chat messages */
+/** Markdown → HTML for chat messages */
 function renderMarkdown(text: string): string {
-  return text
+  // Process line by line for better control
+  const lines = text.split('\n');
+  const html: string[] = [];
+  let inTable = false;
+  let inList = false;
+  let listType = '';
+
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+
+    // Skip table separator rows
+    if (/^\|[\s-:|]+\|$/.test(line)) continue;
+
+    // Table rows
+    if (line.startsWith('|') && line.endsWith('|')) {
+      const cells = line.split('|').filter(c => c.trim()).map(c => c.trim());
+      if (!inTable) {
+        html.push('<table class="w-full my-2 text-xs">');
+        inTable = true;
+        // First table row = header
+        html.push('<tr>' + cells.map(c => `<th class="text-left px-2 py-1.5 border-b border-zinc-700 text-zinc-400 font-semibold">${applyInline(c)}</th>`).join('') + '</tr>');
+        continue;
+      }
+      html.push('<tr class="border-b border-zinc-800/50">' + cells.map(c => `<td class="px-2 py-1.5 text-zinc-300">${applyInline(c)}</td>`).join('') + '</tr>');
+      continue;
+    } else if (inTable) {
+      html.push('</table>');
+      inTable = false;
+    }
+
     // Headers
-    .replace(/^### (.+)$/gm, '<h4 class="text-sm font-bold text-zinc-200 mt-3 mb-1">$1</h4>')
-    .replace(/^## (.+)$/gm, '<h3 class="text-sm font-bold text-amber-400 mt-3 mb-1">$1</h3>')
-    // Bold
-    .replace(/\*\*(.+?)\*\*/g, '<strong class="text-zinc-100 font-semibold">$1</strong>')
-    // Code/bill numbers
-    .replace(/`([^`]+)`/g, '<code class="bg-zinc-700/50 text-amber-300 px-1 py-0.5 rounded text-xs font-mono">$1</code>')
+    if (line.startsWith('### ')) {
+      closeList();
+      html.push(`<h4 class="text-xs font-bold text-zinc-200 mt-3 mb-1 uppercase tracking-wide">${applyInline(line.slice(4))}</h4>`);
+      continue;
+    }
+    if (line.startsWith('## ')) {
+      closeList();
+      html.push(`<h3 class="text-sm font-bold text-amber-400 mt-3 mb-1">${applyInline(line.slice(3))}</h3>`);
+      continue;
+    }
+
     // Blockquotes
-    .replace(/^> (.+)$/gm, '<blockquote class="border-l-2 border-amber-500/60 pl-3 my-2 text-amber-200/80 italic">$1</blockquote>')
-    // Links
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="text-blue-400 hover:text-blue-300 underline">$1</a>')
-    // Horizontal rules
-    .replace(/^---$/gm, '<hr class="border-zinc-700 my-3" />')
-    // Unordered lists
-    .replace(/^- (.+)$/gm, '<li class="ml-4 list-disc text-zinc-300">$1</li>')
-    // Ordered lists
-    .replace(/^\d+\. (.+)$/gm, '<li class="ml-4 list-decimal text-zinc-300">$1</li>')
-    // Wrap consecutive <li> in <ul>/<ol>
-    .replace(/((?:<li class="ml-4 list-disc[^"]*">[^<]*<\/li>\n?)+)/g, '<ul class="my-1 space-y-0.5">$1</ul>')
-    .replace(/((?:<li class="ml-4 list-decimal[^"]*">[^<]*<\/li>\n?)+)/g, '<ol class="my-1 space-y-0.5">$1</ol>')
-    // Tables (basic)
-    .replace(/\|(.+)\|/g, (match) => {
-      const cells = match.split('|').filter(c => c.trim()).map(c => c.trim());
-      if (cells.every(c => /^[-:]+$/.test(c))) return ''; // separator row
-      const tag = 'td';
-      return '<tr>' + cells.map(c => `<${tag} class="px-2 py-1 border border-zinc-700 text-xs">${c}</${tag}>`).join('') + '</tr>';
-    })
-    // Paragraphs (double newline)
-    .replace(/\n\n/g, '</p><p class="my-2">')
-    // Single newlines
-    .replace(/\n/g, '<br />');
+    if (line.startsWith('> ')) {
+      closeList();
+      html.push(`<blockquote class="border-l-2 border-amber-500/50 pl-3 my-2 text-amber-200/80 text-xs italic">${applyInline(line.slice(2))}</blockquote>`);
+      continue;
+    }
+
+    // Horizontal rule
+    if (line.trim() === '---') {
+      closeList();
+      html.push('<hr class="border-zinc-700 my-2" />');
+      continue;
+    }
+
+    // Unordered list
+    if (/^[-*] /.test(line)) {
+      if (!inList || listType !== 'ul') {
+        closeList();
+        html.push('<ul class="my-1.5 space-y-1 ml-1">');
+        inList = true;
+        listType = 'ul';
+      }
+      html.push(`<li class="flex gap-2 text-zinc-300"><span class="text-amber-500 mt-0.5">•</span><span>${applyInline(line.replace(/^[-*] /, ''))}</span></li>`);
+      continue;
+    }
+
+    // Ordered list
+    const olMatch = line.match(/^(\d+)\. (.+)/);
+    if (olMatch) {
+      if (!inList || listType !== 'ol') {
+        closeList();
+        html.push('<ol class="my-1.5 space-y-1 ml-1">');
+        inList = true;
+        listType = 'ol';
+      }
+      html.push(`<li class="flex gap-2 text-zinc-300"><span class="text-amber-500 font-mono text-xs w-4 shrink-0">${olMatch[1]}.</span><span>${applyInline(olMatch[2])}</span></li>`);
+      continue;
+    }
+
+    // Close list if we hit a non-list line
+    closeList();
+
+    // Empty line = paragraph break
+    if (line.trim() === '') {
+      html.push('<div class="h-2"></div>');
+      continue;
+    }
+
+    // Regular paragraph
+    html.push(`<p class="text-zinc-300 my-1">${applyInline(line)}</p>`);
+  }
+
+  closeList();
+  if (inTable) html.push('</table>');
+
+  function closeList() {
+    if (inList) {
+      html.push(listType === 'ul' ? '</ul>' : '</ol>');
+      inList = false;
+    }
+  }
+
+  return html.join('\n');
+}
+
+/** Apply inline markdown (bold, code, links) */
+function applyInline(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '<strong class="text-zinc-100 font-semibold">$1</strong>')
+    .replace(/`([^`]+)`/g, '<code class="bg-zinc-700/50 text-amber-300 px-1 py-0.5 rounded text-[10px] font-mono">$1</code>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="text-blue-400 hover:text-blue-300 underline">$1</a>');
 }
 
 interface Message {
