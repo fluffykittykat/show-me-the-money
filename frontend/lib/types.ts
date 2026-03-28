@@ -284,21 +284,67 @@ export interface V2OfficialResponse {
   total_all_cycles: number;
 }
 
+export interface V2BillInfluenceSignalEvidence {
+  trades?: Array<{
+    ticker?: string;
+    transaction_type?: string;
+    amount_range?: string;
+    date?: string | null;
+    asset_name?: string;
+  }>;
+  [key: string]: unknown;
+}
+
+export interface V2BillInfluenceSignal {
+  type: string;
+  found: boolean;
+  rarity_label: string;
+  rarity_pct?: number;
+  description?: string;
+  evidence?: V2BillInfluenceSignalEvidence;
+}
+
+export interface V2BillSponsorConnection {
+  entity: string;
+  type: string;
+  amount: number;
+}
+
+export interface V2BillSponsorContext {
+  industry_donations_90d?: number;
+  career_pac_total?: number;
+  committee?: string;
+}
+
 export interface V2Sponsor {
   slug: string;
   name: string;
   party: string;
   state: string;
   role: string;
-  top_donor: string | null;
-  verdict: string | null;
+  top_donor?: string | null;
+  verdict?: string | null;
+  verified_connections?: V2BillSponsorConnection[];
+  context?: V2BillSponsorContext;
+}
+
+export interface V2BillDataLimitations {
+  fec_threshold?: string;
+  senate_stocks?: boolean;
+  [key: string]: unknown;
 }
 
 export interface V2BillResponse {
   entity: Entity;
+  summary?: string;
   status_label: string;
+  policy_area?: string | null;
+  percentile_rank?: number | null;
+  similar_bill_count?: number | null;
+  influence_signals?: V2BillInfluenceSignal[];
   sponsors: V2Sponsor[];
   briefing: string | null;
+  data_limitations?: V2BillDataLimitations | null;
   freshness?: {
     last_refreshed: string | null;
     introduced_date: string | null;
