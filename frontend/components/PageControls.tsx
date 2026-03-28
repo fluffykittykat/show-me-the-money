@@ -72,19 +72,21 @@ export default function PageControls({ slug, entityName, onBriefingUpdate, onDat
       // Start the API call (non-blocking)
       const refreshPromise = fetch(`/api/refresh/${encodeURIComponent(slug)}`, { method: 'POST' });
 
-      // Simulate step progression while waiting (backend takes 30-60s)
+      // Simulate step progression while waiting (backend takes 2-3 minutes)
       const stepTimings = [
         { idx: 0, delay: 2000, detail: 'Querying FEC API...' },
-        { idx: 0, delay: 4000, status: 'done' as const, detail: 'FEC Committee ID confirmed' },
-        { idx: 1, delay: 4500, status: 'running' as const, detail: 'Checking 2026, 2024, 2022, 2020, 2018...' },
-        { idx: 1, delay: 12000, status: 'done' as const, detail: 'All cycles fetched' },
-        { idx: 2, delay: 12500, status: 'running' as const, detail: 'Fetching from FEC Schedule A...' },
-        { idx: 2, delay: 18000, status: 'done' as const, detail: 'Donors retrieved' },
-        { idx: 3, delay: 18500, status: 'running' as const, detail: 'Following the money through PACs...' },
-        { idx: 3, delay: 22000, status: 'done' as const, detail: 'PAC chains traced' },
-        { idx: 4, delay: 22500, status: 'running' as const, detail: 'Connecting donors → committees → bills...' },
-        { idx: 5, delay: 26000, status: 'running' as const, detail: 'Counting dots...' },
-        { idx: 6, delay: 30000, status: 'running' as const, detail: 'Claude Sonnet analyzing patterns...' },
+        { idx: 0, delay: 5000, status: 'done' as const, detail: 'FEC Committee ID confirmed' },
+        { idx: 1, delay: 6000, status: 'running' as const, detail: 'Checking 2026, 2024, 2022, 2020, 2018...' },
+        { idx: 1, delay: 15000, status: 'done' as const, detail: 'All cycles fetched' },
+        { idx: 2, delay: 16000, status: 'running' as const, detail: 'Fetching PAC + committee donors from FEC...' },
+        { idx: 2, delay: 40000, status: 'done' as const, detail: 'Donors retrieved' },
+        { idx: 3, delay: 41000, status: 'running' as const, detail: 'Tracing middleman PAC chains...' },
+        { idx: 3, delay: 55000, status: 'done' as const, detail: 'PAC chains traced' },
+        { idx: 4, delay: 56000, status: 'running' as const, detail: 'Connecting donors → committees → bills...' },
+        { idx: 4, delay: 80000, status: 'done' as const, detail: 'Money trails computed' },
+        { idx: 5, delay: 81000, status: 'running' as const, detail: 'Counting dots across all industries...' },
+        { idx: 5, delay: 95000, status: 'done' as const, detail: 'Verdict computed' },
+        { idx: 6, delay: 96000, status: 'running' as const, detail: 'Claude Sonnet analyzing all evidence...' },
       ];
 
       const timers: ReturnType<typeof setTimeout>[] = [];

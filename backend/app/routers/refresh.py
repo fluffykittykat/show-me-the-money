@@ -307,54 +307,106 @@ async def refresh_entity(slug: str, db: AsyncSession = Depends(get_db)):
         # 7. Commit all data changes before computing verdicts
         await db.commit()
 
-        # 8. Compute money trail verdicts (connect the dots)
-        try:
-            from app.services.verdict_engine import compute_verdicts, compute_overall_verdict
-            from app.models import MoneyTrail
-            trails = await compute_verdicts(db, entity.id)
-            # Delete old trails and insert new ones
-            old_trails = await db.execute(
-                select(MoneyTrail).where(MoneyTrail.official_id == entity.id)
-            )
-            for old in old_trails.scalars().all():
-                await db.delete(old)
-            for trail in trails:
-                db.add(MoneyTrail(
-                    official_id=entity.id,
-                    industry=trail["industry"],
-                    verdict=trail["verdict"],
-                    dot_count=trail["dot_count"],
-                    narrative=trail.get("narrative"),
-                    chain=trail.get("chain", {}),
-                    total_amount=trail.get("total_amount", 0),
-                ))
-            overall_verdict, total_dots = compute_overall_verdict(trails)
-            # Reload entity after commit
-            result2 = await db.execute(select(Entity).where(Entity.id == entity.id))
-            entity2 = result2.scalar_one_or_none()
-            if entity2:
-                m2 = dict(entity2.metadata_ or {})
-                m2["v2_verdict"] = overall_verdict
-                m2["v2_dot_count"] = total_dots
-                entity2.metadata_ = _ascii_safe(m2)
-                db.add(entity2)
-            await db.commit()
-            actions.append(f"computed {len(trails)} money trails → verdict: {overall_verdict} ({total_dots} dots)")
-        except Exception as e:
-            actions.append(f"verdict computation failed: {e}")
+        # 8. Compute money trail verdicts (connect the dots) — with retry
+        verdict_ok = False
+        for attempt in range(3):
+            try:
+                from app.services.verdict_engine import compute_verdicts, compute_overall_verdict
+                from app.models import MoneyTrail
+                trails = await compute_verdicts(db, entity.id)
+                old_trails = await db.execute(
+                    select(MoneyTrail).where(MoneyTrail.official_id == entity.id)
+                )
+                for old in old_trails.scalars().all():
+                    await db.delete(old)
+                for trail in trails:
+                    db.add(MoneyTrail(
+                        official_id=entity.id,
+                        industry=trail["industry"],
+                        verdict=trail["verdict"],
+                        dot_count=trail["dot_count"],
+                        narrative=trail.get("narrative"),
+                        chain=trail.get("chain", {}),
+                        total_amount=trail.get("total_amount", 0),
+                    ))
+                overall_verdict, total_dots = compute_overall_verdict(trails)
+                result2 = await db.execute(select(Entity).where(Entity.id == entity.id))
+                entity2 = result2.scalar_one_or_none()
+                if entity2:
+                    m2 = dict(entity2.metadata_ or {})
+                    m2["v2_verdict"] = overall_verdict
+                    m2["v2_dot_count"] = total_dots
+                    entity2.metadata_ = _ascii_safe(m2)
+                    db.add(entity2)
+                await db.commit()
+                actions.append(f"computed {len(trails)} money trails → verdict: {overall_verdict} ({total_dots} dots)")
+                verdict_ok = True
+                break
+            except Exception as e:
+                if attempt < 2:
+                    await asyncio.sleep(2)
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                else:
+                    actions.append(f"verdict computation failed after 3 attempts: {e}")
 
-        # 9. Generate fresh AI briefing
-        try:
-            from app.services.ai_service import ai_briefing_service
-            briefing = await ai_briefing_service.generate_briefing(
-                entity_slug=slug,
-                context_data={"metadata": meta},
-                session=db,
-                force_refresh=True,
-            )
-            actions.append(f"generated AI briefing ({len(briefing)} chars)")
-        except Exception as e:
-            actions.append(f"briefing generation failed: {e}")
+        # 9. Compute influence signals — with retry
+        for attempt in range(2):
+            try:
+                from app.services.official_signals import compute_official_signals
+                from app.models import OfficialInfluenceSignal
+                signals = await compute_official_signals(db, entity.id)
+                old_sigs = await db.execute(
+                    select(OfficialInfluenceSignal).where(OfficialInfluenceSignal.official_id == entity.id)
+                )
+                for old in old_sigs.scalars().all():
+                    await db.delete(old)
+                for sig in signals:
+                    db.add(OfficialInfluenceSignal(
+                        official_id=entity.id,
+                        signal_type=sig["signal_type"],
+                        found=sig.get("found", False),
+                        confidence=sig.get("confidence", 0.0),
+                        rarity_pct=sig.get("rarity_pct"),
+                        rarity_label=sig.get("rarity_label"),
+                        p_value=sig.get("p_value"),
+                        baseline_rate=sig.get("baseline_rate"),
+                        observed_rate=sig.get("observed_rate"),
+                        description=sig.get("description"),
+                        evidence=sig.get("evidence", {}),
+                    ))
+                await db.commit()
+                found_count = sum(1 for s in signals if s.get("found"))
+                actions.append(f"computed {len(signals)} influence signals ({found_count} found)")
+                break
+            except Exception as e:
+                if attempt < 1:
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                else:
+                    actions.append(f"influence signals failed: {e}")
+
+        # 10. Generate fresh AI briefing — with retry
+        for attempt in range(2):
+            try:
+                from app.services.ai_service import ai_briefing_service
+                briefing = await ai_briefing_service.generate_briefing(
+                    entity_slug=slug,
+                    context_data={"metadata": meta},
+                    session=db,
+                    force_refresh=True,
+                )
+                actions.append(f"generated AI briefing ({len(briefing)} chars)")
+                break
+            except Exception as e:
+                if attempt < 1:
+                    await asyncio.sleep(2)
+                else:
+                    actions.append(f"briefing generation failed: {e}")
 
     # --- PAC / ORGANIZATION / COMPANY ---
     elif entity_type in ("pac", "organization", "company"):
