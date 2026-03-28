@@ -25,9 +25,9 @@ if not logger.handlers:
     handler.setFormatter(logging.Formatter("[%(name)s] %(message)s"))
     logger.addHandler(handler)
 
-DELAY_BETWEEN_OFFICIALS = 3  # seconds between each official's API calls
-DELAY_BETWEEN_API_CALLS = 3  # seconds between individual API calls
-DONORS_PER_OFFICIAL = 30
+DELAY_BETWEEN_OFFICIALS = 2  # seconds between each official's API calls
+DELAY_BETWEEN_API_CALLS = 2  # seconds between individual API calls
+DONORS_PER_OFFICIAL = 100  # top 100 donors per official
 
 
 def _slugify(name: str) -> str:

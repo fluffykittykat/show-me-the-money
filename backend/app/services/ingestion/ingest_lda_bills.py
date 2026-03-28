@@ -30,8 +30,8 @@ logger = logging.getLogger(__name__)
 LDA_BASE_URL = "https://lda.senate.gov/api/v1/filings/"
 FILING_YEARS = [2024, 2025]
 PER_PAGE = 50
-MAX_PAGES_PER_YEAR = 200
-REQUEST_DELAY = 1.5  # seconds between paginated requests
+MAX_PAGES_PER_YEAR = 5000  # ~250K filings per year at 50/page
+REQUEST_DELAY = 0.5  # seconds between paginated requests — LDA API is generous
 TIMEOUT = 30.0
 
 # Maps filing year to the congress numbers to try (most recent first)
