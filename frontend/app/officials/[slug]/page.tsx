@@ -367,43 +367,53 @@ function OfficialSignalCard({ signal, peerGroup }: { signal: V2OfficialInfluence
             {/* donors_lobby_bills evidence — grouped by bill */}
             {evidence.matches && evidence.matches.length > 0 && (() => {
               // Group matches by bill
-              const byBill = new Map<string, { bill: string; slug: string; donors: { name: string; slug?: string; amount: string; filingUrl: string }[] }>();
+              const byBill = new Map<string, { bill: string; slug: string; totalAmount: number; donors: { name: string; slug?: string; amount: string; rawAmount: number; filingUrl: string }[] }>();
               for (const m of evidence.matches as Record<string, unknown>[]) {
                 const billName = (m.bill || m.bill_name || 'Unknown bill') as string;
                 const billSlug = (m.bill_slug || m.bill_id || '') as string;
                 const key = billName;
                 if (!byBill.has(key)) {
-                  byBill.set(key, { bill: billName, slug: billSlug, donors: [] });
+                  byBill.set(key, { bill: billName, slug: billSlug, totalAmount: 0, donors: [] });
                 }
                 const entry = byBill.get(key)!;
                 const donorName = (m.donor || m.entity_name || 'Unknown') as string;
                 const donorSlug = (m.donor_slug || '') as string;
+                const rawAmount = (m.donation_amount || 0) as number;
                 // Deduplicate donors per bill
                 if (!entry.donors.find(d => d.name === donorName)) {
                   entry.donors.push({
                     name: donorName,
                     slug: donorSlug,
-                    amount: (m.donation_amount_fmt || (m.donation_amount ? formatMoney(m.donation_amount as number) : '')) as string,
+                    amount: (m.donation_amount_fmt || (rawAmount ? formatMoney(rawAmount) : '')) as string,
+                    rawAmount,
                     filingUrl: (m.filing_url || m.lda_url || '') as string,
                   });
+                  entry.totalAmount += rawAmount;
                 }
               }
               return (
               <div className="space-y-2">
                 {Array.from(byBill.values()).map((group, i) => (
                   <div key={i} className="bg-zinc-950/50 rounded-lg px-3 py-2.5">
-                    <div className="flex items-start gap-2 mb-2">
-                      <span className="text-amber-500 mt-0.5 flex-shrink-0">•</span>
-                      <div>
-                        {group.slug ? (
-                          <Link href={`/bills/${group.slug}`} className="text-xs font-semibold text-zinc-200 hover:text-amber-400">
-                            {group.bill}
-                          </Link>
-                        ) : (
-                          <span className="text-xs font-semibold text-zinc-200">{group.bill}</span>
-                        )}
-                        <div className="text-[10px] text-zinc-500 mt-0.5">{group.donors.length} donor{group.donors.length !== 1 ? 's' : ''} also lobbied for this bill</div>
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="flex items-start gap-2 min-w-0">
+                        <span className="text-amber-500 mt-0.5 flex-shrink-0">•</span>
+                        <div className="min-w-0">
+                          {group.slug ? (
+                            <Link href={`/bills/${group.slug}`} className="text-xs font-semibold text-zinc-200 hover:text-amber-400">
+                              {group.bill}
+                            </Link>
+                          ) : (
+                            <span className="text-xs font-semibold text-zinc-200">{group.bill}</span>
+                          )}
+                          <div className="text-[10px] text-zinc-500 mt-0.5">{group.donors.length} donor{group.donors.length !== 1 ? 's' : ''} also lobbied for this bill</div>
+                        </div>
                       </div>
+                      {group.totalAmount > 0 && (
+                        <span className="text-amber-400 font-bold text-xs flex-shrink-0">
+                          {formatMoney(group.totalAmount)}
+                        </span>
+                      )}
                     </div>
                     <div className="ml-4 space-y-1">
                       {group.donors.map((d: { name: string; slug?: string; amount: string; filingUrl: string }, j: number) => (
