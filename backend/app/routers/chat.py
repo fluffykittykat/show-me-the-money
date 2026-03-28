@@ -306,6 +306,9 @@ Here's what you know:
 2. Never accuse — say "the pattern here is unusual" not "they're corrupt"
 3. When you don't have data, say "I don't have that — want me to run a full investigation to pull it?"
 4. Be the colleague who makes the user say "oh shit, really?"
+5. NEVER show SQL queries, code, or technical implementation details to the user. Just show results.
+6. When you search the database, say "I checked our records" or "Looking at the data..." — not "I ran a query"
+7. When you can't find something, say "I don't see that in our records" — not "the query returned no results"
 """
 
 
@@ -356,12 +359,16 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
         except Exception as e:
             action_taken = f"refresh_failed: {e}"
 
-    # Action: Query specific data
-    elif any(kw in msg_lower for kw in ["how many donors", "how many bills", "how many", "total donated", "total raised", "count", "list all"]):
-        # Run live queries and add results to context
+    # Action: Query the database — handle any investigative question
+    elif any(kw in msg_lower for kw in [
+        "how many", "total donated", "total raised", "count", "list all",
+        "look up", "search for", "find", "check", "who donated", "who gave",
+        "show me", "what about", "is there", "do they have", "did they",
+        "confirm", "verify", "check the", "in the database", "in our records",
+    ]):
         query_results = []
 
-        # Donor count + total
+        # 1. Donor stats for this entity
         donor_q = await db.execute(
             select(
                 func.count(Relationship.id).label("cnt"),
@@ -373,46 +380,73 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
         donor_row = donor_q.one_or_none()
         if donor_row:
             cnt, total = donor_row
-            query_results.append(f"Donor count: {cnt}, Total donated: {_fmt_money(total)}")
+            query_results.append(f"Total donors in DB: {cnt}, Total amount: {_fmt_money(total)}")
 
-        # Bill count
-        bill_q = await db.execute(
+        # 2. Top 10 donors with amounts
+        top_donors_q = await db.execute(
+            select(Entity.name, func.sum(Relationship.amount_usd).label("total"))
+            .join(Entity, Entity.id == Relationship.from_entity_id)
+            .where(Relationship.to_entity_id == entity.id)
+            .where(Relationship.relationship_type == "donated_to")
+            .group_by(Entity.name)
+            .order_by(func.sum(Relationship.amount_usd).desc())
+            .limit(10)
+        )
+        top_donors = top_donors_q.all()
+        if top_donors:
+            donor_lines = [f"  {name}: {_fmt_money(amt)}" for name, amt in top_donors]
+            query_results.append(f"Top 10 donors:\n" + "\n".join(donor_lines))
+
+        # 3. Search for a specific name if mentioned in quotes or after "about"
+        import re as _re
+        name_searches = _re.findall(r'"([^"]+)"', req.message)
+        name_searches += _re.findall(r'(?:about|for|named?)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)', req.message)
+        for search_name in name_searches[:2]:
+            found_q = await db.execute(
+                select(Entity.name, Entity.entity_type, Entity.slug)
+                .where(Entity.name.ilike(f"%{search_name}%"))
+                .limit(5)
+            )
+            found = found_q.all()
+            if found:
+                query_results.append(f"Search for '{search_name}': {len(found)} results")
+                for name, etype, eslug in found:
+                    # Check if they donated to current entity
+                    don_q = await db.execute(
+                        select(func.sum(Relationship.amount_usd))
+                        .where(Relationship.relationship_type == "donated_to")
+                        .where(Relationship.to_entity_id == entity.id)
+                        .join(Entity, Entity.id == Relationship.from_entity_id)
+                        .where(Entity.name.ilike(f"%{search_name}%"))
+                    )
+                    donated = don_q.scalar()
+                    query_results.append(f"  {name} ({etype}) — donated {_fmt_money(donated) if donated else '$0'} to {entity.name}")
+
+        # 4. Bill + committee counts
+        bill_count = (await db.execute(
             select(func.count(Relationship.id))
             .where(Relationship.from_entity_id == entity.id)
             .where(Relationship.relationship_type.in_(["sponsored", "cosponsored"]))
-        )
-        bill_count = bill_q.scalar() or 0
+        )).scalar() or 0
         query_results.append(f"Bills sponsored/cosponsored: {bill_count}")
 
-        # Committee count
-        comm_q = await db.execute(
-            select(func.count(Relationship.id))
-            .where(Relationship.from_entity_id == entity.id)
-            .where(Relationship.relationship_type == "committee_member")
-        )
-        comm_count = comm_q.scalar() or 0
-        query_results.append(f"Committee assignments: {comm_count}")
-
-        # Stock trades
-        stock_q = await db.execute(
+        stock_count = (await db.execute(
             select(func.count(Relationship.id))
             .where(Relationship.from_entity_id == entity.id)
             .where(Relationship.relationship_type == "stock_trade")
-        )
-        stock_count = stock_q.scalar() or 0
-        query_results.append(f"Stock trades on file: {stock_count}")
+        )).scalar() or 0
+        if stock_count > 0:
+            query_results.append(f"Stock trades on file: {stock_count}")
 
-        # Lobbied_on connections
-        lobby_q = await db.execute(
+        lobby_count = (await db.execute(
             select(func.count(Relationship.id))
             .where(Relationship.to_entity_id == entity.id)
             .where(Relationship.relationship_type == "lobbied_on")
-        )
-        lobby_count = lobby_q.scalar() or 0
+        )).scalar() or 0
         query_results.append(f"Bills with lobbying connections: {lobby_count}")
 
         action_taken = "queried"
-        req.message += f"\n\n[LIVE QUERY RESULTS: {'; '.join(query_results)}]"
+        req.message += f"\n\n[LIVE DATABASE RESULTS — present these naturally, never show SQL:\n{chr(10).join(query_results)}]"
 
     # Action: Regenerate briefing
     elif any(kw in msg_lower for kw in ["regenerate briefing", "new briefing", "rewrite briefing", "generate briefing", "fresh briefing", "redo briefing", "update briefing"]):

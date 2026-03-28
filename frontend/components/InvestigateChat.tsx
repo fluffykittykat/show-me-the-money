@@ -331,7 +331,7 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh, onTri
     setEditingSessionId(null);
     setEditName('');
   };
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (expanded && inputRef.current) {
@@ -697,15 +697,26 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh, onTri
           {/* Input */}
           <div className="px-3 py-3 border-t border-zinc-800 bg-zinc-900/50">
             <div className="flex items-center gap-2">
-              <input
+              <textarea
                 ref={inputRef}
-                type="text"
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask a question..."
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  // Auto-resize
+                  e.target.style.height = 'auto';
+                  e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                placeholder="Ask a question... (Shift+Enter for new line)"
                 disabled={loading}
-                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-full px-4 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-amber-500/50 disabled:opacity-50"
+                rows={1}
+                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-amber-500/50 disabled:opacity-50 resize-none"
+                style={{ minHeight: '36px', maxHeight: '120px' }}
               />
               <button
                 onClick={handleSend}
