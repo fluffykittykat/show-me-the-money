@@ -180,10 +180,22 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh }: Inv
     setShowSessions(false);
   };
 
+  const clearSession = (id: string) => {
+    setSessions(prev => prev.map(s => s.id === id ? { ...s, messages: [] } : s));
+  };
+
   const deleteSession = (id: string) => {
-    if (id === 'default') return;
-    setSessions(prev => prev.filter(s => s.id !== id));
-    if (activeSessionId === id) setActiveSessionId('default');
+    setSessions(prev => {
+      const filtered = prev.filter(s => s.id !== id);
+      if (filtered.length === 0) {
+        // Always keep at least one session
+        return [{ id: `page-${slug}`, name: entityName, slug, messages: [] }];
+      }
+      return filtered;
+    });
+    if (activeSessionId === id) {
+      setSessions(prev => { setActiveSessionId(prev[0]?.id || ''); return prev; });
+    }
   };
 
   const startRenaming = (id: string, currentName: string) => {
@@ -221,13 +233,27 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh }: Inv
     setLoading(true);
 
     try {
+      // Trim history if too long — send last 30 messages + a summary of earlier ones
+      let historyToSend = messages;
+      let historySummary = '';
+      if (messages.length > 30) {
+        const older = messages.slice(0, messages.length - 30);
+        historyToSend = messages.slice(messages.length - 30);
+        // Summarize older messages
+        const topics = older
+          .filter(m => m.role === 'user')
+          .map(m => m.content.slice(0, 50))
+          .join(', ');
+        historySummary = `[Earlier in this conversation, the user asked about: ${topics}]`;
+      }
+
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           slug: activeSession?.slug || slug,
-          message: trimmed,
-          history: messages,
+          message: historySummary ? `${historySummary}\n\n${trimmed}` : trimmed,
+          history: historyToSend,
           session_id: activeSessionId,
           other_sessions: sessions
             .filter(s => s.id !== activeSessionId && s.messages.length > 0)
@@ -367,17 +393,26 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh }: Inv
                       <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
                     </svg>
                   </button>
-                  {s.id !== 'default' && (
+                  {s.messages.length > 0 && (
                     <button
-                      onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }}
-                      className="text-zinc-600 hover:text-red-400 p-1"
-                      title="Delete"
+                      onClick={(e) => { e.stopPropagation(); clearSession(s.id); }}
+                      className="text-zinc-600 hover:text-amber-400 p-1"
+                      title="Clear messages"
                     >
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                        <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
                       </svg>
                     </button>
                   )}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }}
+                    className="text-zinc-600 hover:text-red-400 p-1"
+                    title="Delete session"
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
                 </div>
               </div>
             ))}
