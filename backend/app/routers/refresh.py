@@ -125,15 +125,36 @@ async def refresh_entity(slug: str, db: AsyncSession = Depends(get_db)):
             if best_cycle:
                 actions.append(f"totals: ${best_receipts:,.0f} (cycle {best_cycle})")
 
-            # 3. Fetch donors (2024 + 2022)
+            # 3. Fetch donors (2024 + 2022) — top by amount AND all PAC/committee donors
             if committee_id:
                 new_donors = 0
-                for cycle in [2024, 2022]:
+                # Fetch both: top donors by amount + ALL PAC/committee donors
+                fetch_configs = [
+                    {"cycle": 2024, "per_page": 50, "params": {}},
+                    {"cycle": 2022, "per_page": 50, "params": {}},
+                    {"cycle": 2024, "per_page": 100, "params": {"contributor_type": "committee"}},
+                    {"cycle": 2022, "per_page": 100, "params": {"contributor_type": "committee"}},
+                    {"cycle": 2020, "per_page": 100, "params": {"contributor_type": "committee"}},
+                ]
+                for fc in fetch_configs:
                     await asyncio.sleep(DELAY)
                     try:
-                        contributors = await fec_client.fetch_top_contributors(
-                            committee_id, cycle=cycle, per_page=30
-                        )
+                        # Build params for FEC API
+                        fec_params = {
+                            "api_key": FEC_API_KEY,
+                            "committee_id": committee_id,
+                            "per_page": fc["per_page"],
+                            "sort": "-contribution_receipt_amount",
+                            "two_year_transaction_period": fc["cycle"],
+                            **fc["params"],
+                        }
+                        async with httpx.AsyncClient(timeout=FEC_TIMEOUT) as client:
+                            resp = await client.get(
+                                "https://api.open.fec.gov/v1/schedules/schedule_a/",
+                                params=fec_params,
+                            )
+                            resp.raise_for_status()
+                            contributors = resp.json().get("results", [])
                         for donor in contributors:
                             donor_name = _ascii_safe(donor.get("contributor_name", "") or "")
                             if not donor_name or len(donor_name) < 2:
@@ -187,9 +208,9 @@ async def refresh_entity(slug: str, db: AsyncSession = Depends(get_db)):
                                 ))
                                 new_donors += 1
                     except Exception as e:
-                        actions.append(f"donor fetch failed (cycle {cycle}): {e}")
+                        actions.append(f"donor fetch failed (cycle {fc['cycle']} {fc['params']}): {e}")
                 if new_donors > 0:
-                    actions.append(f"fetched {new_donors} new donors")
+                    actions.append(f"fetched {new_donors} new donors (incl. PAC/committee donors)")
 
         # 4. Clear cached briefing so it regenerates
         meta.pop("fbi_briefing", None)
