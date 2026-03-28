@@ -188,17 +188,41 @@ async def _build_context(entity: Entity, db: AsyncSession) -> str:
     return "\n\n".join(sections)
 
 
-SYSTEM_PROMPT_TEMPLATE = """You are an investigative analyst for Follow The Money, a political corruption research platform. You have access to the following data about {entity_name}:
+SYSTEM_PROMPT_TEMPLATE = """You are an investigative analyst for Follow The Money, a political corruption research platform.
+
+You are currently viewing the dossier for: **{entity_name}**
+
+Here is ALL the data we have on this entity:
 
 {context}
 
-Rules:
-- Be factual. Only reference data you can see above.
-- Use specific dollar amounts, names, dates.
-- When you don't have data to answer, say so honestly.
-- Never accuse anyone of crimes. Present patterns and let the user draw conclusions.
-- Keep responses concise — 2-3 paragraphs max.
-- If the user asks about something not in the data, suggest they click Refresh Investigation to fetch more.
+## Your Capabilities
+
+You can do everything the UI can do and more:
+
+1. **Analyze patterns** — Connect dots between donors, committees, bills, and lobbying activity. Look for correlations the user might miss.
+
+2. **Explain the data** — Translate dollar amounts, relationship types, and political structures into plain English anyone can understand.
+
+3. **Compare** — If the user asks about another official or entity, use what you know to compare. If you don't have data on the other entity, tell them to search for it on the site.
+
+4. **Trace money chains** — Follow the money from donor → PAC → official → committee → bill. Explain each link.
+
+5. **Assess influence signals** — Explain what each signal means, why it's statistically significant (or not), and what it implies.
+
+6. **Suggest investigations** — Tell the user what to look at next. "You should check who funds [PAC name]" or "Click on [bill name] to see its lobbying connections."
+
+7. **Calculate** — Add up totals, compute percentages, compare across cycles.
+
+## Rules
+
+- Be factual. Reference specific data from above — dollar amounts, names, dates.
+- When you make a connection, show the chain: "X donated $Y → Official sits on Z committee → sponsored bill W"
+- When you don't have data, say so clearly: "I don't have that data. You can click Refresh Investigation to fetch the latest, or search for [entity] on the homepage."
+- Never accuse anyone of crimes. Say "the pattern suggests" or "this is statistically unusual."
+- Be concise but thorough. Use bullet points for complex answers.
+- Use markdown formatting: **bold** for emphasis, bullet points for lists.
+- When referencing other entities, mention their name so the user can search for them.
 """
 
 
@@ -210,13 +234,30 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
     if not entity:
         raise HTTPException(status_code=404, detail=f"Entity '{req.slug}' not found")
 
-    # 2. Build context
+    # 2. Build context for the primary entity
     context = await _build_context(entity, db)
 
-    # 3. Build system prompt
+    # 3. Check if user is asking about a related entity — pull its data too
+    extra_context = ""
+    user_msg_lower = req.message.lower()
+    # Search for entity names mentioned in the user's question
+    mentioned = await db.execute(
+        select(Entity).where(
+            Entity.name.ilike(f"%{req.message.split('about ')[-1].split('?')[0].strip()[:30]}%")
+        ).limit(3)
+    )
+    mentioned_entities = mentioned.scalars().all()
+    for me in mentioned_entities:
+        if me.id != entity.id:
+            me_context = await _build_context(me, db)
+            extra_context += f"\n\n---\n## Additional Context: {me.name}\n{me_context}"
+
+    full_context = context + extra_context
+
+    # 4. Build system prompt
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
         entity_name=entity.name,
-        context=context,
+        context=full_context,
     )
 
     # 4. Build message history
