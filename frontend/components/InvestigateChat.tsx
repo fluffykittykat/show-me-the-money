@@ -352,9 +352,49 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh, onTri
     const isRefreshRequest = refreshKeywords.some(kw => trimmed.toLowerCase().includes(kw));
     if (isRefreshRequest && onTriggerRefresh) {
       const userMsg: Message = { role: 'user', content: trimmed };
-      setMessages([...messages, userMsg, { role: 'assistant', content: "I've kicked off a **full investigation** — you should see the progress panel at the top of the page. I'll wait here while it runs. Once it's done, the page will update with fresh data and you can ask me about the results." }]);
+      const kickoffMsg: Message = { role: 'assistant', content: "🔍 **Running full investigation** — check the progress panel at the top of the page. I'll analyze the results when it's done..." };
+      const newMsgs = [...messages, userMsg, kickoffMsg];
+      setMessages(newMsgs);
       setInput('');
+      setLoading(true);
       onTriggerRefresh();
+
+      // Poll for completion then send follow-up analysis
+      const startTime = Date.now();
+      const pollInterval = setInterval(async () => {
+        const elapsed = Date.now() - startTime;
+        // Check if the refresh button is no longer disabled (investigation done)
+        const btn = document.querySelector('[data-refresh-investigation]') as HTMLButtonElement;
+        const stillRunning = btn?.disabled;
+
+        if (!stillRunning || elapsed > 300000) { // 5 min max
+          clearInterval(pollInterval);
+          // Investigation complete — ask the AI to summarize
+          try {
+            const res = await fetch('/api/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                slug: activeSession?.slug || slug,
+                message: "The full investigation just completed. Summarize what you found — what are the key findings? What's the most interesting or concerning pattern? Be conversational.",
+                history: newMsgs,
+                session_id: activeSessionId,
+              }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              setMessages([...newMsgs, { role: 'assistant', content: data.reply }]);
+              onDataRefresh?.();
+            } else {
+              setMessages([...newMsgs, { role: 'assistant', content: "Investigation complete — the page has been updated with fresh data. Ask me anything about what we found." }]);
+            }
+          } catch {
+            setMessages([...newMsgs, { role: 'assistant', content: "Investigation complete. The page data has been refreshed — ask me what you want to know." }]);
+          }
+          setLoading(false);
+        }
+      }, 3000); // check every 3 seconds
+
       return;
     }
 
