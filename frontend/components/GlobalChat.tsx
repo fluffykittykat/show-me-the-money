@@ -1,14 +1,16 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import InvestigateChat from './InvestigateChat';
 
 /**
  * Global chat wrapper — lives in root layout, persists across page navigations.
  * Reads the current URL to determine the entity context.
+ * When the chat bot runs an investigation, triggers a page reload to show fresh data.
  */
 export default function GlobalChat() {
   const pathname = usePathname();
+  const router = useRouter();
 
   // Extract slug and entity name from URL
   let slug = '';
@@ -26,6 +28,11 @@ export default function GlobalChat() {
     entityName = slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   }
 
-  // Always show the chat — even on homepage. Slug can be empty for general questions.
-  return <InvestigateChat slug={slug || 'homepage'} entityName={entityName} />;
+  return (
+    <InvestigateChat
+      slug={slug || 'homepage'}
+      entityName={entityName}
+      onDataRefresh={() => router.refresh()}
+    />
+  );
 }
