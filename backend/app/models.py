@@ -236,3 +236,30 @@ class BillInfluenceSignal(Base):
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class OfficialInfluenceSignal(Base):
+    """Pre-computed influence signal for an official."""
+    __tablename__ = "official_influence_signals"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    official_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("entities.id"), index=True
+    )
+    signal_type: Mapped[str] = mapped_column(String(30))
+    found: Mapped[bool] = mapped_column(Boolean, default=False)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    rarity_pct: Mapped[float] = mapped_column(Float, nullable=True)
+    rarity_label: Mapped[str] = mapped_column(String(20), nullable=True)
+    p_value: Mapped[float] = mapped_column(Float, nullable=True)
+    baseline_rate: Mapped[float] = mapped_column(Float, nullable=True)
+    observed_rate: Mapped[float] = mapped_column(Float, nullable=True)
+    description: Mapped[str] = mapped_column(Text, nullable=True)
+    evidence: Mapped[dict] = mapped_column(
+        "evidence_data", JSONB, server_default=text("'{}'::jsonb")
+    )
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

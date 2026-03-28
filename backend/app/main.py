@@ -295,6 +295,11 @@ async def admin_ingest(slug: str):
         from app.services.bill_signals import run_precompute_bill_signals
         _aio.create_task(run_precompute_bill_signals())
         return {"status": "started", "message": "Pre-computing influence signals for all bills"}
+    elif slug == "precompute-official-signals":
+        import asyncio as _aio
+        from app.services.official_signals import run_precompute_official_signals
+        _aio.create_task(run_precompute_official_signals())
+        return {"status": "started", "message": "Pre-computing influence signals for all officials"}
     else:
         return {"status": "error", "message": f"Ingestion not supported for '{slug}'"}
     return {"status": "ok", "message": f"Ingestion complete for {slug}"}
