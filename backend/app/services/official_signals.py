@@ -168,6 +168,7 @@ async def _signal_donors_lobby_bills(
 
     bill_ids = [ent.id for _, ent in official_bills]
     bill_names = {ent.id: _sanitize(ent.name) for _, ent in official_bills}
+    bill_slugs = {ent.id: ent.slug for _, ent in official_bills}
 
     # Get all lobbying relationships for this official's bills
     lobby_q = (
@@ -202,6 +203,7 @@ async def _signal_donors_lobby_bills(
                     "donation_amount": don_rel.amount_usd or 0,
                     "donation_amount_fmt": _fmt_amount(don_rel.amount_usd),
                     "bill": bill_names.get(lobby_rel.to_entity_id, "Unknown"),
+                    "bill_slug": bill_slugs.get(lobby_rel.to_entity_id, ""),
                     "bill_id": str(lobby_rel.to_entity_id),
                     "filing_url": filing_url,
                 })

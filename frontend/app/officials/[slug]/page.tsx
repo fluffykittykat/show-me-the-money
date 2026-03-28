@@ -367,7 +367,7 @@ function OfficialSignalCard({ signal, peerGroup }: { signal: V2OfficialInfluence
             {/* donors_lobby_bills evidence — grouped by bill */}
             {evidence.matches && evidence.matches.length > 0 && (() => {
               // Group matches by bill
-              const byBill = new Map<string, { bill: string; slug: string; donors: { name: string; amount: string; filingUrl: string }[] }>();
+              const byBill = new Map<string, { bill: string; slug: string; donors: { name: string; slug?: string; amount: string; filingUrl: string }[] }>();
               for (const m of evidence.matches as Record<string, unknown>[]) {
                 const billName = (m.bill || m.bill_name || 'Unknown bill') as string;
                 const billSlug = (m.bill_slug || m.bill_id || '') as string;
@@ -377,10 +377,12 @@ function OfficialSignalCard({ signal, peerGroup }: { signal: V2OfficialInfluence
                 }
                 const entry = byBill.get(key)!;
                 const donorName = (m.donor || m.entity_name || 'Unknown') as string;
+                const donorSlug = (m.donor_slug || '') as string;
                 // Deduplicate donors per bill
                 if (!entry.donors.find(d => d.name === donorName)) {
                   entry.donors.push({
                     name: donorName,
+                    slug: donorSlug,
                     amount: (m.donation_amount_fmt || (m.donation_amount ? formatMoney(m.donation_amount as number) : '')) as string,
                     filingUrl: (m.filing_url || m.lda_url || '') as string,
                   });
@@ -404,9 +406,13 @@ function OfficialSignalCard({ signal, peerGroup }: { signal: V2OfficialInfluence
                       </div>
                     </div>
                     <div className="ml-4 space-y-1">
-                      {group.donors.map((d, j) => (
+                      {group.donors.map((d: { name: string; slug?: string; amount: string; filingUrl: string }, j: number) => (
                         <div key={j} className="flex items-center justify-between text-xs">
-                          <span className="text-zinc-400">{d.name}</span>
+                          {d.slug ? (
+                            <Link href={`/entities/pac/${d.slug}`} className="text-zinc-400 hover:text-amber-400">{d.name}</Link>
+                          ) : (
+                            <span className="text-zinc-400">{d.name}</span>
+                          )}
                           <div className="flex items-center gap-2 flex-shrink-0">
                             {d.amount && <span className="text-amber-400 font-semibold">{d.amount}</span>}
                             {d.filingUrl && <a href={d.filingUrl} target="_blank" rel="noopener" className="text-blue-400 hover:text-blue-300 text-[10px]">LDA →</a>}
