@@ -445,15 +445,33 @@ class SessionData(BaseModel):
     messages: list[dict]
 
 class SaveSessionsRequest(BaseModel):
+    user_id: str  # anonymous ID or email
     sessions: list[SessionData]
 
+class RegisterRequest(BaseModel):
+    email: str
+
+class RegisterResponse(BaseModel):
+    user_id: str
+    message: str
+
+@router.post("/register", response_model=RegisterResponse)
+async def register_email(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
+    """Register an email to sync sessions across devices. No password needed."""
+    from sqlalchemy import text
+    email = req.email.strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Invalid email")
+    # Email IS the user_id — simple and unique
+    return RegisterResponse(user_id=email, message="Sessions will now sync across devices")
+
 @router.get("/sessions")
-async def get_sessions(db: AsyncSession = Depends(get_db)):
-    """Load all saved chat sessions."""
+async def get_sessions(user_id: str = "anonymous", db: AsyncSession = Depends(get_db)):
+    """Load saved chat sessions for a user."""
     from sqlalchemy import text
     result = await db.execute(text(
-        "SELECT id, name, slug, messages, updated_at FROM chat_sessions ORDER BY updated_at DESC"
-    ))
+        "SELECT id, name, slug, messages, updated_at FROM chat_sessions WHERE user_id = :user_id ORDER BY updated_at DESC"
+    ), {"user_id": user_id})
     rows = result.fetchall()
     return [
         {
@@ -468,15 +486,15 @@ async def get_sessions(db: AsyncSession = Depends(get_db)):
 
 @router.post("/sessions")
 async def save_sessions(req: SaveSessionsRequest, db: AsyncSession = Depends(get_db)):
-    """Save all chat sessions (upsert)."""
+    """Save chat sessions for a user (upsert)."""
     from sqlalchemy import text
+    user_id = req.user_id or "anonymous"
     for s in req.sessions:
         if not s.messages:
-            # Don't save empty sessions
             continue
         await db.execute(text("""
-            INSERT INTO chat_sessions (id, name, slug, messages, updated_at)
-            VALUES (:id, :name, :slug, :messages::jsonb, NOW())
+            INSERT INTO chat_sessions (id, name, slug, messages, user_id, updated_at)
+            VALUES (:id, :name, :slug, :messages::jsonb, :user_id, NOW())
             ON CONFLICT (id) DO UPDATE SET
                 name = :name,
                 slug = :slug,
@@ -487,6 +505,7 @@ async def save_sessions(req: SaveSessionsRequest, db: AsyncSession = Depends(get
             "name": s.name,
             "slug": s.slug,
             "messages": __import__('json').dumps(s.messages),
+            "user_id": user_id,
         })
     await db.commit()
     return {"saved": len([s for s in req.sessions if s.messages])}

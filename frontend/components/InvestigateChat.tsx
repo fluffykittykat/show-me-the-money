@@ -137,6 +137,21 @@ interface ChatSession {
   messages: Message[];
 }
 
+function getUserId(): string {
+  if (typeof window === 'undefined') return 'anonymous';
+  let id = localStorage.getItem('ftm_user_id');
+  if (!id) {
+    id = `anon-${Math.random().toString(36).slice(2, 10)}`;
+    localStorage.setItem('ftm_user_id', id);
+  }
+  return id;
+}
+
+function getUserEmail(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem('ftm_user_email');
+}
+
 export default function InvestigateChat({ slug, entityName, onDataRefresh }: InvestigateChatProps) {
   const [expanded, setExpanded] = useState(false);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -147,11 +162,21 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh }: Inv
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
+  const [showSignIn, setShowSignIn] = useState(false);
+  const [emailInput, setEmailInput] = useState('');
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const userId = userEmail || getUserId();
+
+  // Check for saved email on mount
+  useEffect(() => {
+    setUserEmail(getUserEmail());
+  }, []);
 
   // Load saved sessions from server on first mount
   useEffect(() => {
-    fetch('/api/chat/sessions')
+    fetch(`/api/chat/sessions?user_id=${encodeURIComponent(userId)}`)
       .then(r => r.ok ? r.json() : [])
       .then((saved: ChatSession[]) => {
         if (saved.length > 0) {
@@ -160,7 +185,28 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh }: Inv
         setSessionsLoaded(true);
       })
       .catch(() => setSessionsLoaded(true));
-  }, []);
+  }, [userId]);
+
+  const handleSignIn = () => {
+    const email = emailInput.trim().toLowerCase();
+    if (!email || !email.includes('@')) return;
+    localStorage.setItem('ftm_user_email', email);
+    localStorage.setItem('ftm_user_id', email);
+    setUserEmail(email);
+    setShowSignIn(false);
+    setEmailInput('');
+    // Reload sessions for this email
+    setSessionsLoaded(false);
+  };
+
+  const handleSignOut = () => {
+    localStorage.removeItem('ftm_user_email');
+    const anonId = `anon-${Math.random().toString(36).slice(2, 10)}`;
+    localStorage.setItem('ftm_user_id', anonId);
+    setUserEmail(null);
+    setSessions([]);
+    setSessionsLoaded(false);
+  };
 
   // When page changes, auto-create a session for this page if one doesn't exist
   useEffect(() => {
@@ -191,10 +237,10 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh }: Inv
       fetch('/api/chat/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessions: toSave }),
-      }).catch(() => {}); // silent fail — saving is best-effort
-    }, 2000); // 2 second debounce
-  }, [sessions, sessionsLoaded]);
+        body: JSON.stringify({ user_id: userId, sessions: toSave }),
+      }).catch(() => {});
+    }, 2000);
+  }, [sessions, sessionsLoaded, userId]);
 
   const activeSession = sessions.find(s => s.id === activeSessionId) || sessions[0];
   const messages = activeSession?.messages || [];
@@ -482,6 +528,37 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh }: Inv
             >
               + New investigation thread
             </button>
+
+            {/* Sign in / out */}
+            <div className="border-t border-zinc-800 pt-2 mt-1">
+              {userEmail ? (
+                <div className="flex items-center justify-between px-3 py-1.5">
+                  <span className="text-[10px] text-zinc-500">Signed in as <span className="text-zinc-400">{userEmail}</span></span>
+                  <button onClick={handleSignOut} className="text-[10px] text-zinc-600 hover:text-red-400">Sign out</button>
+                </div>
+              ) : showSignIn ? (
+                <div className="px-3 py-2">
+                  <p className="text-[10px] text-zinc-500 mb-1.5">Enter email to sync sessions across devices</p>
+                  <div className="flex gap-1.5">
+                    <input
+                      value={emailInput}
+                      onChange={e => setEmailInput(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleSignIn()}
+                      placeholder="email@example.com"
+                      className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-amber-500/50"
+                    />
+                    <button onClick={handleSignIn} className="bg-amber-500 text-black text-xs font-semibold px-2 py-1 rounded">Save</button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowSignIn(true)}
+                  className="w-full text-left text-[10px] text-zinc-600 hover:text-amber-400 px-3 py-1.5 transition-colors"
+                >
+                  Sign in to save across devices →
+                </button>
+              )}
+            </div>
           </div>
         )}
 
