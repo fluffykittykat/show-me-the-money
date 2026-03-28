@@ -143,6 +143,8 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh }: Inv
   ]);
   const [activeSessionId, setActiveSessionId] = useState('default');
   const [showSessions, setShowSessions] = useState(false);
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -175,6 +177,19 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh }: Inv
     if (id === 'default') return;
     setSessions(prev => prev.filter(s => s.id !== id));
     if (activeSessionId === id) setActiveSessionId('default');
+  };
+
+  const startRenaming = (id: string, currentName: string) => {
+    setEditingSessionId(id);
+    setEditName(currentName);
+  };
+
+  const finishRenaming = () => {
+    if (editingSessionId && editName.trim()) {
+      setSessions(prev => prev.map(s => s.id === editingSessionId ? { ...s, name: editName.trim() } : s));
+    }
+    setEditingSessionId(null);
+    setEditName('');
   };
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -297,9 +312,9 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh }: Inv
                 <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
               </svg>
             </button>
-            <button onClick={() => setExpanded(false)} className="text-zinc-500 hover:text-zinc-300 p-1.5 rounded-lg hover:bg-zinc-800 transition-colors">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            <button onClick={() => setExpanded(false)} className="text-zinc-500 hover:text-zinc-300 p-1.5 rounded-lg hover:bg-zinc-800 transition-colors" title="Minimize">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
             </button>
           </div>
@@ -316,20 +331,44 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh }: Inv
                 }`}
                 onClick={() => { setActiveSessionId(s.id); setShowSessions(false); }}
               >
-                <div>
-                  <div className="text-xs font-medium text-zinc-200">{s.name}</div>
+                <div className="flex-1 min-w-0">
+                  {editingSessionId === s.id ? (
+                    <input
+                      autoFocus
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      onBlur={finishRenaming}
+                      onKeyDown={(e) => { if (e.key === 'Enter') finishRenaming(); if (e.key === 'Escape') setEditingSessionId(null); }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="bg-zinc-800 border border-amber-500/50 rounded px-2 py-0.5 text-xs text-zinc-200 w-full focus:outline-none"
+                    />
+                  ) : (
+                    <div className="text-xs font-medium text-zinc-200 truncate">{s.name}</div>
+                  )}
                   <div className="text-[10px] text-zinc-500">{s.messages.length} messages</div>
                 </div>
-                {s.id !== 'default' && (
+                <div className="flex items-center gap-0.5 ml-2 flex-shrink-0">
                   <button
-                    onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }}
-                    className="text-zinc-600 hover:text-red-400 p-1"
+                    onClick={(e) => { e.stopPropagation(); startRenaming(s.id, s.name); }}
+                    className="text-zinc-600 hover:text-amber-400 p-1"
+                    title="Rename"
                   >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
                     </svg>
                   </button>
-                )}
+                  {s.id !== 'default' && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }}
+                      className="text-zinc-600 hover:text-red-400 p-1"
+                      title="Delete"
+                    >
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
             <button
