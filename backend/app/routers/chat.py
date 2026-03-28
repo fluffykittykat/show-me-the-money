@@ -24,9 +24,10 @@ CHAT_API_KEY = os.getenv("ANTHROPIC_CHAT_API_KEY", os.getenv("ANTHROPIC_API_KEY"
 
 
 class ChatRequest(BaseModel):
-    slug: str
+    slug: str  # current page entity (for context)
     message: str
     history: list[dict] = []
+    session_id: str = "default"  # support multiple chat sessions
 
 
 class ChatResponse(BaseModel):
@@ -191,9 +192,10 @@ async def _build_context(entity: Entity, db: AsyncSession) -> str:
 
 SYSTEM_PROMPT_TEMPLATE = """You are an investigative analyst for Follow The Money, a political corruption research platform.
 
-You are currently viewing the dossier for: **{entity_name}**
+The user is currently viewing: **{entity_name}**
+But you can answer questions about ANY official, bill, PAC, or company in the database — not just the current page.
 
-Here is ALL the data we have on this entity:
+Here is the data we have:
 
 {context}
 
@@ -252,9 +254,29 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
     if not entity:
         raise HTTPException(status_code=404, detail=f"Entity '{req.slug}' not found")
 
-    # 2. Detect and execute actions
+    # 2. Search for ANY entities the user mentions — not just current page
     action_taken = None
     msg_lower = req.message.lower()
+
+    # Try to find other entities the user is asking about
+    additional_entities = []
+    # Extract potential entity names (words after "about", "for", "on", between quotes, etc.)
+    import re as _re
+    name_candidates = _re.findall(r'"([^"]+)"', req.message)  # quoted names
+    name_candidates += _re.findall(r'(?:about|for|compare|vs|versus|look up|search|find|investigate)\s+(.+?)(?:\?|$|\.|\band\b)', msg_lower)
+
+    for candidate in name_candidates:
+        candidate = candidate.strip()
+        if len(candidate) < 3 or len(candidate) > 50:
+            continue
+        search_result = await db.execute(
+            select(Entity).where(
+                Entity.name.ilike(f"%{candidate}%")
+            ).limit(3)
+        )
+        for found_entity in search_result.scalars().all():
+            if found_entity.id != entity.id and found_entity.id not in [e.id for e in additional_entities]:
+                additional_entities.append(found_entity)
 
     # Action: Run full investigation / refresh
     if any(kw in msg_lower for kw in ["run investigation", "refresh", "full investigation", "update data", "fetch latest", "get fresh data", "re-run", "rerun"]):
@@ -346,20 +368,11 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
     # 3. Build context for the primary entity (after any actions)
     context = await _build_context(entity, db)
 
-    # 3. Check if user is asking about a related entity — pull its data too
+    # 3. Build context for additional entities the user asked about
     extra_context = ""
-    user_msg_lower = req.message.lower()
-    # Search for entity names mentioned in the user's question
-    mentioned = await db.execute(
-        select(Entity).where(
-            Entity.name.ilike(f"%{req.message.split('about ')[-1].split('?')[0].strip()[:30]}%")
-        ).limit(3)
-    )
-    mentioned_entities = mentioned.scalars().all()
-    for me in mentioned_entities:
-        if me.id != entity.id:
-            me_context = await _build_context(me, db)
-            extra_context += f"\n\n---\n## Additional Context: {me.name}\n{me_context}"
+    for ae in additional_entities[:3]:  # max 3 extra entities to stay within context limits
+        ae_context = await _build_context(ae, db)
+        extra_context += f"\n\n{'='*60}\n## DATA FOR: {ae.name} (slug: {ae.slug})\n{ae_context}"
 
     full_context = context + extra_context
 
