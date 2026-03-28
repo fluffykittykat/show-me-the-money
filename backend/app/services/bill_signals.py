@@ -18,7 +18,7 @@ import uuid
 from collections import defaultdict
 from datetime import date, timedelta
 
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_, case, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Entity, Relationship
@@ -731,7 +731,7 @@ async def run_precompute_bill_signals() -> str:
                 )
                 .order_by(
                     # Prioritize 119th congress
-                    func.case(
+                    case(
                         (Entity.metadata_["congress"].astext == "119", 0),
                         else_=1,
                     ),

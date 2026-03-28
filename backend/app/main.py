@@ -275,13 +275,19 @@ async def admin_ingest(slug: str):
         return {"status": "started", "message": "Parsing bill numbers from LDA filings"}
     elif slug == "compute-baselines":
         import asyncio as _aio
+        import logging as _logging
+        _log = _logging.getLogger(__name__)
         from app.services.bill_baselines import compute_baselines
         from app.database import async_session
         async def _run():
-            async with async_session() as session:
-                result = await compute_baselines(session)
-                await session.commit()
-                return result
+            try:
+                async with async_session() as session:
+                    result = await compute_baselines(session)
+                    await session.commit()
+                    _log.info("Baselines computed: %d areas", len(result))
+                    return result
+            except Exception as e:
+                _log.error("compute-baselines FAILED: %s", e, exc_info=True)
         _aio.create_task(_run())
         return {"status": "started", "message": "Computing bill baselines per policy area"}
     elif slug == "precompute-bill-signals":

@@ -39,17 +39,15 @@ async def compute_baselines(session: AsyncSession) -> dict[str, dict]:
     log.info("Computing bill baselines per policy area...")
 
     # Step 1: Get all bill entities grouped by policy_area
-    q = (
-        select(
-            Entity.metadata_["policy_area"].astext.label("policy_area"),
-            func.count(Entity.id).label("total"),
-        )
-        .where(Entity.entity_type == "bill")
-        .where(Entity.metadata_["policy_area"].astext != "")
-        .where(Entity.metadata_["policy_area"].astext.isnot(None))
-        .group_by(Entity.metadata_["policy_area"].astext)
-    )
-    result = await session.execute(q)
+    # Use raw SQL to avoid SQLAlchemy/asyncpg GROUP BY issues with JSONB expressions
+    result = await session.execute(text("""
+        SELECT metadata->>'policy_area' AS policy_area, COUNT(id) AS total
+        FROM entities
+        WHERE entity_type = 'bill'
+          AND metadata->>'policy_area' IS NOT NULL
+          AND metadata->>'policy_area' != ''
+        GROUP BY metadata->>'policy_area'
+    """))
     area_counts = {row.policy_area: row.total for row in result.all()}
 
     log.info("Found %d policy areas across bills", len(area_counts))
