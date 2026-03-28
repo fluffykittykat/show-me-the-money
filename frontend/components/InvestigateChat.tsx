@@ -315,7 +315,10 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh }: Inv
   // --- Chat panel (expanded) ---
   return (
     <div className="fixed bottom-6 right-6 z-50 w-[400px]" style={{ maxHeight: 'calc(100vh - 100px)' }}>
-      <div className="bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl shadow-black/50 flex flex-col overflow-hidden" style={{ height: '500px' }}>
+      <div
+        className="bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl shadow-black/50 flex flex-col overflow-hidden transition-all duration-300 ease-out"
+        style={{ height: messages.length === 0 ? '380px' : messages.length <= 2 ? '450px' : messages.length <= 5 ? '520px' : '600px' }}
+      >
 
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-2.5 bg-zinc-900 border-b border-zinc-800">
