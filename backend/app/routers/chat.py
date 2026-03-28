@@ -23,11 +23,18 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 CHAT_API_KEY = os.getenv("ANTHROPIC_CHAT_API_KEY", os.getenv("ANTHROPIC_API_KEY", ""))
 
 
+class OtherSession(BaseModel):
+    name: str = ""
+    slug: str = ""
+    message_count: int = 0
+    last_message: str = ""
+
 class ChatRequest(BaseModel):
-    slug: str  # current page entity (for context)
+    slug: str  # current session's entity
     message: str
     history: list[dict] = []
-    session_id: str = "default"  # support multiple chat sessions
+    session_id: str = "default"
+    other_sessions: list[OtherSession] = []  # summaries of other open investigations
 
 
 class ChatResponse(BaseModel):
@@ -375,6 +382,13 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
         extra_context += f"\n\n{'='*60}\n## DATA FOR: {ae.name} (slug: {ae.slug})\n{ae_context}"
 
     full_context = context + extra_context
+
+    # Add other open investigations context
+    if req.other_sessions:
+        other_lines = []
+        for os in req.other_sessions:
+            other_lines.append(f"- **{os.name}** ({os.slug}): {os.message_count} messages. Last discussed: {os.last_message[:100]}...")
+        full_context += f"\n\n## Other Open Investigations\nThe user has these other investigation threads open. They may ask you to cross-reference or compare:\n" + "\n".join(other_lines)
 
     # Add action result to context if applicable
     if action_taken == "refreshed":

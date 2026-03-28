@@ -133,15 +133,14 @@ interface Message {
 interface ChatSession {
   id: string;
   name: string;
+  slug: string;  // entity slug this session was started on
   messages: Message[];
 }
 
 export default function InvestigateChat({ slug, entityName, onDataRefresh }: InvestigateChatProps) {
   const [expanded, setExpanded] = useState(false);
-  const [sessions, setSessions] = useState<ChatSession[]>([
-    { id: 'default', name: entityName, messages: [] }
-  ]);
-  const [activeSessionId, setActiveSessionId] = useState('default');
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string>('');
   const [showSessions, setShowSessions] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -149,26 +148,34 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh }: Inv
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // When page changes, auto-create a session for this page if one doesn't exist
+  // and switch to it
+  useEffect(() => {
+    if (!slug) return;
+    setSessions(prev => {
+      const existing = prev.find(s => s.slug === slug);
+      if (existing) {
+        // Session for this page exists — switch to it
+        setActiveSessionId(existing.id);
+        return prev;
+      }
+      // Create new session for this page
+      const id = `page-${slug}`;
+      const newSession: ChatSession = { id, name: entityName, slug, messages: [] };
+      setActiveSessionId(id);
+      return [...prev, newSession];
+    });
+  }, [slug, entityName]);
+
   const activeSession = sessions.find(s => s.id === activeSessionId) || sessions[0];
   const messages = activeSession?.messages || [];
   const setMessages = (msgs: Message[]) => {
     setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: msgs } : s));
   };
 
-  // Update default session name when page changes, but don't clear messages
-  useEffect(() => {
-    setSessions(prev => {
-      const def = prev.find(s => s.id === 'default');
-      if (def && def.name !== entityName) {
-        return prev.map(s => s.id === 'default' ? { ...s, name: entityName } : s);
-      }
-      return prev;
-    });
-  }, [entityName]);
-
   const createNewSession = () => {
     const id = `session-${Date.now()}`;
-    setSessions(prev => [...prev, { id, name: `Investigation ${prev.length}`, messages: [] }]);
+    setSessions(prev => [...prev, { id, name: `Investigation ${prev.length + 1}`, slug, messages: [] }]);
     setActiveSessionId(id);
     setShowSessions(false);
   };
@@ -218,10 +225,13 @@ export default function InvestigateChat({ slug, entityName, onDataRefresh }: Inv
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          slug,
+          slug: activeSession?.slug || slug,
           message: trimmed,
           history: messages,
           session_id: activeSessionId,
+          other_sessions: sessions
+            .filter(s => s.id !== activeSessionId && s.messages.length > 0)
+            .map(s => ({ name: s.name, slug: s.slug, message_count: s.messages.length, last_message: s.messages[s.messages.length - 1]?.content?.slice(0, 200) })),
         }),
       });
       const data = await res.json();
