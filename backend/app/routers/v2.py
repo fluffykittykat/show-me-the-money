@@ -13,15 +13,19 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import AppConfig, Entity, MoneyTrail, Relationship
+from app.models import AppConfig, BillInfluenceSignal, Entity, MoneyTrail, Relationship
 from app.services.ingestion.congress_client import CongressClient
 from app.schemas import (
     EntityResponse,
     V2BillResponse,
+    V2BillSponsor,
     V2EntityResponse,
     V2HomepageResponse,
+    V2InfluenceSignal,
     V2MoneyTrail,
     V2OfficialResponse,
+    V2SponsorContext,
+    V2SponsorVerifiedConnection,
 )
 
 router = APIRouter(tags=["v2"])
@@ -264,11 +268,31 @@ async def v2_bill(slug: str, db: AsyncSession = Depends(get_db)):
 
 async def _v2_bill_inner(entity, slug: str, db):
     """Inner bill logic — separated for error tracing."""
+    from datetime import timedelta
 
     meta = entity.metadata_ or {}
     status_label = _parse_bill_status(meta.get("status"))
 
-    # --- Sponsors / cosponsors with their top donors ---
+    # --- Load pre-computed influence signals ---
+    signals_q = select(BillInfluenceSignal).where(BillInfluenceSignal.bill_id == entity.id)
+    signals_result = await db.execute(signals_q)
+    signals = signals_result.scalars().all()
+    influence_signals = [
+        V2InfluenceSignal(
+            type=s.signal_type,
+            found=s.found,
+            rarity_label=s.rarity_label,
+            rarity_pct=s.rarity_pct,
+            p_value=s.p_value,
+            baseline_rate=s.baseline_rate,
+            observed_rate=s.observed_rate,
+            description=s.description,
+            evidence=s.evidence or {},
+        )
+        for s in signals
+    ]
+
+    # --- Sponsors / cosponsors with layered data ---
     sponsor_q = (
         select(Relationship, Entity)
         .join(Entity, Entity.id == Relationship.from_entity_id)
@@ -279,14 +303,86 @@ async def _v2_bill_inner(entity, slug: str, db):
     )
     sponsor_rows = (await db.execute(sponsor_q)).all()
 
-    sponsors = []
+    # Find lobbying clients for THIS bill (lobbied_on relationships pointing to this bill)
+    lobby_client_q = (
+        select(Relationship.from_entity_id)
+        .where(Relationship.to_entity_id == entity.id)
+        .where(Relationship.relationship_type == "lobbied_on")
+    )
+    lobby_client_rows = (await db.execute(lobby_client_q)).all()
+    lobby_client_ids = {r[0] for r in lobby_client_rows}
+
+    sponsors: list[V2BillSponsor] = []
     total_money_behind = 0
-    all_donor_names: dict[str, int] = {}  # donor_name -> total amount
+    all_donor_names: dict[str, int] = {}
 
     for rel, sponsor_entity in sponsor_rows:
         s_meta = sponsor_entity.metadata_ or {}
+        role = "Primary Sponsor" if rel.relationship_type == "sponsored" else "Cosponsor"
 
-        # Load this sponsor's top donors
+        # --- Verified connections: lobby clients that also donated to this sponsor ---
+        verified_connections: list[V2SponsorVerifiedConnection] = []
+        if lobby_client_ids:
+            vc_q = (
+                select(Relationship, Entity)
+                .join(Entity, Entity.id == Relationship.from_entity_id)
+                .where(Relationship.to_entity_id == sponsor_entity.id)
+                .where(Relationship.relationship_type == "donated_to")
+                .where(Relationship.from_entity_id.in_(lobby_client_ids))
+            )
+            vc_rows = (await db.execute(vc_q)).all()
+            for vc_rel, vc_entity in vc_rows:
+                verified_connections.append(
+                    V2SponsorVerifiedConnection(
+                        entity=vc_entity.name,
+                        type="lobby_donor",
+                        amount=int(vc_rel.amount_usd or 0),
+                    )
+                )
+
+        # --- Context: career PAC total ---
+        career_pac_q = (
+            select(func.sum(Relationship.amount_usd))
+            .where(Relationship.to_entity_id == sponsor_entity.id)
+            .where(Relationship.relationship_type == "donated_to")
+        )
+        career_pac_total = (await db.execute(career_pac_q)).scalar() or 0
+
+        # --- Context: industry donations within 90 days ---
+        industry_90d = 0
+        if rel.date_start:
+            window_start = rel.date_start - timedelta(days=90)
+            ind_q = (
+                select(func.sum(Relationship.amount_usd))
+                .where(Relationship.to_entity_id == sponsor_entity.id)
+                .where(Relationship.relationship_type == "donated_to")
+                .where(Relationship.date_start >= window_start)
+                .where(Relationship.date_start <= rel.date_start)
+            )
+            industry_90d = (await db.execute(ind_q)).scalar() or 0
+
+        # --- Context: committee ---
+        committee_name = None
+        comm_q = (
+            select(Entity.name)
+            .join(Relationship, Relationship.to_entity_id == Entity.id)
+            .where(Relationship.from_entity_id == sponsor_entity.id)
+            .where(Relationship.relationship_type == "committee_member")
+            .limit(1)
+        )
+        comm_result = (await db.execute(comm_q)).scalar()
+        if comm_result:
+            committee_name = comm_result
+
+        context = V2SponsorContext(
+            industry_donations_90d=int(industry_90d),
+            career_pac_total=int(career_pac_total),
+            committee=committee_name,
+        )
+
+        total_money_behind += int(career_pac_total)
+
+        # Track top donors across all sponsors
         donor_q = (
             select(
                 Relationship.from_entity_id,
@@ -307,64 +403,54 @@ async def _v2_bill_inner(entity, slug: str, db):
             )
             donor_entities = {e.id: e for e in de_result.scalars().all()}
 
-        top_donors = []
-        sponsor_total = 0
         for did, amount in donor_rows:
             de = donor_entities.get(did)
             if de:
                 amt = int(amount or 0)
-                top_donors.append({
-                    "name": de.name,
-                    "slug": de.slug,
-                    "entity_type": de.entity_type,
-                    "amount": amt,
-                    "date": None,
-                })
-                sponsor_total += amt
-                # Track across all sponsors
-                all_donor_names[de.name] = all_donor_names.get(de.name, 0) + int(amt)
+                all_donor_names[de.name] = all_donor_names.get(de.name, 0) + amt
 
-        total_money_behind += sponsor_total
+        sponsors.append(V2BillSponsor(
+            slug=sponsor_entity.slug,
+            name=sponsor_entity.name,
+            party=s_meta.get("party", ""),
+            state=s_meta.get("state", ""),
+            role=role,
+            verified_connections=verified_connections,
+            context=context,
+        ))
 
-        # Load money trails for this sponsor (from precomputed)
-        trail_q = (
-            select(MoneyTrail)
-            .where(MoneyTrail.official_id == sponsor_entity.id)
-            .order_by(MoneyTrail.dot_count.desc())
-            .limit(3)
-        )
-        trail_rows = (await db.execute(trail_q)).scalars().all()
-        money_trails = [
-            {
-                "industry": t.industry,
-                "verdict": t.verdict,
-                "dot_count": t.dot_count,
-                "total_amount": t.total_amount,
-            }
-            for t in trail_rows
-        ]
+    # Sort: primary sponsors first, then by career_pac_total desc
+    sponsors.sort(key=lambda s: (0 if s.role == "Primary Sponsor" else 1, -s.context.career_pac_total))
 
-        sponsors.append({
-            "slug": sponsor_entity.slug,
-            "name": sponsor_entity.name,
-            "party": s_meta.get("party", ""),
-            "state": s_meta.get("state", ""),
-            "role": rel.relationship_type,
-            "verdict": s_meta.get("v2_verdict"),
-            "campaign_total": s_meta.get("campaign_total"),
-            "top_donors": top_donors,
-            "donor_total": sponsor_total,
-            "money_trails": money_trails,
-        })
-
-    # Sort: primary sponsors first, then by donor_total desc
-    sponsors.sort(key=lambda s: (0 if s["role"] == "sponsored" else 1, -(s.get("donor_total") or 0)))
-
-    # Top donors across all sponsors (who's funding the people behind this bill)
+    # Top donors across all sponsors
     top_donors_across = [[name, int(amt)] for name, amt in sorted(all_donor_names.items(), key=lambda x: -x[1])[:10]]
 
     briefing = meta.get("fbi_briefing")
-    policy_area = meta.get("policy_area", "")
+    policy_area = meta.get("policy_area") or ""
+
+    # --- Percentile rank ---
+    percentile_rank = meta.get("influence_percentile")
+    if percentile_rank is not None:
+        percentile_rank = int(percentile_rank)
+
+    # --- Similar bill count ---
+    similar_bill_count = 0
+    if policy_area:
+        similar_q = (
+            select(func.count())
+            .select_from(Entity)
+            .where(Entity.entity_type == "bill")
+            .where(Entity.metadata_["policy_area"].astext == policy_area)
+        )
+        similar_bill_count = (await db.execute(similar_q)).scalar() or 0
+
+    # --- Data limitations ---
+    data_limitations = {
+        "fec_threshold": "$200",
+        "senate_stocks": False,
+        "industry_matching": "keyword",
+        "lda_coverage": "quarterly",
+    }
 
     # --- Vote data (cached in metadata, fetched from Congress.gov if missing) ---
     votes = meta.get("votes") or []
@@ -373,10 +459,8 @@ async def _v2_bill_inner(entity, slug: str, db):
         congress_num = meta.get("congress")
         bill_number = meta.get("bill_number")
         if congress_api_key and congress_num and bill_number:
-            # Determine bill type from slug or metadata
             slug_str = slug or ""
-            # Bill types: hr, s, hres, sres, hjres, sjres, hconres, sconres
-            bill_type = "hres"  # default
+            bill_type = "hres"
             origin = (meta.get("origin_chamber") or "").lower()
             name_lower = (entity.name or "").lower()
             if "joint resolution" in name_lower:
@@ -395,7 +479,6 @@ async def _v2_bill_inner(entity, slug: str, db):
                 votes = await client.fetch_bill_votes(
                     int(congress_num), bill_type, int(bill_number)
                 )
-                # Cache votes in metadata
                 if votes:
                     meta["votes"] = votes
                     entity.metadata_ = meta
@@ -409,10 +492,15 @@ async def _v2_bill_inner(entity, slug: str, db):
         status_label=status_label,
         sponsors=sponsors,
         briefing=briefing,
+        summary=entity.summary,
         policy_area=policy_area,
         total_money_behind=total_money_behind,
         top_donors_across=top_donors_across,
         votes=votes,
+        percentile_rank=percentile_rank,
+        similar_bill_count=similar_bill_count,
+        influence_signals=influence_signals,
+        data_limitations=data_limitations,
     )
 
 

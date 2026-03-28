@@ -575,15 +575,54 @@ class V2OfficialResponse(BaseModel):
     total_all_cycles: int = 0
 
 
+class V2InfluenceSignal(BaseModel):
+    type: str
+    found: bool
+    rarity_label: str | None = None
+    rarity_pct: float | None = None
+    p_value: float | None = None
+    baseline_rate: float | None = None
+    observed_rate: float | None = None
+    description: str | None = None
+    evidence: dict = {}
+
+
+class V2SponsorVerifiedConnection(BaseModel):
+    entity: str
+    type: str
+    amount: int = 0
+
+
+class V2SponsorContext(BaseModel):
+    industry_donations_90d: int = 0
+    career_pac_total: int = 0
+    committee: str | None = None
+
+
+class V2BillSponsor(BaseModel):
+    name: str
+    slug: str
+    party: str = ""
+    state: str = ""
+    role: str = ""
+    verified_connections: list[V2SponsorVerifiedConnection] = []
+    context: V2SponsorContext = V2SponsorContext()
+
+
 class V2BillResponse(BaseModel):
     entity: EntityResponse
     status_label: str
-    sponsors: list[dict]
+    sponsors: list[V2BillSponsor]
     briefing: str | None
+    summary: str | None = None
     policy_area: str | None = ""
     total_money_behind: int = 0
     top_donors_across: list = []
     votes: list = []
+    percentile_rank: int | None = None
+    similar_bill_count: int = 0
+    influence_signals: list[V2InfluenceSignal] = []
+    data_limitations: dict = {}
 
 
 class V2EntityResponse(BaseModel):
