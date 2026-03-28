@@ -367,35 +367,42 @@ function OfficialSignalCard({ signal, peerGroup }: { signal: V2OfficialInfluence
             {/* donors_lobby_bills evidence */}
             {evidence.matches && evidence.matches.length > 0 && (
               <div className="space-y-1.5">
-                {evidence.matches.map((m, i) => (
+                {evidence.matches.slice(0, 20).map((m: Record<string, unknown>, i: number) => {
+                  const donorName = (m.donor || m.entity_name || 'Unknown') as string;
+                  const billName = (m.bill || m.bill_name || '') as string;
+                  const billSlug = (m.bill_slug || m.bill_id || '') as string;
+                  const amount = (m.donation_amount_fmt || (m.donation_amount ? formatMoney(m.donation_amount as number) : null)) as string | null;
+                  const filingUrl = (m.filing_url || m.lda_url || '') as string;
+                  return (
                   <div key={i} className="bg-zinc-950/50 rounded-lg px-3 py-2 text-xs">
                     <div className="flex items-center justify-between flex-wrap gap-2">
-                      <div className="text-zinc-300">
-                        <span className="font-semibold text-zinc-200">{m.entity_name}</span>
-                        {m.bill_name && m.bill_slug ? (
+                      <div className="text-zinc-300 flex-1 min-w-0">
+                        <span className="font-semibold text-zinc-200">{donorName}</span>
+                        {billName ? (
                           <span className="text-zinc-500 ml-2">
                             Lobbied for{' '}
-                            <Link href={`/bills/${m.bill_slug}`} className="text-amber-400 hover:underline">
-                              {m.bill_name}
-                            </Link>
+                            {billSlug ? (
+                              <Link href={`/bills/${billSlug}`} className="text-amber-400 hover:underline">
+                                {billName.length > 60 ? billName.slice(0, 60) + '...' : billName}
+                              </Link>
+                            ) : (
+                              <span>{billName.length > 60 ? billName.slice(0, 60) + '...' : billName}</span>
+                            )}
                           </span>
-                        ) : m.bill_name ? (
-                          <span className="text-zinc-500 ml-2">Lobbied for {m.bill_name}</span>
                         ) : null}
                       </div>
-                      {m.donation_amount != null && (
-                        <span className="text-amber-400 font-semibold">
-                          Donated {formatMoney(m.donation_amount)}
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {amount && (
+                          <span className="text-amber-400 font-semibold">{amount}</span>
+                        )}
+                        {filingUrl && (
+                          <a href={filingUrl} target="_blank" rel="noopener" className="text-blue-400 hover:text-blue-300 text-[10px]">LDA →</a>
+                        )}
+                      </div>
                     </div>
-                    {m.lda_url && (
-                      <a href={m.lda_url} target="_blank" rel="noopener noreferrer" className="text-zinc-600 hover:text-zinc-400 text-[0.6rem] mt-1 inline-block">
-                        LDA filing →
-                      </a>
-                    )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
