@@ -14,6 +14,7 @@ import AIBriefing from '@/components/AIBriefing';
 import MoneyTrailCard from '@/components/MoneyTrailCard';
 import VerdictBadge from '@/components/VerdictBadge';
 import FreshnessBar from '@/components/FreshnessBar';
+import InvestigateChat from '@/components/InvestigateChat';
 
 function fmtDate(d: string | null | undefined): string {
   if (!d) return '—';
@@ -696,6 +697,7 @@ export default function OfficialPage() {
         </div>
       )}
 
+      <InvestigateChat slug={slug} entityName={entity.name} />
     </div>
   );
 }

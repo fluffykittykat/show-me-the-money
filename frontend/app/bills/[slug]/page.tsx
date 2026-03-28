@@ -11,6 +11,7 @@ import LoadingState from '@/components/LoadingState';
 import PartyBadge from '@/components/PartyBadge';
 import AIBriefing from '@/components/AIBriefing';
 import PageControls from '@/components/PageControls';
+import InvestigateChat from '@/components/InvestigateChat';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -437,6 +438,8 @@ export default function BillPage() {
       {data_limitations && Object.keys(data_limitations).length > 0 && (
         <DataLimitations limitations={data_limitations} />
       )}
+
+      <InvestigateChat slug={slug} entityName={entity.name} />
     </div>
   );
 }
