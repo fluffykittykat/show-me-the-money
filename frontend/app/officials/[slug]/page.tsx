@@ -566,8 +566,11 @@ export default function OfficialPage() {
       {/* AI Briefing */}
       <AIBriefing briefing={briefing ?? dataBriefing} />
 
-      {/* Percentile Ring */}
-      {data.percentile_rank != null && (
+      {/* Percentile Ring — only show when there are actual concerning signals */}
+      {data.percentile_rank != null && data.percentile_rank > 0 &&
+       data.influence_signals?.some((s: { found: boolean; rarity_label?: string }) =>
+         s.found && s.rarity_label && !['Expected', 'Notable', ''].includes(s.rarity_label)
+       ) && (
         <OfficialPercentileRing
           pct={data.percentile_rank}
           peerGroup={data.peer_group || 'peers'}
