@@ -135,7 +135,18 @@ export default function InvestigateChat({ slug, entityName }: InvestigateChatPro
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [currentSlug, setCurrentSlug] = useState(slug);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Reset chat when navigating to a different entity
+  useEffect(() => {
+    if (slug !== currentSlug) {
+      setCurrentSlug(slug);
+      setMessages([]);
+      setInput('');
+      setLoading(false);
+    }
+  }, [slug, currentSlug]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
