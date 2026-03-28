@@ -364,47 +364,61 @@ function OfficialSignalCard({ signal, peerGroup }: { signal: V2OfficialInfluence
         {/* Expanded evidence */}
         {expanded && evidence && (
           <div className="mt-3 space-y-2">
-            {/* donors_lobby_bills evidence */}
-            {evidence.matches && evidence.matches.length > 0 && (
-              <div className="space-y-1.5">
-                {evidence.matches.slice(0, 20).map((m: Record<string, unknown>, i: number) => {
-                  const donorName = (m.donor || m.entity_name || 'Unknown') as string;
-                  const billName = (m.bill || m.bill_name || '') as string;
-                  const billSlug = (m.bill_slug || m.bill_id || '') as string;
-                  const amount = (m.donation_amount_fmt || (m.donation_amount ? formatMoney(m.donation_amount as number) : null)) as string | null;
-                  const filingUrl = (m.filing_url || m.lda_url || '') as string;
-                  return (
-                  <div key={i} className="bg-zinc-950/50 rounded-lg px-3 py-2 text-xs">
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                      <div className="text-zinc-300 flex-1 min-w-0">
-                        <span className="font-semibold text-zinc-200">{donorName}</span>
-                        {billName ? (
-                          <span className="text-zinc-500 ml-2">
-                            Lobbied for{' '}
-                            {billSlug ? (
-                              <Link href={`/bills/${billSlug}`} className="text-amber-400 hover:underline">
-                                {billName.length > 60 ? billName.slice(0, 60) + '...' : billName}
-                              </Link>
-                            ) : (
-                              <span>{billName.length > 60 ? billName.slice(0, 60) + '...' : billName}</span>
-                            )}
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {amount && (
-                          <span className="text-amber-400 font-semibold">{amount}</span>
+            {/* donors_lobby_bills evidence — grouped by bill */}
+            {evidence.matches && evidence.matches.length > 0 && (() => {
+              // Group matches by bill
+              const byBill = new Map<string, { bill: string; slug: string; donors: { name: string; amount: string; filingUrl: string }[] }>();
+              for (const m of evidence.matches as Record<string, unknown>[]) {
+                const billName = (m.bill || m.bill_name || 'Unknown bill') as string;
+                const billSlug = (m.bill_slug || m.bill_id || '') as string;
+                const key = billName;
+                if (!byBill.has(key)) {
+                  byBill.set(key, { bill: billName, slug: billSlug, donors: [] });
+                }
+                const entry = byBill.get(key)!;
+                const donorName = (m.donor || m.entity_name || 'Unknown') as string;
+                // Deduplicate donors per bill
+                if (!entry.donors.find(d => d.name === donorName)) {
+                  entry.donors.push({
+                    name: donorName,
+                    amount: (m.donation_amount_fmt || (m.donation_amount ? formatMoney(m.donation_amount as number) : '')) as string,
+                    filingUrl: (m.filing_url || m.lda_url || '') as string,
+                  });
+                }
+              }
+              return (
+              <div className="space-y-2">
+                {Array.from(byBill.values()).map((group, i) => (
+                  <div key={i} className="bg-zinc-950/50 rounded-lg px-3 py-2.5">
+                    <div className="flex items-start gap-2 mb-2">
+                      <span className="text-amber-500 mt-0.5 flex-shrink-0">•</span>
+                      <div>
+                        {group.slug ? (
+                          <Link href={`/bills/${group.slug}`} className="text-xs font-semibold text-zinc-200 hover:text-amber-400">
+                            {group.bill}
+                          </Link>
+                        ) : (
+                          <span className="text-xs font-semibold text-zinc-200">{group.bill}</span>
                         )}
-                        {filingUrl && (
-                          <a href={filingUrl} target="_blank" rel="noopener" className="text-blue-400 hover:text-blue-300 text-[10px]">LDA →</a>
-                        )}
+                        <div className="text-[10px] text-zinc-500 mt-0.5">{group.donors.length} donor{group.donors.length !== 1 ? 's' : ''} also lobbied for this bill</div>
                       </div>
                     </div>
+                    <div className="ml-4 space-y-1">
+                      {group.donors.map((d, j) => (
+                        <div key={j} className="flex items-center justify-between text-xs">
+                          <span className="text-zinc-400">{d.name}</span>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            {d.amount && <span className="text-amber-400 font-semibold">{d.amount}</span>}
+                            {d.filingUrl && <a href={d.filingUrl} target="_blank" rel="noopener" className="text-blue-400 hover:text-blue-300 text-[10px]">LDA →</a>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  );
-                })}
+                ))}
               </div>
-            )}
+              );
+            })()}
 
             {/* stock_committee evidence */}
             {evidence.trades && evidence.trades.length > 0 && (
