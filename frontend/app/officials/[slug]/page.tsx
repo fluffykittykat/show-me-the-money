@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getV2Official } from '@/lib/api';
 import PageControls from '@/components/PageControls';
-import type { V2OfficialResponse } from '@/lib/types';
+import type { V2OfficialResponse, V2OfficialInfluenceSignal } from '@/lib/types';
 import { formatMoney } from '@/lib/utils';
 import LoadingState from '@/components/LoadingState';
 import PartyBadge from '@/components/PartyBadge';
@@ -202,6 +202,260 @@ function CycleTrend({ sorted, maxReceipts, totalRaised, totalSpent, trendPct, pr
   );
 }
 
+// ---------------------------------------------------------------------------
+// Influence Signal Helpers
+// ---------------------------------------------------------------------------
+
+const OFFICIAL_SIGNAL_LABELS: Record<string, string> = {
+  donors_lobby_bills: 'DONORS LOBBY HIS BILLS',
+  timing_spike: 'DONATION TIMING',
+  stock_committee: 'STOCK TRADES',
+  committee_donors: 'COMMITTEE DONORS',
+  revolving_door: 'REVOLVING DOOR',
+};
+
+function getOfficialSignalStyle(signal: V2OfficialInfluenceSignal) {
+  if (signal.found && signal.rarity_label === 'Rare') {
+    return {
+      border: '1px solid rgba(239, 68, 68, 0.2)',
+      background: 'linear-gradient(135deg, #0f0808, #0a0505)',
+      glow: 'radial-gradient(ellipse at 30% 30%, rgba(239,68,68,0.07), transparent 70%)',
+      dotColor: 'bg-red-500',
+      badge: 'bg-red-500/20 text-red-400 border-red-500/40',
+      badgeText: 'RARE',
+    };
+  }
+  if (signal.found && (signal.rarity_label === 'Unusual' || signal.rarity_label === 'Above Baseline')) {
+    return {
+      border: '1px solid rgba(245, 158, 11, 0.2)',
+      background: 'linear-gradient(135deg, #0f0a02, #0a0702)',
+      glow: '',
+      dotColor: 'bg-amber-500',
+      badge: 'bg-amber-500/20 text-amber-400 border-amber-500/40',
+      badgeText: signal.rarity_pct ? `${signal.rarity_pct.toFixed(1)}x` : 'ABOVE',
+    };
+  }
+  if (signal.found && signal.rarity_label === 'Expected') {
+    return {
+      border: '1px solid rgba(34, 34, 34, 0.5)',
+      background: '#09090b',
+      glow: '',
+      dotColor: 'bg-zinc-500',
+      badge: 'bg-zinc-700 text-zinc-400 border-zinc-600',
+      badgeText: 'EXPECTED',
+    };
+  }
+  return {
+    border: '1px solid rgba(34, 197, 94, 0.12)',
+    background: '#09090b',
+    glow: '',
+    dotColor: 'bg-green-500',
+    badge: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+    badgeText: 'CLEAR',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Percentile Ring (Official variant)
+// ---------------------------------------------------------------------------
+
+function OfficialPercentileRing({ pct, peerGroup, peerCount }: { pct: number; peerGroup: string; peerCount: number }) {
+  const radius = 54;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (pct / 100) * circumference;
+
+  let strokeColor = '#22c55e';
+  if (pct >= 75) strokeColor = '#ef4444';
+  else if (pct >= 50) strokeColor = '#f59e0b';
+
+  return (
+    <div className="mb-8">
+      <div
+        style={{ background: 'linear-gradient(135deg,#111,#0a0a12)' }}
+        className="border border-zinc-800 rounded-2xl p-5 flex justify-between items-center"
+      >
+        <div>
+          <div className="text-zinc-500 text-xs uppercase tracking-widest">vs. Other {peerGroup}</div>
+          <div className="text-white text-base font-bold mt-1">
+            More influence signals than{' '}
+            <span style={{ color: strokeColor }}>{pct}%</span>{' '}
+            of {peerGroup}
+          </div>
+          <div className="text-zinc-600 text-xs mt-1">Compared against {peerCount} current {peerGroup}</div>
+        </div>
+        <div className="relative flex-shrink-0" style={{ width: 100, height: 100 }}>
+          <svg width="100" height="100" viewBox="0 0 128 128" className="-rotate-90">
+            <circle cx="64" cy="64" r={radius} fill="none" stroke="#27272a" strokeWidth="8" />
+            <circle
+              cx="64" cy="64" r={radius} fill="none"
+              stroke={strokeColor} strokeWidth="8" strokeLinecap="round"
+              strokeDasharray={circumference} strokeDashoffset={offset}
+              style={{ transition: 'stroke-dashoffset 1s ease-out' }}
+            />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className="text-xl font-bold" style={{ color: strokeColor }}>{pct}</span>
+            <span className="text-[0.5rem] text-zinc-500 uppercase tracking-wider">percentile</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Influence Signal Card (Official variant)
+// ---------------------------------------------------------------------------
+
+function OfficialSignalCard({ signal, peerGroup }: { signal: V2OfficialInfluenceSignal; peerGroup: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const style = getOfficialSignalStyle(signal);
+  const label = OFFICIAL_SIGNAL_LABELS[signal.type] || signal.type.replace(/_/g, ' ').toUpperCase();
+  const evidence = signal.evidence;
+
+  const hasEvidence = signal.found && evidence && (
+    (evidence.matches && evidence.matches.length > 0) ||
+    (evidence.trades && evidence.trades.length > 0) ||
+    (evidence.lobbyists && evidence.lobbyists.length > 0)
+  );
+
+  return (
+    <div
+      className="rounded-2xl p-4 relative overflow-hidden"
+      style={{ border: style.border, background: style.background }}
+    >
+      {style.glow && (
+        <div className="absolute inset-0 pointer-events-none" style={{ background: style.glow }} />
+      )}
+      <div className="relative">
+        {/* Header row */}
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full ${style.dotColor} flex-shrink-0`} />
+            <span className="text-xs font-bold uppercase tracking-widest text-zinc-300">{label}</span>
+          </div>
+          <span className={`text-[0.65rem] font-bold px-2 py-0.5 rounded border uppercase tracking-wide ${style.badge}`}>
+            {style.badgeText}
+          </span>
+        </div>
+
+        {/* Description */}
+        {signal.description && (
+          <p className="text-zinc-400 text-xs leading-relaxed mb-2">{signal.description}</p>
+        )}
+
+        {/* Rarity stat */}
+        {signal.found && signal.rarity_pct != null && (
+          <div className="text-right">
+            <span className="text-[0.6rem] text-zinc-600">{signal.rarity_pct}% of {peerGroup}</span>
+          </div>
+        )}
+
+        {/* View evidence toggle */}
+        {hasEvidence && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-xs text-amber-400 hover:text-amber-300 transition-colors mt-1"
+          >
+            {expanded ? 'Hide evidence' : 'View evidence'} →
+          </button>
+        )}
+
+        {/* Expanded evidence */}
+        {expanded && evidence && (
+          <div className="mt-3 space-y-2">
+            {/* donors_lobby_bills evidence */}
+            {evidence.matches && evidence.matches.length > 0 && (
+              <div className="space-y-1.5">
+                {evidence.matches.map((m, i) => (
+                  <div key={i} className="bg-zinc-950/50 rounded-lg px-3 py-2 text-xs">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="text-zinc-300">
+                        <span className="font-semibold text-zinc-200">{m.entity_name}</span>
+                        {m.bill_name && m.bill_slug ? (
+                          <span className="text-zinc-500 ml-2">
+                            Lobbied for{' '}
+                            <Link href={`/bills/${m.bill_slug}`} className="text-amber-400 hover:underline">
+                              {m.bill_name}
+                            </Link>
+                          </span>
+                        ) : m.bill_name ? (
+                          <span className="text-zinc-500 ml-2">Lobbied for {m.bill_name}</span>
+                        ) : null}
+                      </div>
+                      {m.donation_amount != null && (
+                        <span className="text-amber-400 font-semibold">
+                          Donated {formatMoney(m.donation_amount)}
+                        </span>
+                      )}
+                    </div>
+                    {m.lda_url && (
+                      <a href={m.lda_url} target="_blank" rel="noopener noreferrer" className="text-zinc-600 hover:text-zinc-400 text-[0.6rem] mt-1 inline-block">
+                        LDA filing →
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* stock_committee evidence */}
+            {evidence.trades && evidence.trades.length > 0 && (
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-zinc-600 uppercase tracking-wide">
+                    <th className="pb-1 px-2">Ticker</th>
+                    <th className="pb-1 px-2">Type</th>
+                    <th className="pb-1 px-2">Amount</th>
+                    <th className="pb-1 px-2">Date</th>
+                    {evidence.trades.some(t => t.committee) && <th className="pb-1 px-2">Committee</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {evidence.trades.map((t, i) => (
+                    <tr key={i} className="border-t border-zinc-900">
+                      <td className="py-1.5 px-2 font-mono text-zinc-200">{t.ticker}</td>
+                      <td className="py-1.5 px-2">
+                        <span className={t.transaction_type?.toLowerCase().includes('purchase') ? 'text-green-400' : 'text-red-400'}>
+                          {t.transaction_type}
+                        </span>
+                      </td>
+                      <td className="py-1.5 px-2 text-zinc-300">{t.amount_range}</td>
+                      <td className="py-1.5 px-2 text-zinc-500">{fmtDate(t.date)}</td>
+                      {evidence.trades!.some(tr => tr.committee) && (
+                        <td className="py-1.5 px-2 text-zinc-500">{t.committee || '--'}</td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            {/* revolving_door evidence */}
+            {evidence.lobbyists && evidence.lobbyists.length > 0 && (
+              <div className="space-y-1.5">
+                {evidence.lobbyists.map((l, i) => (
+                  <div key={i} className="bg-zinc-950/50 rounded-lg px-3 py-2 text-xs">
+                    <div className="text-zinc-200 font-semibold">{l.name}</div>
+                    {l.former_position && (
+                      <div className="text-zinc-500 mt-0.5">Former: {l.former_position}</div>
+                    )}
+                    {l.current_clients && l.current_clients.length > 0 && (
+                      <div className="text-zinc-500 mt-0.5">
+                        Current clients: {l.current_clients.join(', ')}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function OfficialPage() {
   const { slug } = useParams<{ slug: string }>();
   const router = useRouter();
@@ -284,6 +538,36 @@ export default function OfficialPage() {
 
       {/* AI Briefing */}
       <AIBriefing briefing={briefing ?? dataBriefing} />
+
+      {/* Percentile Ring */}
+      {data.percentile_rank != null && (
+        <OfficialPercentileRing
+          pct={data.percentile_rank}
+          peerGroup={data.peer_group || 'peers'}
+          peerCount={data.peer_count || 0}
+        />
+      )}
+
+      {/* Influence Signal Cards */}
+      {data.influence_signals && data.influence_signals.length > 0 && (() => {
+        const foundSignals = data.influence_signals!.filter(s => s.found);
+        const clearSignals = data.influence_signals!.filter(s => !s.found);
+        return (
+          <div className="mb-8">
+            <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">
+              Influence Signals
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {foundSignals.map((s, i) => (
+                <OfficialSignalCard key={`found-${i}`} signal={s} peerGroup={data.peer_group || 'peers'} />
+              ))}
+              {clearSignals.map((s, i) => (
+                <OfficialSignalCard key={`clear-${i}`} signal={s} peerGroup={data.peer_group || 'peers'} />
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Campaign Finance Trend */}
       {fec_cycles && fec_cycles.length > 0 && (() => {

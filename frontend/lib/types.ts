@@ -264,6 +264,39 @@ export interface V2FECCycle {
   disbursements: number;
 }
 
+export interface V2OfficialInfluenceSignalEvidence {
+  matches?: Array<{
+    entity_name?: string;
+    donation_amount?: number;
+    bill_name?: string;
+    bill_slug?: string;
+    lda_url?: string;
+  }>;
+  trades?: Array<{
+    ticker?: string;
+    transaction_type?: string;
+    amount_range?: string;
+    date?: string | null;
+    committee?: string;
+    asset_name?: string;
+  }>;
+  lobbyists?: Array<{
+    name?: string;
+    former_position?: string;
+    current_clients?: string[];
+  }>;
+  [key: string]: unknown;
+}
+
+export interface V2OfficialInfluenceSignal {
+  type: string;
+  found: boolean;
+  rarity_label: string;
+  rarity_pct?: number;
+  description?: string;
+  evidence?: V2OfficialInfluenceSignalEvidence;
+}
+
 export interface V2OfficialResponse {
   entity: Entity;
   overall_verdict: string;
@@ -282,6 +315,10 @@ export interface V2OfficialResponse {
   stock_trades: V2StockTrade[];
   fec_cycles: V2FECCycle[];
   total_all_cycles: number;
+  influence_signals?: V2OfficialInfluenceSignal[];
+  percentile_rank?: number | null;
+  peer_count?: number;
+  peer_group?: string;
 }
 
 export interface V2BillInfluenceSignalEvidence {
