@@ -268,6 +268,11 @@ async def admin_ingest(slug: str):
         from app.services.ingestion.ingest_party_money import run_party_money_ingestion
         _aio.create_task(run_party_money_ingestion())
         return {"status": "started", "message": "Party committee money trail ingestion started"}
+    elif slug == "lda-bills":
+        import asyncio as _aio
+        from app.services.ingestion.ingest_lda_bills import run_ingest_lda_bills
+        _aio.create_task(run_ingest_lda_bills())
+        return {"status": "started", "message": "Parsing bill numbers from LDA filings"}
     else:
         return {"status": "error", "message": f"Ingestion not supported for '{slug}'"}
     return {"status": "ok", "message": f"Ingestion complete for {slug}"}
