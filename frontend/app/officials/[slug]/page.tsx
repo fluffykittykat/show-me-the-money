@@ -203,6 +203,60 @@ function CycleTrend({ sorted, maxReceipts, totalRaised, totalSpent, trendPct, pr
 }
 
 // ---------------------------------------------------------------------------
+// Bill Evidence Row (collapsible — shows aggregate, expands to show donors)
+// ---------------------------------------------------------------------------
+
+function BillEvidenceRow({ group }: { group: { bill: string; slug: string; totalAmount: number; donors: { name: string; slug?: string; amount: string; rawAmount: number; filingUrl: string }[] } }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="bg-zinc-950/50 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between gap-2 px-3 py-2.5 hover:bg-zinc-800/30 transition-colors text-left"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+            className={`text-zinc-600 flex-shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}>
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+          <span className="text-xs text-zinc-300 truncate">{group.bill}</span>
+          <span className="text-[10px] text-zinc-600 flex-shrink-0">{group.donors.length} donor{group.donors.length !== 1 ? 's' : ''}</span>
+        </div>
+        {group.totalAmount > 0 && (
+          <span className="text-amber-400 font-bold text-xs flex-shrink-0">{formatMoney(group.totalAmount)}</span>
+        )}
+      </button>
+      {open && (
+        <div className="px-3 pb-2.5 pt-0">
+          {/* Bill link */}
+          {group.slug && (
+            <div className="mb-2 ml-5">
+              <Link href={`/bills/${group.slug}`} className="text-[10px] text-blue-400 hover:text-blue-300">View bill dossier →</Link>
+            </div>
+          )}
+          {/* Donor list */}
+          <div className="ml-5 space-y-1 border-l border-zinc-800 pl-3">
+            {group.donors.sort((a, b) => b.rawAmount - a.rawAmount).map((d, j) => (
+              <div key={j} className="flex items-center justify-between text-xs">
+                {d.slug ? (
+                  <Link href={`/entities/pac/${d.slug}`} className="text-zinc-400 hover:text-amber-400 truncate">{d.name}</Link>
+                ) : (
+                  <span className="text-zinc-400 truncate">{d.name}</span>
+                )}
+                <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                  {d.amount && <span className="text-zinc-500">{d.amount}</span>}
+                  {d.filingUrl && <a href={d.filingUrl} target="_blank" rel="noopener" className="text-blue-400 hover:text-blue-300 text-[10px]">LDA</a>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Influence Signal Helpers
 // ---------------------------------------------------------------------------
 
@@ -391,46 +445,21 @@ function OfficialSignalCard({ signal, peerGroup }: { signal: V2OfficialInfluence
                   entry.totalAmount += rawAmount;
                 }
               }
+              // Sort by total amount descending
+              const sortedBills = Array.from(byBill.values()).sort((a, b) => b.totalAmount - a.totalAmount);
+              const grandTotal = sortedBills.reduce((s, g) => s + g.totalAmount, 0);
+              const totalDonors = sortedBills.reduce((s, g) => s + g.donors.length, 0);
+
               return (
-              <div className="space-y-2">
-                {Array.from(byBill.values()).map((group, i) => (
-                  <div key={i} className="bg-zinc-950/50 rounded-lg px-3 py-2.5">
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div className="flex items-start gap-2 min-w-0">
-                        <span className="text-amber-500 mt-0.5 flex-shrink-0">•</span>
-                        <div className="min-w-0">
-                          {group.slug ? (
-                            <Link href={`/bills/${group.slug}`} className="text-xs font-semibold text-zinc-200 hover:text-amber-400">
-                              {group.bill}
-                            </Link>
-                          ) : (
-                            <span className="text-xs font-semibold text-zinc-200">{group.bill}</span>
-                          )}
-                          <div className="text-[10px] text-zinc-500 mt-0.5">{group.donors.length} donor{group.donors.length !== 1 ? 's' : ''} also lobbied for this bill</div>
-                        </div>
-                      </div>
-                      {group.totalAmount > 0 && (
-                        <span className="text-amber-400 font-bold text-xs flex-shrink-0">
-                          {formatMoney(group.totalAmount)}
-                        </span>
-                      )}
-                    </div>
-                    <div className="ml-4 space-y-1">
-                      {group.donors.map((d: { name: string; slug?: string; amount: string; filingUrl: string }, j: number) => (
-                        <div key={j} className="flex items-center justify-between text-xs">
-                          {d.slug ? (
-                            <Link href={`/entities/pac/${d.slug}`} className="text-zinc-400 hover:text-amber-400">{d.name}</Link>
-                          ) : (
-                            <span className="text-zinc-400">{d.name}</span>
-                          )}
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            {d.amount && <span className="text-amber-400 font-semibold">{d.amount}</span>}
-                            {d.filingUrl && <a href={d.filingUrl} target="_blank" rel="noopener" className="text-blue-400 hover:text-blue-300 text-[10px]">LDA →</a>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+              <div className="space-y-1.5">
+                {/* Grand total across all lobbied bills */}
+                <div className="flex items-center justify-between px-1 mb-2">
+                  <span className="text-xs text-zinc-500">{totalDonors} donors across {sortedBills.length} bills</span>
+                  {grandTotal > 0 && <span className="text-amber-400 font-bold text-sm">{formatMoney(grandTotal)} total</span>}
+                </div>
+
+                {sortedBills.map((group, i) => (
+                  <BillEvidenceRow key={i} group={group} />
                 ))}
               </div>
               );
