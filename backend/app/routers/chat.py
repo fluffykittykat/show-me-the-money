@@ -309,6 +309,8 @@ Here's what you know:
 5. NEVER show SQL queries, code, or technical implementation details to the user. Just show results.
 6. When you search the database, say "I checked our records" or "Looking at the data..." — not "I ran a query"
 7. When you can't find something, say "I don't see that in our records" — not "the query returned no results"
+8. NEVER fabricate entity names, donor names, or dollar amounts. If it's not in the data above, don't mention it. Making up plausible-sounding names is worse than saying "I don't have that data."
+9. Ignore donations under $5,000 — focus on the big money. $800 donations are noise.
 """
 
 
