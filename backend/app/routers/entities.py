@@ -360,12 +360,23 @@ async def get_pac_donors(slug: str, cycle: int | None = None, db: AsyncSession =
         # Search FEC API by committee name
         await asyncio.sleep(1)  # Rate limit delay
         try:
+            # Clean the entity name for FEC search — strip person names, suffixes
+            import re as _re
+            clean_name = entity.name
+            # Remove ", FIRSTNAME MR/MRS/JR/SR" suffixes
+            clean_name = _re.sub(r',\s*[A-Z]+\s*(MR|MRS|MS|JR|SR|III|II|IV)?\s*$', '', clean_name, flags=_re.IGNORECASE)
+            # Also try just the first few words (PAC names are usually short)
+            words = clean_name.split()
+            if len(words) > 4:
+                clean_name = ' '.join(words[:4])
+            print(f"[PAC-DONORS] Searching FEC for: '{clean_name}' (original: '{entity.name}')")
+
             async with httpx.AsyncClient(timeout=FEC_TIMEOUT) as client:
                 search_resp = await client.get(
                     f"{FEC_BASE_URL}/committees/",
                     params={
                         "api_key": FEC_API_KEY,
-                        "q": entity.name,
+                        "q": clean_name,
                         "per_page": 5,
                     },
                 )
