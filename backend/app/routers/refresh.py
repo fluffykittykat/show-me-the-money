@@ -25,6 +25,7 @@ logger.setLevel(logging.INFO)
 router = APIRouter(prefix="/refresh", tags=["refresh"])
 
 FEC_API_KEY = os.getenv("FEC_API_KEY", "")
+CONGRESS_API_KEY = os.getenv("CONGRESS_GOV_API_KEY", "")
 FEC_TIMEOUT = 30.0
 DELAY = 1.5
 
@@ -61,6 +62,37 @@ async def refresh_entity(slug: str, db: AsyncSession = Depends(get_db)):
     actions = []
 
     # --- PERSON (official) ---
+    # Attempt to resolve bioguide_id if missing (e.g. manually created entities)
+    if entity_type == "person" and not meta.get("bioguide_id"):
+        # Try to find a matching entity in our DB that has a bioguide_id
+        try:
+            search_name = entity.name.replace(",", "").strip().lower()
+            name_parts = [p for p in search_name.split() if len(p) > 2]
+            if name_parts:
+                # Search for entities with bioguide_id whose name matches
+                candidates = await db.execute(
+                    select(Entity).where(
+                        Entity.entity_type == "person",
+                        Entity.metadata_.has_key("bioguide_id"),
+                        Entity.id != entity.id,
+                    )
+                )
+                for candidate in candidates.scalars().all():
+                    cand_name = candidate.name.replace(",", "").strip().lower()
+                    if all(p in cand_name for p in name_parts) or all(
+                        p in search_name for p in cand_name.split() if len(p) > 2
+                    ):
+                        cand_meta = candidate.metadata_ or {}
+                        meta["bioguide_id"] = cand_meta["bioguide_id"]
+                        # Copy other useful fields if missing
+                        for field in ("fec_candidate_id", "fec_committee_id", "state", "party", "chamber"):
+                            if cand_meta.get(field) and not meta.get(field):
+                                meta[field] = cand_meta[field]
+                        actions.append(f"resolved bioguide_id: {cand_meta['bioguide_id']} (from {candidate.name})")
+                        break
+        except Exception as e:
+            actions.append(f"bioguide_id lookup failed: {e}")
+
     if entity_type == "person" and meta.get("bioguide_id"):
         candidate_id = meta.get("fec_candidate_id", "")
         committee_id = meta.get("fec_committee_id", "")
@@ -69,6 +101,22 @@ async def refresh_entity(slug: str, db: AsyncSession = Depends(get_db)):
             actions.append("skipped FEC — no API key")
         else:
             fec_client = FECClient(FEC_API_KEY)
+
+            # 0. Resolve FEC candidate_id if missing
+            if not candidate_id:
+                await asyncio.sleep(DELAY)
+                try:
+                    state = meta.get("state", "")
+                    chamber = meta.get("chamber", "")
+                    fec_match = await fec_client.search_candidate(
+                        entity.name, state=state, chamber=chamber
+                    )
+                    if fec_match:
+                        candidate_id = fec_match["candidate_id"]
+                        meta["fec_candidate_id"] = candidate_id
+                        actions.append(f"resolved FEC candidate: {candidate_id}")
+                except Exception as e:
+                    actions.append(f"FEC candidate lookup failed: {e}")
 
             # 1. Resolve committee ID if missing
             if not committee_id and candidate_id:
@@ -352,23 +400,32 @@ async def refresh_entity(slug: str, db: AsyncSession = Depends(get_db)):
                 else:
                     actions.append(f"verdict computation failed after 3 attempts: {e}")
 
-        # 9. Compute influence signals — with retry
-        for attempt in range(2):
-            try:
-                from app.services.official_signals import compute_official_signals
-                from app.models import OfficialInfluenceSignal
-                signals = await compute_official_signals(db, entity.id)
-                old_sigs = await db.execute(
-                    select(OfficialInfluenceSignal).where(OfficialInfluenceSignal.official_id == entity.id)
+        # 9. Compute influence signals — use fresh session to avoid greenlet issues
+        try:
+            from app.services.official_signals import compute_official_signals
+            from app.models import OfficialInfluenceSignal
+            entity_id = entity.id
+            async with async_session() as sig_session:
+                signals = await compute_official_signals(sig_session, entity_id)
+                old_sigs = await sig_session.execute(
+                    select(OfficialInfluenceSignal).where(OfficialInfluenceSignal.official_id == entity_id)
                 )
                 for old in old_sigs.scalars().all():
-                    await db.delete(old)
+                    await sig_session.delete(old)
                 for sig in signals:
-                    db.add(OfficialInfluenceSignal(
-                        official_id=entity.id,
+                    conf_val = 0.0
+                    conf_str = sig.get("confidence")
+                    if conf_str == "high":
+                        conf_val = 0.9
+                    elif conf_str == "medium":
+                        conf_val = 0.6
+                    elif conf_str == "context":
+                        conf_val = 0.3
+                    sig_session.add(OfficialInfluenceSignal(
+                        official_id=entity_id,
                         signal_type=sig["signal_type"],
                         found=sig.get("found", False),
-                        confidence=sig.get("confidence", 0.0),
+                        confidence=conf_val,
                         rarity_pct=sig.get("rarity_pct"),
                         rarity_label=sig.get("rarity_label"),
                         p_value=sig.get("p_value"),
@@ -377,18 +434,11 @@ async def refresh_entity(slug: str, db: AsyncSession = Depends(get_db)):
                         description=sig.get("description"),
                         evidence=sig.get("evidence", {}),
                     ))
-                await db.commit()
+                await sig_session.commit()
                 found_count = sum(1 for s in signals if s.get("found"))
                 actions.append(f"computed {len(signals)} influence signals ({found_count} found)")
-                break
-            except Exception as e:
-                if attempt < 1:
-                    try:
-                        await db.rollback()
-                    except Exception:
-                        pass
-                else:
-                    actions.append(f"influence signals failed: {e}")
+        except Exception as e:
+            actions.append(f"influence signals failed: {e}")
 
         # 10. Generate fresh AI briefing — with retry
         for attempt in range(2):
@@ -570,6 +620,14 @@ async def refresh_entity(slug: str, db: AsyncSession = Depends(get_db)):
         entity.metadata_ = _ascii_safe(meta)
         db.add(entity)
         actions.append("cleared briefing cache")
+
+    elif entity_type == "person" and not meta.get("bioguide_id"):
+        actions.append("skipped — could not resolve bioguide_id for this person")
+        meta.pop("fbi_briefing", None)
+        meta.pop("fbi_briefing_fingerprint", None)
+        meta["last_refreshed"] = datetime.now(timezone.utc).isoformat()
+        entity.metadata_ = _ascii_safe(meta)
+        db.add(entity)
 
     else:
         meta.pop("fbi_briefing", None)
