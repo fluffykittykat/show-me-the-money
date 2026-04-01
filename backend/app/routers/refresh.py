@@ -178,8 +178,13 @@ async def refresh_entity(slug: str, db: AsyncSession = Depends(get_db)):
                 new_donors = 0
                 # Fetch both: top donors by amount + ALL PAC/committee donors
                 fetch_configs = [
-                    {"cycle": 2024, "per_page": 50, "params": {}},
-                    {"cycle": 2022, "per_page": 50, "params": {}},
+                    # Individual donors — 100 per cycle across 4 cycles
+                    {"cycle": 2026, "per_page": 100, "params": {}},
+                    {"cycle": 2024, "per_page": 100, "params": {}},
+                    {"cycle": 2022, "per_page": 100, "params": {}},
+                    {"cycle": 2020, "per_page": 100, "params": {}},
+                    # PAC/committee donors — 100 per cycle across 4 cycles
+                    {"cycle": 2026, "per_page": 100, "params": {"contributor_type": "committee"}},
                     {"cycle": 2024, "per_page": 100, "params": {"contributor_type": "committee"}},
                     {"cycle": 2022, "per_page": 100, "params": {"contributor_type": "committee"}},
                     {"cycle": 2020, "per_page": 100, "params": {"contributor_type": "committee"}},
@@ -352,8 +357,172 @@ async def refresh_entity(slug: str, db: AsyncSession = Depends(get_db)):
                 except Exception:
                     pass
 
+        # 6b. Fetch stock trades for House members
+        chamber = (meta.get("chamber") or "").lower()
+        if "house" in chamber:
+            try:
+                from app.services.ingestion.house_trades import (
+                    fetch_house_ptr_index, parse_ptr_pdf, _get_or_create_stock, _parse_date,
+                    HOUSE_PTR_PDF_URL,
+                )
+                # Extract name parts for matching
+                official_name = entity.name.lower().replace(",", " ").split()
+                official_name = [p.strip() for p in official_name if len(p.strip()) > 1]
+                trades_created = 0
+                for year in [2025, 2024]:
+                    try:
+                        filings = await fetch_house_ptr_index(year)
+                        matched = [
+                            f for f in filings
+                            if f["last"].lower() in " ".join(official_name)
+                            or any(p in f["last"].lower() for p in official_name if len(p) > 3)
+                        ]
+                        for filing in matched[:10]:  # Cap at 10 filings
+                            await asyncio.sleep(1)
+                            try:
+                                pdf_url = HOUSE_PTR_PDF_URL.format(year=year, doc_id=filing["doc_id"])
+                                async with httpx.AsyncClient(timeout=30.0) as pdf_client:
+                                    pdf_resp = await pdf_client.get(pdf_url)
+                                    pdf_resp.raise_for_status()
+                                trades = parse_ptr_pdf(pdf_resp.content)
+                                for trade in trades:
+                                    stock_entity = await _get_or_create_stock(db, trade["ticker"], trade["asset"])
+                                    trade_date = _parse_date(trade["trade_date"])
+                                    source_url = pdf_url
+                                    # Duplicate check
+                                    dup = (await db.execute(
+                                        select(Relationship).where(
+                                            Relationship.from_entity_id == entity.id,
+                                            Relationship.to_entity_id == stock_entity.id,
+                                            Relationship.relationship_type == "stock_trade",
+                                            Relationship.source_url == source_url,
+                                            Relationship.date_start == trade_date,
+                                        )
+                                    )).scalar_one_or_none()
+                                    if not dup:
+                                        db.add(Relationship(
+                                            from_entity_id=entity.id,
+                                            to_entity_id=stock_entity.id,
+                                            relationship_type="stock_trade",
+                                            amount_label=trade["amount_range"],
+                                            date_start=trade_date,
+                                            source_url=source_url,
+                                            source_label="House Clerk PTR",
+                                            metadata_={
+                                                "ticker": trade["ticker"],
+                                                "transaction_type": trade["transaction_type"],
+                                                "amount_range": trade["amount_range"],
+                                                "owner": trade.get("owner", ""),
+                                                "doc_id": filing["doc_id"],
+                                                "source": "House Clerk PTR",
+                                            },
+                                        ))
+                                        trades_created += 1
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                if trades_created:
+                    actions.append(f"fetched {trades_created} stock trades (House PTR)")
+            except Exception as e:
+                actions.append(f"stock trade fetch failed: {e}")
+
         # 7. Commit all data changes before computing verdicts
         await db.commit()
+
+        # 7b. Fetch lobbying data for bills this official sponsors
+        try:
+            bills_q = await db.execute(
+                select(Entity).join(
+                    Relationship, Relationship.to_entity_id == Entity.id
+                ).where(
+                    Relationship.from_entity_id == entity.id,
+                    Relationship.relationship_type.in_(["sponsored", "cosponsored"]),
+                    Entity.entity_type == "bill",
+                )
+            )
+            official_bills = bills_q.scalars().all()
+            if official_bills:
+                bill_lookup = {b.slug: b.id for b in official_bills}
+                lda_new = 0
+                async with httpx.AsyncClient(timeout=30.0) as lda_http:
+                    for year in [2025, 2024]:
+                        await asyncio.sleep(DELAY)
+                        try:
+                            resp = await lda_http.get(
+                                "https://lda.senate.gov/api/v1/filings/",
+                                params={"filing_year": year, "per_page": 50},
+                                headers={"Accept": "application/json"},
+                                timeout=30.0,
+                            )
+                            if resp.status_code == 200:
+                                filings = resp.json().get("results", [])
+                                for filing in filings:
+                                    client_info = filing.get("client") or {}
+                                    client_name = _ascii_safe((client_info.get("name") or "").strip())
+                                    if not client_name:
+                                        continue
+                                    filing_uuid = filing.get("filing_uuid", "")
+                                    activities = filing.get("lobbying_activities") or []
+                                    for activity in activities:
+                                        desc = activity.get("description", "")
+                                        if not desc:
+                                            continue
+                                        # Check if this filing references any of our bills
+                                        import re as _re2
+                                        bill_nums = _re2.findall(
+                                            r'(?:H\.?\s*R\.?|S\.?|H\.?\s*Res\.?|S\.?\s*Res\.?)\s*(\d{1,5})',
+                                            desc, _re2.IGNORECASE
+                                        )
+                                        for num in bill_nums:
+                                            for congress in [119, 118]:
+                                                for prefix in [f"s-{num}-{congress}", f"{num}-{congress}"]:
+                                                    bill_id = bill_lookup.get(prefix)
+                                                    if bill_id:
+                                                        client_slug = _slugify(client_name)
+                                                        if not client_slug:
+                                                            continue
+                                                        # Find or create client entity
+                                                        client_ent = (await db.execute(
+                                                            select(Entity).where(Entity.slug == client_slug)
+                                                        )).scalar_one_or_none()
+                                                        if not client_ent:
+                                                            client_ent = Entity(
+                                                                slug=client_slug[:195],
+                                                                entity_type="organization",
+                                                                name=client_name[:490],
+                                                                metadata_={"source": "Senate LDA"},
+                                                            )
+                                                            db.add(client_ent)
+                                                            await db.flush()
+                                                        # Check for existing relationship
+                                                        existing_lob = (await db.execute(
+                                                            select(Relationship).where(
+                                                                Relationship.from_entity_id == client_ent.id,
+                                                                Relationship.to_entity_id == bill_id,
+                                                                Relationship.relationship_type == "lobbied_on",
+                                                            ).limit(1)
+                                                        )).scalar_one_or_none()
+                                                        if not existing_lob:
+                                                            db.add(Relationship(
+                                                                from_entity_id=client_ent.id,
+                                                                to_entity_id=bill_id,
+                                                                relationship_type="lobbied_on",
+                                                                source_label="Senate LDA",
+                                                                source_url=f"https://lda.senate.gov/filings/{filing_uuid}/",
+                                                                metadata_=_ascii_safe({
+                                                                    "description": desc[:500],
+                                                                    "filing_year": year,
+                                                                }),
+                                                            ))
+                                                            lda_new += 1
+                        except (httpx.ConnectError, OSError):
+                            pass  # Senate LDA may be unreachable
+                if lda_new:
+                    await db.commit()
+                    actions.append(f"fetched {lda_new} lobbying relationships for bills")
+        except Exception as e:
+            actions.append(f"lobbying fetch failed: {e}")
 
         # 8. Compute money trail verdicts (connect the dots) — with retry
         verdict_ok = False

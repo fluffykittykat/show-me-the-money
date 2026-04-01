@@ -3,7 +3,7 @@ import json
 import httpx
 
 BASE_URL = "https://api.open.fec.gov/v1"
-MAX_PAGES = 3
+MAX_PAGES = 5
 TIMEOUT = 30.0
 
 

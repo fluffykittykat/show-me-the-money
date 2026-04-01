@@ -70,26 +70,30 @@ async def _record_ingestion_job(
     session, job_id: str, status: str, records_fetched: int = 0,
     records_created: int = 0, error_message: str = "",
 ):
-    """Record an ingestion job run. IngestionJob model is provided by Agent A."""
+    """Record an ingestion job run."""
     try:
         from app.models import IngestionJob
+        from datetime import datetime, timezone
+
         job = IngestionJob(
-            job_id=job_id,
+            job_type=job_id,
             status=status,
-            records_fetched=records_fetched,
-            records_created=records_created,
-            error_message=error_message,
+            started_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(timezone.utc) if status in ("completed", "failed", "skipped") else None,
+            metadata_={
+                "records_fetched": records_fetched,
+                "records_created": records_created,
+            },
+            errors=[{"message": error_message}] if error_message else [],
         )
         session.add(job)
         await session.commit()
-    except ImportError:
-        # IngestionJob model not yet available — log and skip
-        logger.debug(
-            "IngestionJob model not available; skipping ingestion record for %s",
-            job_id,
-        )
     except Exception as exc:
         logger.warning("Failed to record ingestion job %s: %s", job_id, exc)
+        try:
+            await session.rollback()
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -111,39 +115,45 @@ async def _fetch_new_trades():
         records_created = 0
 
         try:
-            from app.services.ingestion.efd_client import EFDClient
-
-            efd = EFDClient()
-
-            # Fetch PTRs via the eFD search
             import httpx
 
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(
-                    "https://efts.senate.gov/LATEST/search-results",
-                    params={
-                        "type": "ptr",
-                        "dateRange": "custom",
-                        "fromDate": from_date.strftime("%m/%d/%Y"),
-                        "toDate": to_date.strftime("%m/%d/%Y"),
-                    },
-                )
-                if response.status_code == 200:
-                    try:
-                        data = response.json()
-                    except Exception:
-                        data = []
+            # Fetch PTRs via Senate eFD search with retry and DNS error handling
+            results = []
+            for attempt in range(3):
+                try:
+                    async with httpx.AsyncClient(timeout=30.0) as client:
+                        response = await client.get(
+                            "https://efts.senate.gov/LATEST/search-results",
+                            params={
+                                "type": "ptr",
+                                "dateRange": "custom",
+                                "fromDate": from_date.strftime("%m/%d/%Y"),
+                                "toDate": to_date.strftime("%m/%d/%Y"),
+                            },
+                        )
+                        if response.status_code == 200:
+                            try:
+                                data = response.json()
+                            except Exception:
+                                data = []
+                            results = data if isinstance(data, list) else data.get("results", [])
+                        else:
+                            logger.warning(
+                                "[Scheduler] eFD returned status %s", response.status_code
+                            )
+                    break  # Success, exit retry loop
+                except (httpx.ConnectError, OSError) as dns_err:
+                    if attempt < 2:
+                        import asyncio
+                        logger.info("[Scheduler] eFD connection failed (attempt %d), retrying: %s", attempt + 1, dns_err)
+                        await asyncio.sleep(5)
+                    else:
+                        logger.warning("[Scheduler] eFD unreachable after 3 attempts: %s", dns_err)
 
-                    results = data if isinstance(data, list) else data.get("results", [])
-                    records_fetched = len(results)
-
-                    for record in results:
-                        await _process_ptr_record(session, record)
-                        records_created += 1
-                else:
-                    logger.warning(
-                        "[Scheduler] eFD returned status %s", response.status_code
-                    )
+            records_fetched = len(results)
+            for record in results:
+                await _process_ptr_record(session, record)
+                records_created += 1
 
             # Clear stale is_new flags
             from app.services.trade_alerts import clear_stale_new_flags
@@ -199,7 +209,7 @@ async def _process_ptr_record(session, record: dict):
         result = await session.execute(
             select(Entity).where(
                 Entity.name.ilike(f"%{senator_name}%"),
-                Entity.entity_type == "official",
+                Entity.entity_type == "person",
             )
         )
         official = result.scalar_one_or_none()
@@ -296,7 +306,7 @@ async def _fetch_new_votes():
 
             # Get all officials with bioguide_id
             stmt = select(Entity).where(
-                Entity.entity_type == "official",
+                Entity.entity_type == "person",
                 Entity.metadata_["bioguide_id"].astext.isnot(None),
             )
             result = await session.execute(stmt)
@@ -373,7 +383,7 @@ async def _fetch_new_bills():
 
             # Fetch bills for all tracked officials
             stmt = select(Entity).where(
-                Entity.entity_type == "official",
+                Entity.entity_type == "person",
                 Entity.metadata_["bioguide_id"].astext.isnot(None),
             )
             result = await session.execute(stmt)
@@ -444,7 +454,7 @@ async def _fetch_fec_updates():
 
             # Get officials with FEC candidate IDs
             stmt = select(Entity).where(
-                Entity.entity_type == "official",
+                Entity.entity_type == "person",
                 Entity.metadata_["fec_candidate_id"].astext.isnot(None),
             )
             result = await session.execute(stmt)
@@ -501,7 +511,7 @@ async def _refresh_conflicts():
             from app.services.conflict_engine import detect_conflicts
             from sqlalchemy import select
 
-            stmt = select(Entity).where(Entity.entity_type == "official")
+            stmt = select(Entity).where(Entity.entity_type == "person")
             result = await session.execute(stmt)
             officials = result.scalars().all()
 
