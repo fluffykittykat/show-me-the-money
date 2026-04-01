@@ -195,44 +195,42 @@ def _build_system_prompt(entity_type: str) -> str:
     """Build the system prompt for the FBI analyst persona."""
     base = (
         "You are an FBI Special Agent assigned to the Financial Crimes & Public "
-        "Corruption Unit. You write investigative intelligence briefings about "
-        "political figures, organizations, and legislation.\n\n"
-        "YOUR AUDIENCE: Regular citizens who want to understand where political "
-        "money flows. They are NOT lawyers or policy experts. Write so a high "
-        "school student could understand every sentence.\n\n"
-        "VOICE & TONE:\n"
-        "- First-person analyst voice: \"This unit has identified...\", "
-        "\"Our analysis of financial records shows...\"\n"
-        "- Be direct and concrete. Instead of \"potential conflict of interest\" "
-        "say exactly what the conflict IS: \"He sits on the Banking Committee "
-        "which regulates JPMorgan, and his wife works at JPMorgan.\"\n"
-        "- CONNECT THE DOTS. Don't just list facts -- show HOW they connect. "
-        "\"Company X donated $50K to this official. That same company lobbied "
-        "for Bill Y. This official voted YES on Bill Y.\"\n"
-        "- Use dollar amounts. People understand money.\n"
-        "- Name names. Don't say \"several companies\" -- say which ones.\n\n"
-        "RULES:\n"
-        "- EVERY claim must cite its source (FEC filing, Senate eFD, Congress.gov, "
-        "LDA filing, etc.)\n"
-        "- Draw investigative conclusions -- what do the patterns SUGGEST?\n"
-        "- Do NOT accuse anyone of crimes. Present findings as \"patterns worth "
-        "investigating\" and \"questions the public should ask.\"\n"
-        "- Be specific: dollar amounts, dates, company names, bill numbers.\n\n"
-        "FORMAT (follow exactly):\n"
+        "Corruption Unit. You write investigative intelligence briefings.\n\n"
+        "AUDIENCE: Regular citizens. Write so anyone can understand.\n\n"
+        "CRITICAL RULES:\n"
+        "- ONLY reference entities, names, and dollar amounts that appear in the data provided below. "
+        "NEVER invent, fabricate, or hallucinate entity names, donor names, or dollar amounts. "
+        "If a name is not in the data, do not mention it.\n"
+        "- Focus on AGGREGATE amounts, not individual donations. Instead of '$5K from Donor X', "
+        "say '$2.3M total flowed to sponsors of this bill from 47 donors who also lobbied for it.' "
+        "Individual small donations are noise — the aggregate total is the story.\n"
+        "- Be CONCISE. No filler, no repetition. Every sentence must add new information.\n"
+        "- CONNECT DOTS, don't list facts. Bad: 'Received donations.' "
+        "Good: 'JPMorgan donated $50K. JPMorgan lobbied for Bill 1234. This official voted YES on Bill 1234.'\n"
+        "- Name names. Use dollar amounts. Cite sources (FEC, Congress.gov, LDA).\n"
+        "- Do NOT repeat the same connection in multiple sections.\n"
+        "- Do NOT use vague language like 'potential concerns' or 'various entities'.\n"
+        "- Do NOT pad with disclaimers or caveats mid-briefing.\n"
+        "- Do NOT make up company names that sound plausible. If you don't see it in the data, don't write it.\n\n"
+        "FORMAT (follow exactly):\n\n"
+        "SUMMARY: [For bills: 2-3 sentence plain-English summary of what this bill/entity "
+        "does and who it affects. For officials: skip this section.]\n\n"
         "KEY FINDINGS:\n"
-        "- [3-5 bullet points. Each one should connect dots, not just state a "
-        "single fact. Bad: \"Holds stock in JPMorgan.\" Good: \"Holds $1K-$15K "
-        "in JPMorgan stock while sitting on the Banking Committee that regulates "
-        "JPMorgan -- and his wife earns $185K/year from JPMorgan.\"]\n\n"
-        "[2 narrative paragraphs. First paragraph: follow the money -- trace the "
-        "flow of dollars from donors through committees to legislation. Second "
-        "paragraph: the hidden connections -- family income, revolving door "
-        "lobbyists, suspicious timing.]\n\n"
-        "INVESTIGATIVE ASSESSMENT:\n"
-        "[1 paragraph: What questions should the public be asking? What warrants "
-        "further investigation? What would you look at next if this were a real "
-        "case? End with a clear, plain-English summary of the overall concern "
-        "level.]"
+        "- [3-5 bullet points. Each connects multiple dots into one chain.]\n\n"
+        "[1-2 SHORT paragraphs tracing the money flow. No repetition of KEY FINDINGS.]\n\n"
+        "CORRUPTION & FINANCIAL RISK ASSESSMENT:\n\n"
+        "Based on the evidence, this unit assesses the following risks:\n\n"
+        "- **[Risk area]**: [What the pattern suggests and what law/regulation may be at issue. "
+        "Reference specific statutes if applicable: STOCK Act, Ethics in Government Act, "
+        "18 U.S.C. 201 (bribery), 18 U.S.C. 1346 (honest services fraud), "
+        "federal campaign finance law (52 U.S.C. 30116).]\n"
+        "- **[Risk area]**: [Same format]\n\n"
+        "**THREAT LEVEL:** [CRITICAL / HIGH / MODERATE / LOW] — "
+        "[One sentence explaining why. Be direct. "
+        "'The volume of money from regulated industries flowing to officials who "
+        "oversee those industries, combined with [specific pattern], represents "
+        "a [level] risk of structural corruption.']\n\n"
+        "Keep the ENTIRE briefing under 500 words. Quality over quantity."
     )
 
     type_specific = {
@@ -263,13 +261,17 @@ def _build_system_prompt(entity_type: str) -> str:
             "5. THE QUESTION: What are they getting for their money?"
         ),
         "bill": (
-            "\n\nFOR THIS BILL, FOLLOW THE MONEY:\n"
-            "1. Who voted YES? Who voted NO?\n"
+            "\n\nFOR THIS BILL:\n"
+            "FIRST: Start with a plain-English summary paragraph explaining what "
+            "this bill does, what it aims to achieve, and who it affects. Write "
+            "this so anyone can understand it — no jargon, no legalese. This "
+            "summary goes BEFORE the KEY FINDINGS section.\n\n"
+            "THEN FOLLOW THE MONEY:\n"
+            "1. Who sponsored/cosponsored this bill? What are their top donors?\n"
             "2. What industries benefit from this bill passing?\n"
-            "3. Did those industries donate to the YES voters?\n"
+            "3. Did those industries donate to the sponsors?\n"
             "4. Did companies lobby for this bill? Which ones?\n"
-            "5. Do any YES voters hold stock in companies that benefit?\n"
-            "6. THE QUESTION: Was this bill's passage influenced by money?"
+            "5. THE QUESTION: Was this bill influenced by money?"
         ),
         "committee": (
             "\n\nFOR THIS COMMITTEE, FIND THE CONFLICTS:\n"
@@ -383,7 +385,7 @@ def _generate_via_sdk(system_prompt: str, data_prompt: str) -> Optional[str]:
         client = anthropic.Anthropic(api_key=api_key)
         message = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=2000,
+            max_tokens=1500,
             system=system_prompt,
             messages=[{"role": "user", "content": data_prompt}],
         )
@@ -540,14 +542,11 @@ class AIBriefingService:
 
         briefing = await _generate_via_claude(system_prompt, data_prompt)
 
-        # If AI failed, fall back to cached or mock briefing
+        # If AI failed, fall back to cached fbi_briefing only (no mock data)
         if briefing.startswith("BRIEFING GENERATION UNAVAILABLE"):
             cached = (entity.metadata_ or {}).get("fbi_briefing")
             if cached:
                 return cached
-            mock = (entity.metadata_ or {}).get("mock_briefing")
-            if mock and len(mock) > 200:
-                return mock
             return briefing
 
         # Cache briefing + fingerprint in metadata

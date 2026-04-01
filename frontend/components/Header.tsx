@@ -56,12 +56,6 @@ export default function Header() {
             Search
           </Link>
           <Link
-            href="/bills"
-            className="text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-100"
-          >
-            Investigate
-          </Link>
-          <Link
             href="/admin/config"
             className="text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-100"
             aria-label="Admin settings"
@@ -141,13 +135,6 @@ export default function Header() {
               className="text-sm font-medium text-zinc-300"
             >
               Trades
-            </Link>
-            <Link
-              href="/bills"
-              onClick={() => setMobileMenuOpen(false)}
-              className="text-sm font-medium text-zinc-300"
-            >
-              Investigate
             </Link>
             <Link
               href="/admin/config"

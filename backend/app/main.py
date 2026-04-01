@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import async_session
-from app.routers import briefings, config, cross_ref, dashboard, entities, graph, hidden_connections, investigation, search, trades
+from app.routers import briefings, chat, config, cross_ref, dashboard, entities, graph, hidden_connections, investigation, refresh, search, trades, v2
 from app.schemas import HealthResponse, IngestionJobResponse
 from app.services.seed_service import is_database_empty, seed_database
 
@@ -104,6 +104,9 @@ app.include_router(investigation.router)
 app.include_router(dashboard.router)
 app.include_router(trades.router)
 app.include_router(hidden_connections.router)
+app.include_router(refresh.router)
+app.include_router(chat.router)
+app.include_router(v2.router, prefix="/v2")
 
 
 # Admin seed endpoint
@@ -211,9 +214,128 @@ async def admin_ingest(slug: str):
     elif slug == "lobbying":
         from app.services.ingestion.ingest_lobbying import run_lobbying_ingestion
         await run_lobbying_ingestion()
+    elif slug == "committees":
+        import asyncio as _aio
+        from app.services.ingestion.ingest_committees import run_committee_ingestion
+        _aio.create_task(run_committee_ingestion())
+        return {"status": "started", "message": "Committee ingestion started"}
+    elif slug == "link-revolving-door":
+        import asyncio as _aio
+        from app.services.ingestion.link_revolving_door import run_link_revolving_door
+        _aio.create_task(run_link_revolving_door())
+        return {"status": "started", "message": "Revolving door linking started"}
+    elif slug == "lobbying-bulk":
+        import asyncio as _aio
+        from app.services.ingestion.ingest_lobbying_bulk import run_lobbying_bulk_ingestion
+        _aio.create_task(run_lobbying_bulk_ingestion())
+        return {"status": "started", "message": "Lobbying bulk ingestion started"}
+    elif slug == "fetch-donors":
+        import asyncio as _aio
+        from app.services.ingestion.fetch_donors import run_fetch_donors
+        _aio.create_task(run_fetch_donors())
+        return {"status": "started", "message": "Donor fetch started (slow mode)"}
+    elif slug == "fetch-totals":
+        import asyncio as _aio
+        from app.services.ingestion.fetch_totals import run_fetch_totals
+        _aio.create_task(run_fetch_totals())
+        return {"status": "started", "message": "FEC totals fetch started for 137 officials"}
+    elif slug == "fix-all":
+        import asyncio as _aio
+        from app.services.ingestion.fix_all_data import run_fix_all_data
+        _aio.create_task(run_fix_all_data())
+        return {"status": "started", "message": "Fixing ALL data gaps — committee IDs, totals, donors"}
+    elif slug == "fix-totals-best":
+        import asyncio as _aio
+        from app.services.ingestion.fix_totals_best_cycle import run_fix_totals_best_cycle
+        _aio.create_task(run_fix_totals_best_cycle())
+        return {"status": "started", "message": "Fixing totals to use best FEC cycle (2018-2024)"}
+    elif slug == "fetch-all-cycles":
+        import asyncio as _aio
+        from app.services.ingestion.fetch_all_cycles import run_fetch_all_cycles
+        _aio.create_task(run_fetch_all_cycles())
+        return {"status": "started", "message": "Fetching ALL FEC cycles for all officials"}
+    elif slug == "house-trades":
+        import asyncio as _aio
+        from app.services.ingestion.house_trades import ingest_house_trades
+        _aio.create_task(ingest_house_trades(2024))
+        return {"status": "started", "message": "Ingesting House stock trades for 2024"}
+    elif slug == "precompute":
+        import asyncio as _aio
+        from app.services.precompute import run_precompute
+        _aio.create_task(run_precompute())
+        return {"status": "started", "message": "Pre-computing verdicts + briefings for all officials"}
+    elif slug == "party-money":
+        import asyncio as _aio
+        from app.services.ingestion.ingest_party_money import run_party_money_ingestion
+        _aio.create_task(run_party_money_ingestion())
+        return {"status": "started", "message": "Party committee money trail ingestion started"}
+    elif slug == "lda-bills":
+        import asyncio as _aio
+        from app.services.ingestion.ingest_lda_bills import run_ingest_lda_bills
+        _aio.create_task(run_ingest_lda_bills())
+        return {"status": "started", "message": "Parsing bill numbers from LDA filings"}
+    elif slug == "compute-baselines":
+        import asyncio as _aio
+        import logging as _logging
+        _log = _logging.getLogger(__name__)
+        from app.services.bill_baselines import compute_baselines
+        from app.database import async_session
+        async def _run():
+            try:
+                async with async_session() as session:
+                    result = await compute_baselines(session)
+                    await session.commit()
+                    _log.info("Baselines computed: %d areas", len(result))
+                    return result
+            except Exception as e:
+                _log.error("compute-baselines FAILED: %s", e, exc_info=True)
+        _aio.create_task(_run())
+        return {"status": "started", "message": "Computing bill baselines per policy area"}
+    elif slug == "precompute-bill-signals":
+        import asyncio as _aio
+        from app.services.bill_signals import run_precompute_bill_signals
+        _aio.create_task(run_precompute_bill_signals())
+        return {"status": "started", "message": "Pre-computing influence signals for all bills"}
+    elif slug == "precompute-official-signals":
+        import asyncio as _aio
+        from app.services.official_signals import run_precompute_official_signals
+        _aio.create_task(run_precompute_official_signals())
+        return {"status": "started", "message": "Pre-computing influence signals for all officials"}
     else:
         return {"status": "error", "message": f"Ingestion not supported for '{slug}'"}
     return {"status": "ok", "message": f"Ingestion complete for {slug}"}
+
+
+@admin_router.post("/ingest/lobbying")
+async def admin_ingest_lobbying(
+    max_filings: int = 500,
+    years: str = "2024,2025",
+):
+    """Start bulk lobbying ingestion from Senate LDA API.
+
+    Args:
+        max_filings: Max filings per year (default 500)
+        years: Comma-separated filing years (default "2024,2025")
+    """
+    import asyncio
+    from app.services.ingestion.ingest_lobbying_bulk import run_lobbying_bulk_ingestion
+
+    year_list = [int(y.strip()) for y in years.split(",") if y.strip()]
+
+    async def _run():
+        try:
+            return await run_lobbying_bulk_ingestion(
+                years=year_list,
+                max_filings=max_filings,
+            )
+        except Exception as exc:
+            print(f"[ingest_lobbying_bulk] Error: {exc}")
+
+    asyncio.create_task(_run())
+    return {
+        "status": "started",
+        "message": f"Lobbying bulk ingestion started (years={year_list}, max={max_filings}/year)",
+    }
 
 
 @admin_router.post("/enrich/senators")
@@ -230,6 +352,54 @@ async def admin_enrich_senators():
 
     asyncio.create_task(_run())
     return {"status": "started", "message": "Senator enrichment started in background (LDA lobbying data)"}
+
+
+@admin_router.post("/enrich/bills")
+async def admin_enrich_bills(force: bool = False):
+    """Enrich all bill entities with CRS summaries and full text URLs from Congress.gov."""
+    import asyncio
+    from app.services.ingestion.enrich_bills import run_bill_enrichment
+
+    async def _run():
+        try:
+            return await run_bill_enrichment(force=force)
+        except Exception as exc:
+            print(f"[enrich_bills] Error: {exc}")
+
+    asyncio.create_task(_run())
+    return {"status": "started", "message": "Bill enrichment started in background (CRS summaries + text URLs)"}
+
+
+@admin_router.post("/fec/rematch")
+async def admin_fec_rematch():
+    """Re-match FEC data for officials using bioguide→FEC crosswalk. 100% accuracy."""
+    import asyncio
+    from app.services.ingestion.fec_rematch import run_fec_rematch
+
+    async def _run():
+        try:
+            return await run_fec_rematch()
+        except Exception as exc:
+            print(f"[fec_rematch] Error: {exc}")
+
+    asyncio.create_task(_run())
+    return {"status": "started", "message": "FEC re-match started using bioguide→FEC crosswalk (no name guessing)"}
+
+
+@admin_router.post("/ingest/committees")
+async def admin_ingest_committees():
+    """Start committee assignment ingestion from congress-legislators data."""
+    import asyncio
+    from app.services.ingestion.ingest_committees import run_committee_ingestion
+
+    async def _run():
+        try:
+            return await run_committee_ingestion()
+        except Exception as exc:
+            print(f"[committees] Error: {exc}")
+
+    asyncio.create_task(_run())
+    return {"status": "started", "message": "Committee ingestion started"}
 
 
 @admin_router.post("/briefings/generate")

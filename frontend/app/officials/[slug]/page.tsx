@@ -1,1091 +1,770 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { useParams } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import {
-  getEntity,
-  getConnections,
-  getConflicts,
-  getDonationTimeline,
-  getSharedDonorNetwork,
-  getSharedInterests,
-  getRelationshipSpotlight,
-  getHiddenConnectionsSummary,
-  getRevolvingDoor,
-  getFamilyConnections,
-  getOutsideIncome,
-  getContractorDonors,
-  getTradeTimingAnalysis,
-  getAllChains,
-  getEntitySummary,
-} from '@/lib/api';
-import type {
-  ConflictData,
-  DonationTimeline as DonationTimelineType,
-  SharedDonorNetwork as SharedDonorNetworkType,
-  SharedInterestsData,
-  RelationshipSpotlightData,
-  EvidenceChainResponse,
-  EntitySummaryData,
-} from '@/lib/api';
-import type {
-  Entity,
-  Relationship,
-  HiddenConnectionsSummary,
-  RevolvingDoorItem,
-  FamilyConnectionItem,
-  OutsideIncomeItem,
-  ContractorDonorItem,
-  InsiderTimingResponse,
-} from '@/lib/types';
-import { getInitials, formatMoney, formatDate } from '@/lib/utils';
-import PartyBadge from '@/components/PartyBadge';
-import ConflictBadge from '@/components/ConflictBadge';
-import StatBar from '@/components/StatBar';
-import InvestigatorSummary from '@/components/InvestigatorSummary';
-import FBIBriefing from '@/components/FBIBriefing';
-import TabNav from '@/components/TabNav';
-import FinancialTable from '@/components/FinancialTable';
-import DonorTable from '@/components/DonorTable';
-import BillsTable from '@/components/BillsTable';
-import CommitteeList from '@/components/CommitteeList';
-import ConnectionsPanel from '@/components/ConnectionsPanel';
-import ConflictCard from '@/components/ConflictCard';
-import DonationTimeline from '@/components/DonationTimeline';
-import RelationshipSpotlight from '@/components/RelationshipSpotlight';
-import LobbyingTab from '@/components/LobbyingTab';
+import { getV2Official } from '@/lib/api';
+import PageControls from '@/components/PageControls';
+import type { V2OfficialResponse, V2OfficialInfluenceSignal } from '@/lib/types';
+import { formatMoney } from '@/lib/utils';
 import LoadingState from '@/components/LoadingState';
-import HiddenConnectionsCard from '@/components/HiddenConnectionsCard';
-import RevolvingDoorSection from '@/components/RevolvingDoorSection';
-import FamilyConnectionsSection from '@/components/FamilyConnectionsSection';
-import OutsideIncomeSection from '@/components/OutsideIncomeSection';
-import ContractorDonorsSection from '@/components/ContractorDonorsSection';
-import TradeTimingSection from '@/components/TradeTimingSection';
-import {
-  ArrowLeft,
-  AlertTriangle,
-  Briefcase,
-  CalendarDays,
-  RefreshCcw,
-  TrendingUp,
-  DollarSign,
-  ChevronDown,
-} from 'lucide-react';
-import clsx from 'clsx';
+import PartyBadge from '@/components/PartyBadge';
+import VerdictPill from '@/components/VerdictPill';
+import AIBriefing from '@/components/AIBriefing';
+import MoneyTrailCard from '@/components/MoneyTrailCard';
+import VerdictBadge from '@/components/VerdictBadge';
+import FreshnessBar from '@/components/FreshnessBar';
 
-const TABS = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'hidden_connections', label: 'Hidden Connections' },
-  { id: 'conflicts', label: 'Conflicts' },
-  { id: 'money', label: 'Money' },
-  { id: 'legislative', label: 'Votes & Bills' },
-  { id: 'connections', label: 'Connections' },
-  { id: 'lobbying', label: 'Lobbying' },
-  { id: 'ai_briefing', label: 'AI Briefing' },
-];
-
-function categorizeConnections(connections: Relationship[]) {
-  const holdings: Relationship[] = [];
-  const donations: Relationship[] = [];
-  const bills: Relationship[] = [];
-  const votes: Relationship[] = [];
-  const committees: Relationship[] = [];
-  const other: Relationship[] = [];
-
-  for (const conn of connections) {
-    const type = conn.relationship_type.toLowerCase();
-    if (type.includes('holds_stock') || type.includes('financial') || type.includes('owns') || type.includes('asset')) {
-      holdings.push(conn);
-    } else if (type.includes('donated') || type.includes('contribution') || type.includes('campaign')) {
-      donations.push(conn);
-    } else if (type.includes('sponsor') || type.includes('cosponsor') || type.includes('introduced')) {
-      bills.push(conn);
-    } else if (type.includes('voted') || type.includes('vote')) {
-      votes.push(conn);
-    } else if (type.includes('committee') || type.includes('member_of') || type.includes('serves_on')) {
-      committees.push(conn);
-    } else {
-      other.push(conn);
-    }
-  }
-
-  return { holdings, donations, bills, votes, committees, other };
+function fmtDate(d: string | null | undefined): string {
+  if (!d) return '—';
+  try {
+    return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch { return '—'; }
 }
 
-/** Build evidence chain lookup map by related entity slug */
-function buildChainMap(chains: EvidenceChainResponse[]): Map<string, EvidenceChainResponse> {
-  const map = new Map<string, EvidenceChainResponse>();
-  for (const chain of chains) {
-    map.set(chain.company_slug, chain);
-  }
-  return map;
+// ---------------------------------------------------------------------------
+// Campaign Finance Trend with expandable cycle donors
+// ---------------------------------------------------------------------------
+
+interface CycleDonor {
+  name: string;
+  amount: number;
+  date: string | null;
+  employer: string;
 }
 
-export default function OfficialProfilePage() {
-  const params = useParams();
-  const slug = params.slug as string;
+function CycleTrend({ sorted, maxReceipts, totalRaised, totalSpent, trendPct, previous, recent, slug }: {
+  sorted: { cycle: number; receipts: number; disbursements: number }[];
+  maxReceipts: number;
+  totalRaised: number;
+  totalSpent: number;
+  trendPct: number | null;
+  previous: { cycle: number; receipts: number } | null;
+  recent: { cycle: number; receipts: number };
+  slug: string;
+}) {
+  const [expandedCycle, setExpandedCycle] = useState<number | null>(null);
+  const [cycleDonors, setCycleDonors] = useState<CycleDonor[]>([]);
+  const [loadingDonors, setLoadingDonors] = useState(false);
 
-  const [entity, setEntity] = useState<Entity | null>(null);
-  const [connections, setConnections] = useState<Relationship[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  // Read initial tab from URL hash (e.g. #hidden_connections)
-  const [activeTab, setActiveTab] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const hash = window.location.hash.replace('#', '');
-      const validTabs = TABS.map(t => t.id);
-      if (hash && validTabs.includes(hash)) return hash;
-    }
-    return 'overview';
-  });
-  const [totalConnections, setTotalConnections] = useState(0);
-  const [conflictData, setConflictData] = useState<ConflictData | null>(null);
-  const [timelineData, setTimelineData] = useState<DonationTimelineType | null>(null);
-  const [networkData, setNetworkData] = useState<SharedDonorNetworkType | null>(null);
-  const [sharedInterests, setSharedInterests] = useState<SharedInterestsData | null>(null);
-  const [spotlightData, setSpotlightData] = useState<RelationshipSpotlightData[]>([]);
-  const [hiddenSummary, setHiddenSummary] = useState<HiddenConnectionsSummary | null>(null);
-  const [hiddenSummaryLoading, setHiddenSummaryLoading] = useState(true);
-  const [revolvingDoorData, setRevolvingDoorData] = useState<RevolvingDoorItem[] | null>(null);
-  const [familyData, setFamilyData] = useState<FamilyConnectionItem[] | null>(null);
-  const [outsideIncomeData, setOutsideIncomeData] = useState<OutsideIncomeItem[] | null>(null);
-  const [contractorData, setContractorData] = useState<ContractorDonorItem[] | null>(null);
-  const [tradeTimingData, setTradeTimingData] = useState<InsiderTimingResponse | null>(null);
-  const [evidenceChains, setEvidenceChains] = useState<EvidenceChainResponse[]>([]);
-  const [entitySummary, setEntitySummary] = useState<EntitySummaryData | null>(null);
-  const [tabDataLoading, setTabDataLoading] = useState<Record<string, boolean>>({});
-
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    setHiddenSummaryLoading(true);
-    setError(null);
-    try {
-      // FAST PATH: Load entity + connections first (2 calls, renders page immediately)
-      const [entityData, connectionsData] = await Promise.all([
-        getEntity(slug),
-        getConnections(slug, { limit: 500 }),
-      ]);
-      setEntity(entityData);
-      setConnections(connectionsData.connections);
-      setTotalConnections(connectionsData.total);
-      setLoading(false); // Page renders NOW with basic data
-
-      // LAZY PATH: Load enrichment data in background (non-blocking)
-      Promise.all([
-        getConflicts(slug).catch(() => null),
-        getDonationTimeline(slug).catch(() => null),
-        getSharedDonorNetwork(slug).catch(() => null),
-        getSharedInterests(slug).catch(() => null),
-        getRelationshipSpotlight(slug).catch(() => [] as RelationshipSpotlightData[]),
-        getEntitySummary(slug).catch(() => null),
-        getHiddenConnectionsSummary(slug).catch(() => null),
-        getAllChains(slug).then(r => Array.isArray(r) ? r : (r as { chains: EvidenceChainResponse[] }).chains || []).catch(() => [] as EvidenceChainResponse[]),
-      ]).then(([conflicts, timeline, network, interests, spotlights, summary, hiddenSum, chains]) => {
-        setConflictData(conflicts);
-        setTimelineData(timeline);
-        setNetworkData(network);
-        setSharedInterests(interests);
-        setSpotlightData(spotlights);
-        setEntitySummary(summary);
-        setHiddenSummary(hiddenSum);
-        setHiddenSummaryLoading(false);
-        setEvidenceChains(chains as EvidenceChainResponse[]);
-      });
-    } catch (err) {
-      if (err instanceof Error && 'status' in err && (err as Record<string, unknown>).status === 404) {
-        setError('Official not found. They may not be in our database yet.');
-      } else {
-        setError('Failed to load profile. Please try again later.');
-      }
-      setHiddenSummaryLoading(false);
-    } finally {
-      setLoading(false);
-    }
-  }, [slug]);
-
-  // Lazy-load tab data when a hidden connections tab is selected
-  const fetchTabData = useCallback(async (tabId: string) => {
-    if (tabDataLoading[tabId]) return;
-
-    // For the combined hidden_connections tab, load all sub-sections in parallel
-    if (tabId === 'hidden_connections') {
-      const sections = ['revolving_door', 'family', 'outside_income', 'contractors', 'trade_timing'];
-      setTabDataLoading((prev) => {
-        const next = { ...prev };
-        for (const s of sections) next[s] = true;
-        return next;
-      });
-
-      const fetchers: Promise<void>[] = [];
-
-      if (!revolvingDoorData) {
-        fetchers.push(
-          getRevolvingDoor(slug).then((data) => setRevolvingDoorData(data)).catch(() => {})
-        );
-      }
-      if (!familyData) {
-        fetchers.push(
-          getFamilyConnections(slug).then((data) => setFamilyData(data)).catch(() => {})
-        );
-      }
-      if (!outsideIncomeData) {
-        fetchers.push(
-          getOutsideIncome(slug).then((data) => setOutsideIncomeData(data)).catch(() => {})
-        );
-      }
-      if (!contractorData) {
-        fetchers.push(
-          getContractorDonors(slug).then((data) => setContractorData(data)).catch(() => {})
-        );
-      }
-      if (!tradeTimingData) {
-        fetchers.push(
-          getTradeTimingAnalysis(slug).then((data) => setTradeTimingData(data)).catch(() => {})
-        );
-      }
-
-      await Promise.all(fetchers);
-      setTabDataLoading((prev) => {
-        const next = { ...prev };
-        for (const s of sections) next[s] = false;
-        return next;
-      });
+  const handleCycleClick = async (cycle: number) => {
+    if (expandedCycle === cycle) {
+      setExpandedCycle(null);
       return;
     }
-
-    setTabDataLoading((prev) => ({ ...prev, [tabId]: true }));
+    setExpandedCycle(cycle);
+    setLoadingDonors(true);
+    setCycleDonors([]);
     try {
-      switch (tabId) {
-        case 'revolving_door':
-          if (!revolvingDoorData) {
-            const data = await getRevolvingDoor(slug);
-            setRevolvingDoorData(data);
-          }
-          break;
-        case 'family':
-          if (!familyData) {
-            const data = await getFamilyConnections(slug);
-            setFamilyData(data);
-          }
-          break;
-        case 'outside_income':
-          if (!outsideIncomeData) {
-            const data = await getOutsideIncome(slug);
-            setOutsideIncomeData(data);
-          }
-          break;
-        case 'contractors':
-          if (!contractorData) {
-            const data = await getContractorDonors(slug);
-            setContractorData(data);
-          }
-          break;
-        case 'trade_timing':
-          if (!tradeTimingData) {
-            const data = await getTradeTimingAnalysis(slug);
-            setTradeTimingData(data);
-          }
-          break;
+      const res = await fetch(`/api/entities/${slug}/pac-donors?cycle=${cycle}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCycleDonors(data.donors || []);
       }
-    } catch {
-      // Silently handle errors; sections will show empty state
-    } finally {
-      setTabDataLoading((prev) => ({ ...prev, [tabId]: false }));
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
-  // Lazy-load hidden connections tab data on tab switch
-  useEffect(() => {
-    const hiddenTabs = ['hidden_connections', 'revolving_door', 'family', 'outside_income', 'contractors', 'trade_timing'];
-    if (hiddenTabs.includes(activeTab)) {
-      fetchTabData(activeTab);
-    }
-  }, [activeTab, fetchTabData]);
-
-  if (loading) {
-    return (
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <LoadingState variant="profile" />
-      </div>
-    );
-  }
-
-  if (error || !entity) {
-    return (
-      <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-md text-center">
-          <AlertTriangle className="mx-auto h-12 w-12 text-zinc-600" />
-          <h1 className="mt-4 text-xl font-bold text-zinc-200">
-            {error || 'Something went wrong'}
-          </h1>
-          <div className="mt-6 flex justify-center gap-3">
-            <Link
-              href="/officials"
-              className="inline-flex items-center gap-2 rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:border-zinc-600"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Back to Officials
-            </Link>
-            <button
-              onClick={fetchData}
-              className="rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-amber-400"
-            >
-              Retry
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const metadata = entity.metadata as Record<string, unknown>;
-  const party = (metadata?.party as string) || undefined;
-  const state = (metadata?.state as string) || '';
-  const chamber = (metadata?.chamber as string) || '';
-  const yearsInOffice = (metadata?.years_in_office as string) || (metadata?.term_start as string) || '--';
-  const rawCommittees = (metadata?.committees as Array<string | { name?: string; code?: string; role?: string }>) || [];
-  const committeesList: string[] = rawCommittees.map((c) =>
-    typeof c === 'string' ? c : (c?.name || c?.code || 'Unknown Committee')
-  );
-
-  const categorized = categorizeConnections(connections);
-
-  // Build evidence chain map
-  const chainMap = buildChainMap(evidenceChains);
-
-  const tabsWithCounts = TABS.map((tab) => {
-    let count: number | undefined;
-    switch (tab.id) {
-      case 'conflicts':
-        count = conflictData?.total_conflicts ?? 0;
-        break;
-      case 'hidden_connections': {
-        const hc = (hiddenSummary?.revolving_door_count ?? 0) +
-          (hiddenSummary?.family_connections_count ?? 0) +
-          (hiddenSummary?.contractor_donors_count ?? 0) +
-          (hiddenSummary?.trade_timing_flagged_count ?? 0) +
-          (hiddenSummary?.outside_income?.length ?? 0);
-        count = hc > 0 ? hc : undefined;
-        break;
-      }
-      case 'money':
-        count = categorized.holdings.length + categorized.donations.length;
-        break;
-      case 'legislative':
-        count = categorized.bills.length + categorized.votes.length;
-        break;
-      case 'connections':
-        count = totalConnections;
-        break;
-    }
-    return { ...tab, count };
-  });
-
-  // Compute stats
-  const totalCampaign = categorized.donations.reduce(
-    (sum, d) => sum + (d.amount_usd ?? 0),
-    0
-  );
-
-  const stats = [
-    { label: 'Years in Office', value: yearsInOffice },
-    { label: 'Committees', value: entitySummary?.connection_counts?.committees ?? categorized.committees.length },
-    { label: 'Conflicts', value: conflictData?.total_conflicts ?? 0 },
-    { label: 'Stock Holdings', value: entitySummary?.connection_counts?.holdings ?? categorized.holdings.length },
-    { label: 'Donors', value: entitySummary?.connection_counts?.donations ?? categorized.donations.length },
-    {
-      label: 'Total Campaign $',
-      value: totalCampaign > 0 ? formatMoney(totalCampaign) : '--',
-    },
-  ];
-
-  // Get party-based avatar color
-  const avatarColor = party?.toLowerCase().includes('democrat')
-    ? 'bg-blue-500/20 text-blue-400'
-    : party?.toLowerCase().includes('republican')
-      ? 'bg-red-500/20 text-red-400'
-      : 'bg-zinc-700 text-zinc-300';
-
-  // Check for holdings that might have vote-related conflicts
-  const voteEntitySlugs = new Set(
-    categorized.votes
-      .map((v) => v.connected_entity?.slug)
-      .filter(Boolean) as string[]
-  );
-  const conflictEntitySlugs = new Set(
-    conflictData?.conflicts.flatMap((c) => c.related_entities) ?? []
-  );
-
-  // Pre-vote donations from timeline
-  const preVoteDonations = timelineData?.events.filter(
-    (e) =>
-      e.days_before_vote != null &&
-      e.days_before_vote >= 0 &&
-      e.days_before_vote <= 90 &&
-      e.event_type.toLowerCase().includes('donat')
-  ) ?? [];
-
-  // Determine party abbreviation
-  const partyAbbrev = party?.toLowerCase().includes('democrat')
-    ? 'D'
-    : party?.toLowerCase().includes('republican')
-      ? 'R'
-      : party?.toLowerCase().includes('independent')
-        ? 'I'
-        : '';
-
-  // Title line
-  const titleLine = [
-    chamber?.toUpperCase(),
-    entity.name.toUpperCase(),
-    partyAbbrev && state ? `(${partyAbbrev}-${state})` : partyAbbrev ? `(${partyAbbrev})` : state ? `(${state})` : '',
-  ].filter(Boolean).join(' ');
-
-  // Committees display
-  const displayCommittees = committeesList.length > 0
-    ? committeesList
-    : categorized.committees.map((c) => c.connected_entity?.name).filter(Boolean) as string[];
-
-  // Conflict count
-  const totalConflictsCount = conflictData?.total_conflicts ?? 0;
-
-  // Generate quick summary
-  const summaryParts: string[] = [];
-  if (categorized.holdings.length > 0) {
-    summaryParts.push(`holds stock in ${categorized.holdings.length} companies`);
-  }
-  if (categorized.donations.length > 0) {
-    summaryParts.push(`received donations from ${categorized.donations.length} sources`);
-  }
-  if (hiddenSummary?.revolving_door_count && hiddenSummary.revolving_door_count > 0) {
-    summaryParts.push(`has ${hiddenSummary.revolving_door_count} former staffer${hiddenSummary.revolving_door_count !== 1 ? 's' : ''} who now lobby for related companies`);
-  }
-  const quickSummaryText = summaryParts.length > 0
-    ? `${entity.name} ${summaryParts.join(', ')}. This doesn't mean they did anything wrong — it means the structural relationships exist for you to evaluate.`
-    : `No significant structural relationships have been identified in our current data for ${entity.name}.`;
-
-  // Scroll to section helper
-  const scrollToTab = (tabId: string) => {
-    setActiveTab(tabId);
-    // Scroll to tab content after a short delay for render
-    setTimeout(() => {
-      const el = document.getElementById('tab-content-area');
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    }, 100);
+    } catch { /* ignore */ }
+    setLoadingDonors(false);
   };
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      {/* Breadcrumb */}
-      <div className="mb-6">
-        <Link
-          href="/officials"
-          className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-300"
-        >
-          <ArrowLeft className="h-3 w-3" />
-          Officials
-        </Link>
-      </div>
+    <div className="mb-8">
+      <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">
+        Campaign Finance Trend
+      </h2>
 
-      {/* Top Section: Avatar + Name */}
-      <div className="mb-8 flex flex-col gap-6 sm:flex-row sm:items-start">
-        {/* Avatar */}
-        <div
-          className={clsx(
-            'flex h-24 w-24 shrink-0 items-center justify-center rounded-full text-2xl font-bold',
-            avatarColor
-          )}
-          aria-hidden="true"
-        >
-          {getInitials(entity.name)}
+      {/* Summary row */}
+      <div className="flex flex-wrap gap-6 mb-5">
+        <div>
+          <div className="text-xs text-zinc-500 uppercase tracking-wide">Total Raised</div>
+          <div className="text-2xl font-bold text-amber-400">{formatMoney(Math.round(totalRaised * 100))}</div>
         </div>
-
-        {/* Info */}
-        <div className="flex-1">
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-3xl font-bold tracking-tight text-zinc-100">
-              {entity.name}
-            </h1>
-            <PartyBadge party={party} />
-            {conflictData && conflictData.conflict_score !== 'NONE' && conflictData.conflict_score.toLowerCase() !== 'none' && (
-              <ConflictBadge severity={conflictData.conflict_score} />
-            )}
-          </div>
-
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-400">
-            {state && <span>{state}</span>}
-            {chamber && (
-              <>
-                <span className="text-zinc-600">&middot;</span>
-                <span>{chamber}</span>
-              </>
-            )}
-          </div>
-
-          {/* Committees */}
-          {displayCommittees.length > 0 && (
-            <p className="mt-2 text-xs text-zinc-500">
-              {displayCommittees.join(' \u2022 ')}
-            </p>
-          )}
-
-          {entity.summary && (
-            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-zinc-400">
-              {entity.summary}
-            </p>
-          )}
+        <div>
+          <div className="text-xs text-zinc-500 uppercase tracking-wide">Total Spent</div>
+          <div className="text-2xl font-bold text-zinc-400">{formatMoney(Math.round(totalSpent * 100))}</div>
         </div>
-      </div>
-
-      {/* ==========================================
-          INTELLIGENCE SUMMARY CARD
-          ========================================== */}
-      <div className="mb-8">
-        <div className="rounded-xl border-2 border-amber-500/40 bg-zinc-900 p-5 sm:p-6 shadow-[0_0_20px_rgba(245,158,11,0.08)]">
-          {/* Title */}
-          <div className="mb-3">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-300">
-              {titleLine}
-            </h2>
-            {displayCommittees.length > 0 && (
-              <p className="mt-1 text-xs text-zinc-500">
-                {displayCommittees.join(' \u2022 ')}
-              </p>
-            )}
-          </div>
-
-          {/* Conflict count */}
-          {totalConflictsCount > 0 ? (
-            <div className="mb-3 flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-amber-500" />
-              <span className="text-sm font-bold text-amber-400">
-                {totalConflictsCount} POTENTIAL CONFLICT{totalConflictsCount !== 1 ? 'S' : ''} DETECTED
-              </span>
+        <div>
+          <div className="text-xs text-zinc-500 uppercase tracking-wide">Cycles</div>
+          <div className="text-2xl font-bold text-zinc-300">{sorted.length}</div>
+        </div>
+        {trendPct !== null && (
+          <div>
+            <div className="text-xs text-zinc-500 uppercase tracking-wide">Trend ({previous?.cycle}→{recent.cycle})</div>
+            <div className={`text-2xl font-bold ${trendPct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              {trendPct >= 0 ? '+' : ''}{trendPct}%
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* Bar chart — clickable bars */}
+      <div className="flex items-end gap-3 mb-4" style={{ height: '120px' }}>
+        {sorted.map((c) => {
+          const sqrtMax = Math.sqrt(maxReceipts);
+          const sqrtVal = Math.sqrt(c.receipts);
+          const heightPct = Math.max((sqrtVal / sqrtMax) * 100, 8);
+          const isExpanded = expandedCycle === c.cycle;
+          return (
+            <div
+              key={c.cycle}
+              className="flex-1 flex flex-col items-center justify-end h-full cursor-pointer group"
+              onClick={() => handleCycleClick(c.cycle)}
+            >
+              <div className="text-[10px] text-amber-400 font-semibold mb-1">
+                {formatMoney(Math.round(c.receipts * 100))}
+              </div>
+              <div
+                className={`w-full rounded-t border border-b-0 transition-all ${
+                  isExpanded
+                    ? 'bg-gradient-to-t from-amber-500/80 to-amber-500/40 border-amber-400'
+                    : 'bg-gradient-to-t from-amber-500/60 to-amber-500/20 border-amber-500/30 group-hover:border-amber-400/60'
+                }`}
+                style={{ height: `${heightPct}%`, minHeight: '8px' }}
+              />
+              <div className={`text-xs font-mono mt-1.5 border-t pt-1 w-full text-center ${
+                isExpanded ? 'text-amber-400 border-amber-500/50' : 'text-zinc-400 border-zinc-800'
+              }`}>
+                {c.cycle}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Expanded cycle donors */}
+      {expandedCycle !== null && (
+        <div className="bg-zinc-900 border border-amber-500/30 rounded-xl p-4 mb-4">
+          <h3 className="text-sm font-bold text-amber-400 mb-3">
+            {expandedCycle} Cycle — Top Donors
+          </h3>
+          {loadingDonors ? (
+            <div className="flex items-center gap-2 text-sm text-zinc-500 py-4">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-600 border-t-amber-400" />
+              Fetching {expandedCycle} cycle donors from FEC...
+            </div>
+          ) : cycleDonors.length > 0 ? (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-zinc-500 uppercase tracking-wide">
+                  <th className="pb-2 px-2">Donor</th>
+                  <th className="pb-2 px-2">Employer</th>
+                  <th className="pb-2 px-2 text-right">Amount</th>
+                  <th className="pb-2 px-2">Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cycleDonors.map((d, i) => (
+                  <tr key={i} className="border-t border-zinc-800">
+                    <td className="py-2 px-2 text-zinc-200">{d.name}</td>
+                    <td className="py-2 px-2 text-zinc-500 text-xs">{d.employer || '--'}</td>
+                    <td className="py-2 px-2 text-right text-amber-400 font-semibold">{formatMoney(d.amount)}</td>
+                    <td className="py-2 px-2 text-zinc-500 text-xs">{fmtDate(d.date)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           ) : (
-            <div className="mb-3 flex items-center gap-2">
-              <span className="text-sm font-medium text-zinc-500">
-                No significant conflicts detected in current data
-              </span>
-            </div>
+            <p className="text-zinc-500 text-sm py-2">No donor details available for this cycle. Try refreshing the investigation.</p>
           )}
-
-          {/* Quick Summary */}
-          <div className="mb-4">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-1">
-              Quick Summary (plain English)
-            </p>
-            <p className="text-sm leading-relaxed text-zinc-300">
-              {quickSummaryText}
-            </p>
-          </div>
-
-          {/* CTA buttons */}
-          <div className="flex flex-wrap gap-2">
-            {totalConflictsCount > 0 && (
-              <button
-                onClick={() => scrollToTab('conflicts')}
-                className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 border border-amber-500/30 px-3 py-1.5 text-xs font-medium text-amber-400 hover:bg-amber-500/20 transition-colors"
-              >
-                SEE ALL CONFLICTS
-                <ChevronDown className="h-3 w-3" />
-              </button>
-            )}
-            <button
-              onClick={() => scrollToTab('hidden_connections')}
-              className="inline-flex items-center gap-1 rounded-md bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-700 transition-colors"
-            >
-              SEE HIDDEN CONNECTIONS
-              <ChevronDown className="h-3 w-3" />
-            </button>
-            <button
-              onClick={() => scrollToTab('connections')}
-              className="inline-flex items-center gap-1 rounded-md bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-700 transition-colors"
-            >
-              COMPARE TO PEERS
-              <ChevronDown className="h-3 w-3" />
-            </button>
-          </div>
         </div>
-      </div>
+      )}
 
-      {/* Quick Stats */}
-      <div className="mb-6">
-        <StatBar stats={stats} />
-      </div>
+      {/* Detail table */}
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-xs text-zinc-500 uppercase tracking-wide">
+            <th className="pb-2 px-3">Cycle</th>
+            <th className="pb-2 px-3 text-right">Raised</th>
+            <th className="pb-2 px-3 text-right">Spent</th>
+            <th className="pb-2 px-3 text-right">Net</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((c) => (
+            <tr key={c.cycle} className="border-t border-zinc-900 cursor-pointer hover:bg-zinc-800/50" onClick={() => handleCycleClick(c.cycle)}>
+              <td className="py-2 px-3 font-mono">{c.cycle}</td>
+              <td className="py-2 px-3 text-right text-amber-400 font-semibold">{formatMoney(Math.round(c.receipts * 100))}</td>
+              <td className="py-2 px-3 text-right text-zinc-400">{formatMoney(Math.round(c.disbursements * 100))}</td>
+              <td className={`py-2 px-3 text-right font-semibold ${c.receipts - c.disbursements >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {formatMoney(Math.round((c.receipts - c.disbursements) * 100))}
+              </td>
+            </tr>
+          ))}
+          <tr className="border-t-2 border-zinc-700 font-bold">
+            <td className="py-2 px-3">Total</td>
+            <td className="py-2 px-3 text-right text-amber-400">{formatMoney(Math.round(totalRaised * 100))}</td>
+            <td className="py-2 px-3 text-right text-zinc-400">{formatMoney(Math.round(totalSpent * 100))}</td>
+            <td className={`py-2 px-3 text-right font-semibold ${totalRaised - totalSpent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              {formatMoney(Math.round((totalRaised - totalSpent) * 100))}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
-      {/* Hidden Connections Summary Card */}
-      <div className="mb-8">
-        <HiddenConnectionsCard
-          summary={hiddenSummary}
-          loading={hiddenSummaryLoading}
-          entityName={entity.name}
-          onViewDetails={(section) => setActiveTab(section)}
-        />
-      </div>
+// ---------------------------------------------------------------------------
+// Bill Evidence Row (collapsible — shows aggregate, expands to show donors)
+// ---------------------------------------------------------------------------
 
-      {/* ==========================================
-          TABBED CONTENT
-          ========================================== */}
-      <div id="tab-content-area">
-        <TabNav tabs={tabsWithCounts} activeTab={activeTab} onTabChange={(tab) => {
-          setActiveTab(tab);
-          window.history.replaceState(null, '', `#${tab}`);
-        }} />
-
-        <div className="mt-6">
-          {/* ===== OVERVIEW TAB ===== */}
-          {activeTab === 'overview' && (
-            <div role="tabpanel" id="tabpanel-overview" aria-labelledby="overview">
-              {/* FBI Briefing — the first thing users see */}
-              <div className="mb-6">
-                <FBIBriefing
-                  entitySlug={slug}
-                  entityName={entity.name}
-                  entityType="person"
-                />
-              </div>
-
-              {/* Fast Facts Cards */}
-              <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Briefcase className="h-4 w-4 text-amber-500" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Committees</span>
-                  </div>
-                  {displayCommittees.length > 0 ? (
-                    <ul className="space-y-1">
-                      {displayCommittees.map((c, i) => (
-                        <li key={i} className="text-xs text-zinc-300">{c}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-xs text-zinc-500">--</p>
-                  )}
-                </div>
-
-                <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <CalendarDays className="h-4 w-4 text-amber-500" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">In Office Since</span>
-                  </div>
-                  <p className="text-lg font-bold text-zinc-200">{yearsInOffice}</p>
-                </div>
-
-                <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <RefreshCcw className="h-4 w-4 text-amber-500" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Former Staffers Lobbying</span>
-                  </div>
-                  <p className="text-lg font-bold text-zinc-200">
-                    {hiddenSummary?.revolving_door_count ?? '--'}
-                  </p>
-                </div>
-
-                <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <TrendingUp className="h-4 w-4 text-amber-500" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Stock Holdings</span>
-                  </div>
-                  <p className="text-lg font-bold text-zinc-200">{categorized.holdings.length}</p>
-                </div>
-
-                <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <DollarSign className="h-4 w-4 text-amber-500" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Campaign Donors</span>
-                  </div>
-                  <p className="text-lg font-bold text-zinc-200">{categorized.donations.length}</p>
-                </div>
-              </div>
-
-              {/* Bio */}
-              {entity.summary && (
-                <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 mb-6">
-                  <h3 className="text-sm font-bold uppercase tracking-wider text-zinc-400 mb-2">About</h3>
-                  <p className="text-sm leading-relaxed text-zinc-300">{entity.summary}</p>
-                </div>
-              )}
-
-              {/* Committees section */}
-              {categorized.committees.length > 0 && (
-                <div className="mb-6">
-                  <CommitteeList committees={categorized.committees} />
-                </div>
-              )}
-
-              {/* Quick stat bar */}
-              <StatBar stats={stats} />
+function BillEvidenceRow({ group }: { group: { bill: string; slug: string; totalAmount: number; donors: { name: string; slug?: string; amount: string; rawAmount: number; filingUrl: string }[] } }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="bg-zinc-950/50 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between gap-2 px-3 py-2.5 hover:bg-zinc-800/30 transition-colors text-left"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+            className={`text-zinc-600 flex-shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}>
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+          <span className="text-xs text-zinc-300 truncate">{group.bill}</span>
+          <span className="text-[10px] text-zinc-600 flex-shrink-0">{group.donors.length} donor{group.donors.length !== 1 ? 's' : ''}</span>
+        </div>
+        {group.totalAmount > 0 && (
+          <span className="text-amber-400 font-bold text-xs flex-shrink-0">{formatMoney(group.totalAmount)}</span>
+        )}
+      </button>
+      {open && (
+        <div className="px-3 pb-2.5 pt-0">
+          {/* Bill link */}
+          {group.slug && (
+            <div className="mb-2 ml-5">
+              <Link href={`/bills/${group.slug}`} className="text-[10px] text-blue-400 hover:text-blue-300">View bill dossier →</Link>
             </div>
           )}
-
-          {/* ===== HIDDEN CONNECTIONS TAB ===== */}
-          {activeTab === 'hidden_connections' && (
-            <div role="tabpanel" id="tabpanel-hidden_connections" aria-labelledby="hidden_connections">
-              {/* Plain English intro */}
-              <div className="mb-6 rounded-xl border border-zinc-800 bg-zinc-900 p-5">
-                <p className="text-sm leading-relaxed text-zinc-300">
-                  Here are the connections that rarely appear in news coverage. Each one is documented
-                  from public records. None of this is an accusation &mdash; it&apos;s structural
-                  information you have a right to know.
-                </p>
-              </div>
-
-              {/* Revolving Door */}
-              <div className="mb-8">
-                <RevolvingDoorSection
-                  items={revolvingDoorData ?? []}
-                  loading={tabDataLoading['revolving_door'] ?? false}
-                  entityName={entity.name}
-                />
-              </div>
-
-              {/* Family Connections */}
-              <div className="mb-8">
-                <FamilyConnectionsSection
-                  items={familyData ?? []}
-                  loading={tabDataLoading['family'] ?? false}
-                  entityName={entity.name}
-                  officialName={entity.name}
-                />
-              </div>
-
-              {/* Outside Income */}
-              <div className="mb-8">
-                <OutsideIncomeSection
-                  items={outsideIncomeData ?? []}
-                  loading={tabDataLoading['outside_income'] ?? false}
-                  entityName={entity.name}
-                />
-              </div>
-
-              {/* Contractor Donors */}
-              <div className="mb-8">
-                <ContractorDonorsSection
-                  items={contractorData ?? []}
-                  loading={tabDataLoading['contractors'] ?? false}
-                  entityName={entity.name}
-                />
-              </div>
-
-              {/* Trade Timing */}
-              <div className="mb-8">
-                <TradeTimingSection
-                  data={tradeTimingData}
-                  loading={tabDataLoading['trade_timing'] ?? false}
-                  entityName={entity.name}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* ===== CONFLICTS TAB ===== */}
-          {activeTab === 'conflicts' && (
-            <div role="tabpanel" id="tabpanel-conflicts" aria-labelledby="conflicts">
-              <div className="space-y-6">
-                {/* Relationship Spotlights */}
-                {spotlightData.length > 0 && (
-                  <RelationshipSpotlight spotlights={spotlightData} officialName={entity.name} />
-                )}
-
-                {/* Conflict Cards */}
-                {conflictData && conflictData.conflicts.length > 0 ? (
-                  <div className="space-y-4">
-                    <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">
-                      <AlertTriangle className="h-4 w-4 text-amber-500" />
-                      {conflictData.total_conflicts} Potential Conflict{conflictData.total_conflicts !== 1 ? 's' : ''} of Interest
-                    </h3>
-                    <p className="mb-4 text-xs text-zinc-500">
-                      These structural relationships are surfaced for public transparency.
-                      Every fact is sourced from public records. Review the evidence below
-                      and draw your own conclusions.
-                    </p>
-                    {conflictData.conflicts
-                      .sort((a, b) => {
-                        const order: Record<string, number> = {
-                          critical: 4, high_concern: 4,
-                          high: 3, notable_pattern: 3,
-                          medium: 2, structural_relationship: 2,
-                          low: 1, connection_noted: 1,
-                        };
-                        return (order[b.severity.toLowerCase()] || 0) - (order[a.severity.toLowerCase()] || 0);
-                      })
-                      .map((conflict, i) => {
-                        // Find matching evidence chain
-                        const relatedChain = conflict.related_entities
-                          .map((entitySlug) => chainMap.get(entitySlug))
-                          .find(Boolean);
-
-                        return (
-                          <ConflictCard
-                            key={i}
-                            severity={conflict.severity}
-                            conflictType={conflict.conflict_type}
-                            description={conflict.description}
-                            evidence={conflict.evidence}
-                            relatedEntities={conflict.related_entities}
-                            whyThisMatters={conflict.why_this_matters}
-                            evidenceChain={relatedChain ? {
-                              chain: relatedChain.chain,
-                              severity: relatedChain.severity,
-                              narrative: relatedChain.narrative,
-                              officialSlug: relatedChain.official_slug,
-                              companySlug: relatedChain.company_slug,
-                            } : undefined}
-                          />
-                        );
-                      })}
-                  </div>
+          {/* Donor list */}
+          <div className="ml-5 space-y-1 border-l border-zinc-800 pl-3">
+            {group.donors.sort((a, b) => b.rawAmount - a.rawAmount).map((d, j) => (
+              <div key={j} className="flex items-center justify-between text-xs">
+                {d.slug ? (
+                  <Link href={`/entities/pac/${d.slug}`} className="text-zinc-400 hover:text-amber-400 truncate">{d.name}</Link>
                 ) : (
-                  <div className="rounded-xl border border-zinc-800 bg-zinc-900 px-6 py-8 text-center">
-                    <p className="text-sm text-zinc-400">
-                      No structural relationships of concern identified in current data. This assessment is limited to indexed public records.
-                    </p>
-                  </div>
+                  <span className="text-zinc-400 truncate">{d.name}</span>
                 )}
-
-                {/* Donation Timeline */}
-                {timelineData && timelineData.events.length > 0 && (
-                  <div>
-                    <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">
-                      Money Flow Timeline
-                    </h3>
-                    <DonationTimeline
-                      events={timelineData.events}
-                      suspiciousPairs={timelineData.suspicious_pairs}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* ===== MONEY TAB ===== */}
-          {activeTab === 'money' && (
-            <div role="tabpanel" id="tabpanel-money" aria-labelledby="money">
-              {/* Financial Holdings section */}
-              <div className="mb-8">
-                <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">
-                  <TrendingUp className="h-4 w-4 text-amber-500" />
-                  Stock Holdings ({categorized.holdings.length})
-                </h3>
-
-                {categorized.holdings.length > 0 && (
-                  <div className="mb-5 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-                    <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-zinc-400">
-                      Holdings Overview
-                    </h4>
-                    <ul className="space-y-1.5 text-sm">
-                      <li className="text-zinc-300">
-                        <span className="text-amber-500">&bull;</span>{' '}
-                        {categorized.holdings.length} disclosed financial interest{categorized.holdings.length !== 1 ? 's' : ''}
-                      </li>
-                      {categorized.holdings
-                        .filter((h) => {
-                          const s = h.connected_entity?.slug;
-                          return s && (conflictEntitySlugs.has(s) || voteEntitySlugs.has(s));
-                        })
-                        .slice(0, 3)
-                        .map((h) => (
-                          <li key={h.id} className="text-orange-300">
-                            <AlertTriangle className="mr-1 inline-block h-3 w-3 text-orange-400" />
-                            Financial interest in{' '}
-                            <span className="font-semibold">{h.connected_entity?.name}</span>{' '}
-                            <span className="text-zinc-500">({h.amount_label || 'undisclosed'})</span>
-                            {' '}&mdash; overlaps with committee jurisdiction or voted legislation
-                          </li>
-                        ))}
-                    </ul>
-                  </div>
-                )}
-                <FinancialTable holdings={categorized.holdings} />
-              </div>
-
-              {/* Campaign Finance section */}
-              <div>
-                <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">
-                  <DollarSign className="h-4 w-4 text-amber-500" />
-                  Campaign Finance ({categorized.donations.length} sources)
-                </h3>
-
-                {categorized.donations.length > 0 && (
-                  <div className="mb-5 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-                    <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-zinc-400">
-                      Money Received &mdash; Overview
-                    </h4>
-                    <ul className="space-y-1.5 text-sm">
-                      <li className="text-zinc-300">
-                        <span className="text-amber-500">&bull;</span>{' '}
-                        Total from {categorized.donations.length} source{categorized.donations.length !== 1 ? 's' : ''}:{' '}
-                        <span className="font-semibold text-green-400">
-                          {formatMoney(categorized.donations.reduce((s, d) => s + (d.amount_usd ?? 0), 0))}
-                        </span>
-                      </li>
-                      {(() => {
-                        const byType: Record<string, number> = {};
-                        for (const d of categorized.donations) {
-                          const meta = d.metadata as Record<string, unknown>;
-                          const t = (meta?.contributor_type as string) || (meta?.industry_label as string) || 'Other';
-                          byType[t] = (byType[t] || 0) + (d.amount_usd ?? 0);
-                        }
-                        return Object.entries(byType)
-                          .sort(([, a], [, b]) => b - a)
-                          .slice(0, 3)
-                          .map(([type, amount]) => (
-                            <li key={type} className="text-zinc-300">
-                              <span className="text-amber-500">&bull;</span>{' '}
-                              {type}:{' '}
-                              <span className="text-green-400">{formatMoney(amount)}</span>
-                            </li>
-                          ));
-                      })()}
-                    </ul>
-                  </div>
-                )}
-
-                {/* Pre-Vote Donations */}
-                {preVoteDonations.length > 0 && (
-                  <div className="mb-5 rounded-xl border border-red-500/20 bg-red-500/5 p-4">
-                    <h4 className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-red-400">
-                      <AlertTriangle className="h-3.5 w-3.5" />
-                      Pre-Vote Donations
-                    </h4>
-                    <p className="mb-2 text-xs text-zinc-500">
-                      Money received within 90 days before a related legislative vote
-                    </p>
-                    <ul className="space-y-1.5 text-sm">
-                      {preVoteDonations.map((event, i) => (
-                        <li key={i} className="text-orange-300">
-                          <span className="text-red-400">&bull;</span>{' '}
-                          {event.description}
-                          {event.amount_usd != null && event.amount_usd > 0 && (
-                            <span className="ml-1 text-amber-500">({formatMoney(event.amount_usd)})</span>
-                          )}
-                          {event.days_before_vote != null && (
-                            <span className="ml-1 text-red-400">
-                              &mdash; {event.days_before_vote} days before vote
-                            </span>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                <DonorTable donations={categorized.donations} />
-              </div>
-            </div>
-          )}
-
-          {/* ===== VOTES & BILLS TAB ===== */}
-          {activeTab === 'legislative' && (
-            <div role="tabpanel" id="tabpanel-legislative" aria-labelledby="legislative">
-              {(categorized.bills.length > 0 || categorized.votes.length > 0) && (
-                <div className="mb-5 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-                  <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-zinc-400">
-                    Legislative Activity Overview
-                  </h4>
-                  <ul className="space-y-1.5 text-sm">
-                    <li className="text-zinc-300">
-                      <span className="text-amber-500">&bull;</span>{' '}
-                      {categorized.bills.length} bill{categorized.bills.length !== 1 ? 's' : ''} sponsored,{' '}
-                      {categorized.votes.length} recorded vote{categorized.votes.length !== 1 ? 's' : ''}
-                    </li>
-                    {categorized.bills.slice(0, 3).map((b) => {
-                      const meta = b.metadata as Record<string, unknown>;
-                      const status = (meta?.status as string) || '';
-                      const policyArea = (meta?.policyArea as string) || '';
-                      const connectedEntity = b.connected_entity;
-                      const isDonorBeneficiary = connectedEntity?.slug && conflictEntitySlugs.has(connectedEntity.slug);
-                      return (
-                        <li key={b.id} className={isDonorBeneficiary ? 'text-orange-300' : 'text-zinc-300'}>
-                          {isDonorBeneficiary ? (
-                            <AlertTriangle className="mr-1 inline-block h-3 w-3 text-orange-400" />
-                          ) : (
-                            <span className="text-amber-500">&bull;</span>
-                          )}{' '}
-                          {connectedEntity?.name || 'Unknown Bill'}
-                          {status && (
-                            <span className="ml-1 text-zinc-500">({status})</span>
-                          )}
-                          {policyArea && (
-                            <span className="ml-1 text-zinc-600">&mdash; {policyArea}</span>
-                          )}
-                          {isDonorBeneficiary && (
-                            <span className="ml-1 text-orange-400">&mdash; donor beneficiary</span>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
+                <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                  {d.amount && <span className="text-zinc-500">{d.amount}</span>}
+                  {d.filingUrl && <a href={d.filingUrl} target="_blank" rel="noopener" className="text-blue-400 hover:text-blue-300 text-[10px]">LDA</a>}
                 </div>
-              )}
-              <BillsTable bills={categorized.bills} votes={categorized.votes} />
-            </div>
-          )}
-
-          {/* ===== CONNECTIONS TAB ===== */}
-          {activeTab === 'connections' && (
-            <div role="tabpanel" id="tabpanel-connections" aria-labelledby="connections">
-              <ConnectionsPanel
-                connections={connections}
-                committees={categorized.committees}
-                holdings={categorized.holdings}
-                donations={categorized.donations}
-                entitySlug={slug}
-                entityName={entity.name}
-                networkData={networkData}
-                sharedInterests={sharedInterests}
-              />
-            </div>
-          )}
-
-          {/* ===== LOBBYING TAB ===== */}
-          {activeTab === 'lobbying' && (
-            <div role="tabpanel" id="tabpanel-lobbying" aria-labelledby="lobbying">
-              <LobbyingTab
-                entitySlug={slug}
-                entityName={entity.name}
-                committees={categorized.committees}
-                donations={categorized.donations}
-              />
-            </div>
-          )}
-
-          {/* ===== AI BRIEFING TAB ===== */}
-          {activeTab === 'ai_briefing' && (
-            <div role="tabpanel" id="tabpanel-ai_briefing" aria-labelledby="ai_briefing">
-              <InvestigatorSummary
-                entitySlug={slug}
-                entityName={entity.name}
-                conflicts={conflictData?.conflicts ?? []}
-                conflictScore={conflictData?.conflict_score ?? 'NONE'}
-                committees={categorized.committees}
-                holdings={categorized.holdings}
-                donations={categorized.donations}
-                bills={categorized.bills}
-                votes={categorized.votes}
-              />
-
-              <div className="mt-6">
-                <FBIBriefing
-                  entitySlug={slug}
-                  entityName={entity.name}
-                  entityType="person"
-                />
               </div>
-            </div>
-          )}
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Influence Signal Helpers
+// ---------------------------------------------------------------------------
+
+const OFFICIAL_SIGNAL_LABELS: Record<string, string> = {
+  donors_lobby_bills: 'DONORS LOBBY HIS BILLS',
+  timing_spike: 'DONATION TIMING',
+  stock_committee: 'STOCK TRADES',
+  committee_donors: 'COMMITTEE DONORS',
+  revolving_door: 'REVOLVING DOOR',
+};
+
+function getOfficialSignalStyle(signal: V2OfficialInfluenceSignal) {
+  if (signal.found && signal.rarity_label === 'Rare') {
+    return {
+      border: '1px solid rgba(239, 68, 68, 0.2)',
+      background: 'linear-gradient(135deg, #0f0808, #0a0505)',
+      glow: 'radial-gradient(ellipse at 30% 30%, rgba(239,68,68,0.07), transparent 70%)',
+      dotColor: 'bg-red-500',
+      badge: 'bg-red-500/20 text-red-400 border-red-500/40',
+      badgeText: 'RARE',
+    };
+  }
+  if (signal.found && (signal.rarity_label === 'Unusual' || signal.rarity_label === 'Above Baseline')) {
+    return {
+      border: '1px solid rgba(245, 158, 11, 0.2)',
+      background: 'linear-gradient(135deg, #0f0a02, #0a0702)',
+      glow: '',
+      dotColor: 'bg-amber-500',
+      badge: 'bg-amber-500/20 text-amber-400 border-amber-500/40',
+      badgeText: signal.rarity_pct ? `${signal.rarity_pct.toFixed(1)}x` : 'ABOVE',
+    };
+  }
+  if (signal.found && signal.rarity_label === 'Expected') {
+    return {
+      border: '1px solid rgba(34, 34, 34, 0.5)',
+      background: '#09090b',
+      glow: '',
+      dotColor: 'bg-zinc-500',
+      badge: 'bg-zinc-700 text-zinc-400 border-zinc-600',
+      badgeText: 'EXPECTED',
+    };
+  }
+  return {
+    border: '1px solid rgba(34, 197, 94, 0.12)',
+    background: '#09090b',
+    glow: '',
+    dotColor: 'bg-green-500',
+    badge: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+    badgeText: 'CLEAR',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Percentile Ring (Official variant)
+// ---------------------------------------------------------------------------
+
+function OfficialPercentileRing({ pct, peerGroup, peerCount }: { pct: number; peerGroup: string; peerCount: number }) {
+  const radius = 54;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (pct / 100) * circumference;
+
+  let strokeColor = '#22c55e';
+  if (pct >= 75) strokeColor = '#ef4444';
+  else if (pct >= 50) strokeColor = '#f59e0b';
+
+  return (
+    <div className="mb-8">
+      <div
+        style={{ background: 'linear-gradient(135deg,#111,#0a0a12)' }}
+        className="border border-zinc-800 rounded-2xl p-5 flex justify-between items-center"
+      >
+        <div>
+          <div className="text-zinc-500 text-xs uppercase tracking-widest">vs. Other {peerGroup}</div>
+          <div className="text-white text-base font-bold mt-1">
+            More influence signals than{' '}
+            <span style={{ color: strokeColor }}>{pct}%</span>{' '}
+            of {peerGroup}
+          </div>
+          <div className="text-zinc-600 text-xs mt-1">Compared against {peerCount} current {peerGroup}</div>
+        </div>
+        <div className="relative flex-shrink-0" style={{ width: 100, height: 100 }}>
+          <svg width="100" height="100" viewBox="0 0 128 128" className="-rotate-90">
+            <circle cx="64" cy="64" r={radius} fill="none" stroke="#27272a" strokeWidth="8" />
+            <circle
+              cx="64" cy="64" r={radius} fill="none"
+              stroke={strokeColor} strokeWidth="8" strokeLinecap="round"
+              strokeDasharray={circumference} strokeDashoffset={offset}
+              style={{ transition: 'stroke-dashoffset 1s ease-out' }}
+            />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className="text-xl font-bold" style={{ color: strokeColor }}>{pct}</span>
+            <span className="text-[0.5rem] text-zinc-500 uppercase tracking-wider">percentile</span>
+          </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Influence Signal Card (Official variant)
+// ---------------------------------------------------------------------------
+
+function OfficialSignalCard({ signal, peerGroup }: { signal: V2OfficialInfluenceSignal; peerGroup: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const style = getOfficialSignalStyle(signal);
+  const label = OFFICIAL_SIGNAL_LABELS[signal.type] || signal.type.replace(/_/g, ' ').toUpperCase();
+  const evidence = signal.evidence;
+
+  const hasEvidence = signal.found && evidence && (
+    (evidence.matches && evidence.matches.length > 0) ||
+    (evidence.trades && evidence.trades.length > 0) ||
+    (evidence.lobbyists && evidence.lobbyists.length > 0)
+  );
+
+  return (
+    <div
+      className="rounded-2xl p-4 relative overflow-hidden"
+      style={{ border: style.border, background: style.background }}
+    >
+      {style.glow && (
+        <div className="absolute inset-0 pointer-events-none" style={{ background: style.glow }} />
+      )}
+      <div className="relative">
+        {/* Header row */}
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full ${style.dotColor} flex-shrink-0`} />
+            <span className="text-xs font-bold uppercase tracking-widest text-zinc-300">{label}</span>
+          </div>
+          <span className={`text-[0.65rem] font-bold px-2 py-0.5 rounded border uppercase tracking-wide ${style.badge}`}>
+            {style.badgeText}
+          </span>
+        </div>
+
+        {/* Description */}
+        {signal.description && (
+          <p className="text-zinc-400 text-xs leading-relaxed mb-2">{signal.description}</p>
+        )}
+
+        {/* Rarity stat */}
+        {signal.found && signal.rarity_pct != null && (
+          <div className="text-right">
+            <span className="text-[0.6rem] text-zinc-600">{signal.rarity_pct}% of {peerGroup}</span>
+          </div>
+        )}
+
+        {/* View evidence toggle */}
+        {hasEvidence && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-xs text-amber-400 hover:text-amber-300 transition-colors mt-1"
+          >
+            {expanded ? 'Hide evidence' : 'View evidence'} →
+          </button>
+        )}
+
+        {/* Expanded evidence */}
+        {expanded && evidence && (
+          <div className="mt-3 space-y-2">
+            {/* donors_lobby_bills evidence — grouped by bill */}
+            {evidence.matches && evidence.matches.length > 0 && (() => {
+              // Group matches by bill
+              const byBill = new Map<string, { bill: string; slug: string; totalAmount: number; donors: { name: string; slug?: string; amount: string; rawAmount: number; filingUrl: string }[] }>();
+              for (const m of evidence.matches as Record<string, unknown>[]) {
+                const billName = (m.bill || m.bill_name || 'Unknown bill') as string;
+                const billSlug = (m.bill_slug || m.bill_id || '') as string;
+                const key = billName;
+                if (!byBill.has(key)) {
+                  byBill.set(key, { bill: billName, slug: billSlug, totalAmount: 0, donors: [] });
+                }
+                const entry = byBill.get(key)!;
+                const donorName = (m.donor || m.entity_name || 'Unknown') as string;
+                const donorSlug = (m.donor_slug || '') as string;
+                const rawAmount = (m.donation_amount || 0) as number;
+                // Deduplicate donors per bill
+                if (!entry.donors.find(d => d.name === donorName)) {
+                  entry.donors.push({
+                    name: donorName,
+                    slug: donorSlug,
+                    amount: (m.donation_amount_fmt || (rawAmount ? formatMoney(rawAmount) : '')) as string,
+                    rawAmount,
+                    filingUrl: (m.filing_url || m.lda_url || '') as string,
+                  });
+                  entry.totalAmount += rawAmount;
+                }
+              }
+              // Sort by total amount descending
+              const sortedBills = Array.from(byBill.values()).sort((a, b) => b.totalAmount - a.totalAmount);
+              const grandTotal = sortedBills.reduce((s, g) => s + g.totalAmount, 0);
+              const totalDonors = sortedBills.reduce((s, g) => s + g.donors.length, 0);
+
+              return (
+              <div className="space-y-1.5">
+                {/* Grand total across all lobbied bills */}
+                <div className="flex items-center justify-between px-1 mb-2">
+                  <span className="text-xs text-zinc-500">{totalDonors} donors across {sortedBills.length} bills</span>
+                  {grandTotal > 0 && <span className="text-amber-400 font-bold text-sm">{formatMoney(grandTotal)} total</span>}
+                </div>
+
+                {sortedBills.map((group, i) => (
+                  <BillEvidenceRow key={i} group={group} />
+                ))}
+              </div>
+              );
+            })()}
+
+            {/* stock_committee evidence */}
+            {evidence.trades && evidence.trades.length > 0 && (
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-zinc-600 uppercase tracking-wide">
+                    <th className="pb-1 px-2">Ticker</th>
+                    <th className="pb-1 px-2">Type</th>
+                    <th className="pb-1 px-2">Amount</th>
+                    <th className="pb-1 px-2">Date</th>
+                    {evidence.trades.some(t => t.committee) && <th className="pb-1 px-2">Committee</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {evidence.trades.map((t, i) => (
+                    <tr key={i} className="border-t border-zinc-900">
+                      <td className="py-1.5 px-2 font-mono text-zinc-200">{t.ticker}</td>
+                      <td className="py-1.5 px-2">
+                        <span className={t.transaction_type?.toLowerCase().includes('purchase') ? 'text-green-400' : 'text-red-400'}>
+                          {t.transaction_type}
+                        </span>
+                      </td>
+                      <td className="py-1.5 px-2 text-zinc-300">{t.amount_range}</td>
+                      <td className="py-1.5 px-2 text-zinc-500">{fmtDate(t.date)}</td>
+                      {evidence.trades!.some(tr => tr.committee) && (
+                        <td className="py-1.5 px-2 text-zinc-500">{t.committee || '--'}</td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            {/* revolving_door evidence */}
+            {evidence.lobbyists && evidence.lobbyists.length > 0 && (
+              <div className="space-y-1.5">
+                {evidence.lobbyists.map((l, i) => (
+                  <div key={i} className="bg-zinc-950/50 rounded-lg px-3 py-2 text-xs">
+                    <div className="text-zinc-200 font-semibold">{l.name}</div>
+                    {l.former_position && (
+                      <div className="text-zinc-500 mt-0.5">Former: {l.former_position}</div>
+                    )}
+                    {l.current_clients && l.current_clients.length > 0 && (
+                      <div className="text-zinc-500 mt-0.5">
+                        Current clients: {l.current_clients.join(', ')}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function OfficialPage() {
+  const { slug } = useParams<{ slug: string }>();
+  const router = useRouter();
+  const [data, setData] = useState<V2OfficialResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [briefing, setBriefing] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!slug) return;
+    setLoading(true);
+    getV2Official(slug)
+      .then(d => {
+        // If this person has no official data (no donors, no trails, no committees),
+        // redirect to the entity page which shows all relationship types
+        const isEmpty = !d.top_donors?.length && !d.money_trails?.length && !d.committees?.length;
+        const meta = (d.entity?.metadata || d.entity?.metadata_) as Record<string, unknown> | undefined;
+        const isNotOfficial = !meta?.bioguide_id;
+        if (isEmpty && isNotOfficial) {
+          router.replace(`/entities/${d.entity?.entity_type || 'person'}/${slug}`);
+          return;
+        }
+        setData(d);
+        setBriefing(d.briefing);
+      })
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
+  }, [slug, router]);
+
+  if (loading) return <div className="max-w-[900px] mx-auto p-6"><LoadingState variant="profile" /></div>;
+  if (error || !data) return (
+    <div className="max-w-[900px] mx-auto p-6 text-center">
+      <p className="text-zinc-500 mb-4">Official not found.</p>
+      <Link href="/search" className="text-amber-400 hover:underline">Search for officials →</Link>
+    </div>
+  );
+
+  const { entity, overall_verdict, total_dots, money_trails, top_donors, middlemen, committees, briefing: dataBriefing, freshness, stock_trades, fec_cycles, total_all_cycles } = data;
+  const meta = (entity.metadata || entity.metadata_ || {}) as Record<string, unknown>;
+  const party = (meta.party as string) || '';
+  const state = (meta.state as string) || '';
+  const chamber = (meta.chamber as string) || '';
+  const campaignTotal = meta.campaign_total as number | undefined;
+  const fecCycle = meta.best_fec_cycle as string | undefined;
+
+  return (
+    <div className="max-w-[900px] mx-auto px-4 py-6">
+      {/* Header */}
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold mb-1">{entity.name}</h1>
+        <div className="flex flex-wrap items-center gap-3 text-sm text-zinc-400 mb-3">
+          <PartyBadge party={party} />
+          {state && <span>{state}</span>}
+          {chamber && <span>{chamber}</span>}
+          {committees.length > 0 && <span>{committees.map(c => c.name).join(' · ')}</span>}
+        </div>
+        <VerdictPill verdict={overall_verdict} dotCount={total_dots} />
+        {fec_cycles && fec_cycles.length > 0 ? (
+          <div className="text-sm text-zinc-400 mt-2">
+            Total raised (all cycles): <span className="text-amber-400 font-semibold text-base">{formatMoney(Math.round(total_all_cycles * 100))}</span>
+          </div>
+        ) : campaignTotal != null && campaignTotal > 0 ? (
+          <div className="text-sm text-zinc-400 mt-2">
+            Campaign total: <span className="text-amber-400 font-semibold text-base">{formatMoney(Math.round(campaignTotal * 100))}</span>
+            {fecCycle && <span className="text-zinc-500"> (best cycle: {fecCycle})</span>}
+          </div>
+        ) : null}
+        <FreshnessBar freshness={freshness} />
+      </div>
+
+      {/* Page Controls */}
+      <PageControls
+        slug={slug}
+        entityName={entity.name}
+        onBriefingUpdate={(text) => setBriefing(text)}
+        onDataRefresh={() => {
+          getV2Official(slug).then(d => { setData(d); setBriefing(d.briefing); }).catch(() => {});
+        }}
+      />
+
+      {/* AI Briefing */}
+      <AIBriefing briefing={briefing ?? dataBriefing} />
+
+      {/* Percentile Ring — only show when there are actual concerning signals */}
+      {data.percentile_rank != null && data.percentile_rank > 0 &&
+       data.influence_signals?.some((s: { found: boolean; rarity_label?: string }) =>
+         s.found && s.rarity_label && !['Expected', 'Notable', ''].includes(s.rarity_label)
+       ) && (
+        <OfficialPercentileRing
+          pct={data.percentile_rank}
+          peerGroup={data.peer_group || 'peers'}
+          peerCount={data.peer_count || 0}
+        />
+      )}
+
+      {/* Influence Signal Cards */}
+      {data.influence_signals && data.influence_signals.length > 0 && (() => {
+        const foundSignals = data.influence_signals!.filter(s => s.found);
+        const clearSignals = data.influence_signals!.filter(s => !s.found);
+        return (
+          <div className="mb-8">
+            <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">
+              Influence Signals
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {foundSignals.map((s, i) => (
+                <OfficialSignalCard key={`found-${i}`} signal={s} peerGroup={data.peer_group || 'peers'} />
+              ))}
+              {clearSignals.map((s, i) => (
+                <OfficialSignalCard key={`clear-${i}`} signal={s} peerGroup={data.peer_group || 'peers'} />
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Campaign Finance Trend */}
+      {fec_cycles && fec_cycles.length > 0 && (() => {
+        const sorted = [...fec_cycles].sort((a, b) => a.cycle - b.cycle);
+        const maxReceipts = Math.max(...sorted.map(c => c.receipts), 1);
+        const totalRaised = sorted.reduce((s, c) => s + c.receipts, 0);
+        const totalSpent = sorted.reduce((s, c) => s + c.disbursements, 0);
+        const recent = sorted[sorted.length - 1];
+        const previous = sorted.length > 1 ? sorted[sorted.length - 2] : null;
+        const trendPct = previous && previous.receipts > 0
+          ? Math.round(((recent.receipts - previous.receipts) / previous.receipts) * 100)
+          : null;
+
+        return (<CycleTrend
+          sorted={sorted}
+          maxReceipts={maxReceipts}
+          totalRaised={totalRaised}
+          totalSpent={totalSpent}
+          trendPct={trendPct}
+          previous={previous}
+          recent={recent}
+          slug={slug}
+        />);
+      })()}
+
+      {/* Money Trails */}
+      {money_trails.length > 0 ? (
+        <div className="mb-8">
+          <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">Money Trails</h2>
+          {money_trails.map((trail, i) => (
+            <MoneyTrailCard key={i} trail={trail} officialName={entity.name} officialSlug={slug} />
+          ))}
+        </div>
+      ) : (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-8 text-center">
+          <p className="text-zinc-500">No money trails computed yet. Try refreshing the investigation.</p>
+        </div>
+      )}
+
+      {/* Stock Trades */}
+      {stock_trades && stock_trades.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">Stock Trades ({stock_trades.length})</h2>
+          <table className="w-full">
+            <thead>
+              <tr className="text-left text-xs text-zinc-500 uppercase tracking-wide">
+                <th className="pb-2 px-3">Date</th>
+                <th className="pb-2 px-3">Ticker</th>
+                <th className="pb-2 px-3">Type</th>
+                <th className="pb-2 px-3 text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stock_trades.map((t, i) => (
+                <tr key={i} className="border-t border-zinc-900">
+                  <td className="py-2.5 px-3 text-zinc-500 text-sm">{fmtDate(t.date)}</td>
+                  <td className="py-2.5 px-3 font-mono font-bold">{t.ticker}</td>
+                  <td className="py-2.5 px-3">
+                    <span className={t.transaction_type.toLowerCase().includes('purchase') ? 'text-green-400' : 'text-red-400'}>
+                      {t.transaction_type}
+                    </span>
+                  </td>
+                  <td className="py-2.5 px-3 text-right text-zinc-300">{t.amount_range}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Top Donors */}
+      {top_donors.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">Top Donors</h2>
+          <table className="w-full">
+            <thead>
+              <tr className="text-left text-xs text-zinc-500 uppercase tracking-wide">
+                <th className="pb-2 px-3">Donor</th>
+                <th className="pb-2 px-3">Type</th>
+                <th className="pb-2 px-3">Last Donation</th>
+                <th className="pb-2 px-3 text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {top_donors.map((d, i) => {
+                const dn = (d.name || '').toLowerCase().replace(/[^a-z]/g, '');
+                const on = (entity.name || '').toLowerCase().replace(/[^a-z]/g, '');
+                const slugParts = slug.split('-');
+                const isSelf = (dn.length > 5 && on.length > 5 && (dn.includes(on.slice(0, 6)) || on.includes(dn.slice(0, 6))))
+                  || (slugParts[0] && dn.includes(slugParts[0]) && (dn.includes('victory') || dn.includes('forcongress') || dn.includes('forsenate') || dn.includes('fund') || dn.includes('committee') || (slugParts[1] && dn.includes(slugParts[1]))));
+                return (
+                <tr key={i} className="border-t border-zinc-900 cursor-pointer hover:bg-zinc-800/60 transition-colors" onClick={() => router.push(`/entities/${d.entity_type}/${d.slug}`)}>
+                  <td className="py-2.5 px-3">
+                    <div className="flex items-center gap-2">
+                      <Link href={`/entities/${d.entity_type}/${d.slug}`} className="hover:text-amber-400 transition-colors">{d.name}</Link>
+                      {isSelf && <span className="text-[10px] font-medium text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded">SELF-FUNDED</span>}
+                    </div>
+                  </td>
+                  <td className="py-2.5 px-3 text-zinc-500 text-sm">{d.entity_type}</td>
+                  <td className="py-2.5 px-3 text-zinc-600 text-xs">{fmtDate(d.latest_date)}</td>
+                  <td className="py-2.5 px-3 text-right text-amber-400 font-semibold">{formatMoney(d.total_donated)}</td>
+                </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Middlemen */}
+      {middlemen.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">Middlemen</h2>
+          {middlemen.map((m, i) => (
+            <div key={i} onClick={() => router.push(`/entities/pac/${m.slug}`)} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-3 flex justify-between items-center cursor-pointer hover:border-amber-500/50 hover:bg-zinc-800/80 transition-all duration-200">
+              <div>
+                <span className="font-semibold">{m.name}</span>
+                <div className="flex items-center gap-2 text-xs text-zinc-500">
+                  <span>{m.entity_type}</span>
+                  {m.latest_date && <span className="text-zinc-600">{fmtDate(m.latest_date)}</span>}
+                </div>
+              </div>
+              <div className="text-amber-400 font-semibold">{formatMoney(m.total_donated)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
     </div>
   );
 }

@@ -1,361 +1,443 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getEntity, getBillMoneyTrail } from '@/lib/api';
-import type { BillMoneyTrail } from '@/lib/api';
-import type { Entity } from '@/lib/types';
+import { ExternalLink, AlertTriangle, ShieldCheck, TrendingUp, Clock } from 'lucide-react';
+import { getV2Bill } from '@/lib/api';
+import type { V2BillResponse, V2BillInfluenceSignal, V2Sponsor } from '@/lib/types';
 import { formatMoney } from '@/lib/utils';
-import ConflictBadge from '@/components/ConflictBadge';
-import MoneyTrail from '@/components/MoneyTrail';
-import BillVoteBreakdown from '@/components/BillVoteBreakdown';
-import BillTextPanel from '@/components/BillTextPanel';
-import FBIBriefing from '@/components/FBIBriefing';
 import LoadingState from '@/components/LoadingState';
-import {
-  ArrowLeft,
-  AlertTriangle,
-  DollarSign,
-  BarChart3,
-  FileText,
-  Scale,
-} from 'lucide-react';
+import PartyBadge from '@/components/PartyBadge';
+import AIBriefing from '@/components/AIBriefing';
+import PageControls from '@/components/PageControls';
 
-type Tab = 'money' | 'votes' | 'industries' | 'text';
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
-const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-  {
-    id: 'money',
-    label: 'Follow the Money',
-    icon: <DollarSign className="h-4 w-4" />,
-  },
-  {
-    id: 'votes',
-    label: 'Vote Breakdown',
-    icon: <Scale className="h-4 w-4" />,
-  },
-  {
-    id: 'industries',
-    label: 'Industry Money',
-    icon: <BarChart3 className="h-4 w-4" />,
-  },
-  {
-    id: 'text',
-    label: 'Bill Text',
-    icon: <FileText className="h-4 w-4" />,
-  },
-];
+const STATUS_COLORS: Record<string, string> = {
+  'BECAME LAW': 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40',
+  'PASSED': 'bg-blue-500/20 text-blue-400 border-blue-500/40',
+  'IN COMMITTEE': 'bg-amber-500/20 text-amber-400 border-amber-500/40',
+  'INTRODUCED': 'bg-zinc-700 text-zinc-300 border-zinc-600',
+  'ON FLOOR': 'bg-blue-500/20 text-blue-400 border-blue-500/40',
+  'FAILED': 'bg-red-500/20 text-red-400 border-red-500/40',
+};
 
-export default function BillInvestigationPage() {
-  const params = useParams();
-  const slug = params.slug as string;
+const SIGNAL_LABELS: Record<string, string> = {
+  lobby_donate: 'Lobby + Donate Match',
+  timing_spike: 'Donation Timing Spike',
+  committee_overlap: 'Committee Overlap',
+  stock_trade: 'Stock Trades',
+  revolving_door: 'Revolving Door',
+};
 
-  const [entity, setEntity] = useState<Entity | null>(null);
-  const [moneyTrail, setMoneyTrail] = useState<BillMoneyTrail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>('money');
+const SIGNAL_ICONS: Record<string, string> = {
+  lobby_donate: '\u{1F4B0}',
+  timing_spike: '\u{23F1}',
+  committee_overlap: '\u{1F3DB}',
+  stock_trade: '\u{1F4C8}',
+  revolving_door: '\u{1F6AA}',
+};
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [entityData, moneyTrailData] = await Promise.all([
-        getEntity(slug),
-        getBillMoneyTrail(slug),
-      ]);
-      setEntity(entityData);
-      setMoneyTrail(moneyTrailData);
-    } catch (err) {
-      if (
-        err instanceof Error &&
-        'status' in err &&
-        (err as Record<string, unknown>).status === 404
-      ) {
-        setError('Bill not found. It may not be in our database yet.');
-      } else {
-        setError('Failed to load bill investigation. Please try again later.');
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [slug]);
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+function fmtDate(d: string | null | undefined): string {
+  if (!d) return '';
+  try {
+    return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch { return ''; }
+}
 
-  if (loading) {
-    return (
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <LoadingState variant="profile" />
-      </div>
-    );
+function getSignalStyle(signal: V2BillInfluenceSignal) {
+  if (signal.found && signal.rarity_label === 'Rare') {
+    return {
+      border: '1px solid rgba(239, 68, 68, 0.21)',
+      background: 'linear-gradient(135deg, #0f0808, #0a0505)',
+      glow: 'radial-gradient(ellipse at 30% 30%, rgba(239,68,68,0.07), transparent 70%)',
+      badge: 'bg-red-500/20 text-red-400 border-red-500/40',
+      badgeText: 'RARE',
+    };
   }
-
-  if (error || !entity) {
-    return (
-      <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-md text-center">
-          <AlertTriangle className="mx-auto h-12 w-12 text-zinc-600" />
-          <h1 className="mt-4 text-xl font-bold text-zinc-200">
-            {error || 'Something went wrong'}
-          </h1>
-          <div className="mt-6 flex justify-center gap-3">
-            <Link
-              href="/"
-              className="inline-flex items-center gap-2 rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:border-zinc-600"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Back to Home
-            </Link>
-            <button
-              onClick={fetchData}
-              className="rounded-md bg-money-gold px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-money-gold-hover"
-            >
-              Retry
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+  if (signal.found && (signal.rarity_label === 'Unusual' || signal.rarity_label === 'Above Baseline')) {
+    return {
+      border: '1px solid rgba(245, 158, 11, 0.21)',
+      background: 'linear-gradient(135deg, #0f0a02, #0a0702)',
+      glow: '',
+      badge: 'bg-amber-500/20 text-amber-400 border-amber-500/40',
+      badgeText: signal.rarity_pct ? `${signal.rarity_pct.toFixed(0)}x` : 'ABOVE',
+    };
   }
+  if (signal.found && signal.rarity_label === 'Expected') {
+    return {
+      border: '1px solid rgba(34, 34, 34, 0.50)',
+      background: '#09090b',
+      glow: '',
+      badge: 'bg-zinc-700 text-zinc-400 border-zinc-600',
+      badgeText: 'EXPECTED',
+    };
+  }
+  // not found / clear
+  return {
+    border: '1px solid rgba(34, 197, 94, 0.125)',
+    background: '#09090b',
+    glow: '',
+    badge: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+    badgeText: 'CLEAR',
+  };
+}
 
-  const metadata = entity.metadata as Record<string, unknown>;
-  const billNumber = (metadata?.bill_number as string) || '';
-  const congress = (metadata?.congress as string) || '';
-  const status = (metadata?.status as string) || 'Unknown';
-  const tldr = (metadata?.tldr as string) || '';
-  const officialSummary =
-    (metadata?.official_summary as string) || entity.summary || '';
-  const fullTextUrl = (metadata?.full_text_url as string) || '';
+// ---------------------------------------------------------------------------
+// Percentile Ring
+// ---------------------------------------------------------------------------
 
-  const trail = moneyTrail?.money_trail;
-  const conflictScore = trail?.conflict_score || 'low';
-  const narrative = trail?.narrative || '';
-  const industries = trail?.by_industry || [];
-  const totalToYes = trail?.total_to_yes_voters || 0;
-  const yesVoters = moneyTrail?.yes_voters || [];
-  const noVoters = moneyTrail?.no_voters || [];
+function PercentileRing({ pct, policyArea, similarCount }: { pct: number; policyArea: string; similarCount: number }) {
+  const radius = 54;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (pct / 100) * circumference;
 
-  // Find max industry amount for bar scaling
-  const maxIndustryAmount = Math.max(
-    ...industries.map((i) => i.amount),
-    1
-  );
+  let strokeColor = '#22c55e'; // green
+  if (pct >= 80) strokeColor = '#ef4444'; // red
+  else if (pct >= 50) strokeColor = '#f59e0b'; // amber
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      {/* Breadcrumb */}
-      <div className="mb-6">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-300"
-        >
-          <ArrowLeft className="h-3 w-3" />
-          Home
-        </Link>
-      </div>
-
-      {/* Top Section: Bill header */}
-      <div className="mb-8">
-        <div className="flex flex-wrap items-start gap-3">
-          <h1 className="text-3xl font-bold tracking-tight text-zinc-100">
-            {entity.name}
-          </h1>
-          <ConflictBadge severity={conflictScore} size="md" />
+    <div className="flex items-center gap-6 bg-zinc-900 border border-zinc-800 rounded-[14px] p-5">
+      <div className="relative flex-shrink-0" style={{ width: 128, height: 128 }}>
+        <svg width="128" height="128" viewBox="0 0 128 128" className="-rotate-90">
+          <circle cx="64" cy="64" r={radius} fill="none" stroke="#27272a" strokeWidth="8" />
+          <circle
+            cx="64" cy="64" r={radius} fill="none"
+            stroke={strokeColor} strokeWidth="8" strokeLinecap="round"
+            strokeDasharray={circumference} strokeDashoffset={offset}
+            style={{ transition: 'stroke-dashoffset 1s ease-out' }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-2xl font-bold" style={{ color: strokeColor }}>{pct}</span>
+          <span className="text-[0.6rem] text-zinc-500 uppercase tracking-wider">percentile</span>
         </div>
+      </div>
+      <div>
+        <p className="text-zinc-200 text-sm font-medium leading-snug">
+          More influence signals than <span className="font-bold" style={{ color: strokeColor }}>{pct}%</span> of{' '}
+          {policyArea ? <>{policyArea} bills</> : <>similar bills</>}
+        </p>
+        {similarCount > 0 && (
+          <p className="text-zinc-500 text-xs mt-1">Compared against {similarCount.toLocaleString()} bills</p>
+        )}
+      </div>
+    </div>
+  );
+}
 
-        <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-400">
-          {billNumber && <span className="font-mono">{billNumber}</span>}
-          {congress && (
-            <>
-              <span className="text-zinc-600">&middot;</span>
-              <span>{congress} Congress</span>
-            </>
-          )}
-          <span className="text-zinc-600">&middot;</span>
-          <span className="inline-flex items-center rounded-full bg-zinc-800 px-2.5 py-0.5 text-xs font-medium text-zinc-300">
-            {status}
+// ---------------------------------------------------------------------------
+// Influence Signal Card
+// ---------------------------------------------------------------------------
+
+function SignalCard({ signal }: { signal: V2BillInfluenceSignal }) {
+  const style = getSignalStyle(signal);
+  const label = SIGNAL_LABELS[signal.type] || signal.type.replace(/_/g, ' ');
+  const icon = SIGNAL_ICONS[signal.type] || '\u{1F50D}';
+  const trades = signal.evidence?.trades;
+
+  return (
+    <div
+      className="rounded-[14px] p-4 relative overflow-hidden"
+      style={{ border: style.border, background: style.background }}
+    >
+      {style.glow && (
+        <div className="absolute inset-0 pointer-events-none" style={{ background: style.glow }} />
+      )}
+      <div className="relative">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <span className="text-base">{icon}</span>
+            <span className="text-sm font-semibold text-zinc-200">{label}</span>
+          </div>
+          <span className={`text-[0.65rem] font-bold px-2 py-0.5 rounded border uppercase tracking-wide ${style.badge}`}>
+            {style.badgeText}
           </span>
         </div>
-
-        {entity.summary && (
-          <p className="mt-3 max-w-3xl text-sm leading-relaxed text-zinc-400">
-            {entity.summary}
-          </p>
+        {signal.description && (
+          <p className="text-zinc-400 text-xs leading-relaxed">{signal.description}</p>
         )}
-      </div>
-
-      {/* FBI Special Agent Briefing */}
-      <div className="mb-8">
-        <FBIBriefing
-          entitySlug={slug}
-          entityName={entity.name}
-          entityType="bill"
-        />
-      </div>
-
-      {/* Hero: Follow the Money panel */}
-      <div className="mb-8 rounded-xl border border-money-gold/30 bg-zinc-900 p-6">
-        <div className="mb-4 flex items-center gap-2">
-          <DollarSign className="h-5 w-5 text-money-gold" />
-          <h2 className="text-lg font-bold text-money-gold">
-            Follow the Money
-          </h2>
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-3">
-          {/* Total stat */}
-          <div className="rounded-lg border border-zinc-800 bg-zinc-950 px-5 py-4 text-center">
-            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-              Total to YES Voters
-            </p>
-            <p className="mt-1 text-3xl font-bold text-money-success">
-              {formatMoney(totalToYes)}
-            </p>
-            <p className="mt-1 text-xs text-zinc-500">
-              from beneficiary industries
-            </p>
-          </div>
-
-          {/* Narrative */}
-          <div className="lg:col-span-2">
-            {narrative ? (
-              <p className="text-sm leading-relaxed text-zinc-300">
-                {narrative}
-              </p>
-            ) : (
-              <p className="text-sm text-zinc-600">
-                No money trail narrative available for this bill.
-              </p>
+        {/* Stock trade evidence */}
+        {trades && trades.length > 0 && (
+          <div className="mt-3 space-y-1">
+            {trades.slice(0, 5).map((t, i) => (
+              <div key={i} className="flex items-center justify-between text-xs bg-zinc-950/50 rounded-lg px-2.5 py-1.5">
+                <span className="text-zinc-300">{t.asset_name || t.ticker}</span>
+                <div className="flex items-center gap-2 text-zinc-500">
+                  <span>{t.transaction_type}</span>
+                  <span className="text-zinc-400">{t.amount_range}</span>
+                  {t.date && <span>{fmtDate(t.date)}</span>}
+                </div>
+              </div>
+            ))}
+            {trades.length > 5 && (
+              <p className="text-zinc-600 text-xs pl-2">+{trades.length - 5} more trades</p>
             )}
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sponsor Card
+// ---------------------------------------------------------------------------
+
+function SponsorCard({ sponsor }: { sponsor: V2Sponsor }) {
+  const verifiedConnections = sponsor.verified_connections || [];
+  const ctx = sponsor.context || {};
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-[14px] overflow-hidden hover:border-zinc-600 transition-colors">
+      {/* Header */}
+      <div className="p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div>
+              <Link
+                href={`/officials/${sponsor.slug}`}
+                className="font-semibold text-zinc-100 hover:text-amber-400 transition-colors"
+              >
+                {sponsor.name}
+              </Link>
+              <div className="flex items-center gap-2 mt-0.5">
+                <PartyBadge party={sponsor.party} />
+                {sponsor.state && <span className="text-xs text-zinc-500">{sponsor.state}</span>}
+                <span className="text-xs text-zinc-600">{sponsor.role}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Tab navigation */}
-      <div className="mb-6 flex gap-1 overflow-x-auto rounded-lg border border-zinc-800 bg-money-surface p-1">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={
-              'flex items-center gap-2 whitespace-nowrap rounded-md px-4 py-2 text-sm font-medium transition-colors ' +
-              (activeTab === tab.id
-                ? 'bg-zinc-800 text-money-gold'
-                : 'text-zinc-400 hover:text-zinc-200')
-            }
-          >
-            {tab.icon}
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Tab content */}
-      <div>
-        {/* Follow the Money Trail */}
-        {activeTab === 'money' && (
-          <div className="rounded-lg border border-zinc-800 bg-money-surface p-6">
-            <MoneyTrail
-              industries={industries}
-              voters={yesVoters}
-              bill={{ slug, name: entity.name }}
-              conflictScore={conflictScore}
-            />
+      {/* Verified Connections */}
+      {verifiedConnections.length > 0 && (
+        <div className="border-t border-zinc-800 px-4 py-3">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
+            <span className="text-xs font-bold uppercase tracking-widest text-red-400">
+              Verified Connections
+            </span>
           </div>
-        )}
-
-        {/* Vote Breakdown */}
-        {activeTab === 'votes' && (
-          <div className="rounded-lg border border-zinc-800 bg-money-surface p-6">
-            <BillVoteBreakdown yesVoters={yesVoters} noVoters={noVoters} />
+          <div className="space-y-1">
+            {verifiedConnections.map((c, i) => (
+              <div key={i} className="flex items-center justify-between text-sm py-1 px-2 rounded-lg hover:bg-zinc-800/60">
+                <div className="flex items-center gap-2">
+                  <span className="text-zinc-300">{c.entity}</span>
+                  <span className="text-[0.6rem] text-zinc-600 uppercase">{c.type.replace(/_/g, ' ')}</span>
+                </div>
+                <span className="text-amber-400 font-semibold text-sm">{formatMoney(c.amount)}</span>
+              </div>
+            ))}
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Industry Money Flow */}
-        {activeTab === 'industries' && (
-          <div className="rounded-lg border border-zinc-800 bg-money-surface p-6">
-            <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-zinc-400">
-              Industry Money to YES Voters
-            </h3>
-            {industries.length === 0 ? (
-              <p className="py-8 text-center text-sm text-zinc-600">
-                No industry data available.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {industries.map((ind) => (
-                  <div key={ind.industry}>
-                    <div className="mb-1 flex items-center justify-between">
-                      <span className="text-sm text-zinc-300">
-                        {ind.industry}
-                      </span>
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs text-zinc-500">
-                          {ind.pct_of_total.toFixed(1)}%
-                        </span>
-                        <span className="font-semibold text-money-success">
-                          {formatMoney(ind.amount)}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
-                      <div
-                        className="h-full rounded-full bg-money-gold/70"
-                        style={{
-                          width: `${(ind.amount / maxIndustryAmount) * 100}%`,
-                        }}
-                      />
-                    </div>
-                    {ind.senators.length > 0 && (
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {ind.senators.slice(0, 5).map((senator) => (
-                          <span
-                            key={senator}
-                            className="text-[10px] text-zinc-600"
-                          >
-                            {senator}
-                          </span>
-                        ))}
-                        {ind.senators.length > 5 && (
-                          <span className="text-[10px] text-zinc-600">
-                            +{ind.senators.length - 5} more
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
+      {/* Broader Context */}
+      {(ctx.industry_donations_90d || ctx.career_pac_total || ctx.committee) && (
+        <div className="border-t border-zinc-800 px-4 py-3">
+          <div className="flex items-center gap-2 mb-2">
+            <TrendingUp className="w-3.5 h-3.5 text-zinc-500" />
+            <span className="text-xs font-bold uppercase tracking-widest text-zinc-500">
+              Broader Context
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {ctx.career_pac_total != null && (
+              <div className="bg-zinc-950/60 rounded-lg px-3 py-2">
+                <div className="text-amber-400 font-bold text-sm">{formatMoney(ctx.career_pac_total)}</div>
+                <div className="text-[0.6rem] text-zinc-600 uppercase">Career PAC Total</div>
+              </div>
+            )}
+            {ctx.industry_donations_90d != null && (
+              <div className="bg-zinc-950/60 rounded-lg px-3 py-2">
+                <div className="text-amber-400 font-bold text-sm">{formatMoney(ctx.industry_donations_90d)}</div>
+                <div className="text-[0.6rem] text-zinc-600 uppercase">Industry (90 days)</div>
+              </div>
+            )}
+            {ctx.committee && (
+              <div className="bg-zinc-950/60 rounded-lg px-3 py-2">
+                <div className="text-zinc-300 text-sm font-medium">{ctx.committee}</div>
+                <div className="text-[0.6rem] text-zinc-600 uppercase">Committee</div>
               </div>
             )}
           </div>
-        )}
+        </div>
+      )}
+    </div>
+  );
+}
 
-        {/* Bill Text */}
-        {activeTab === 'text' && (
-          <div className="rounded-lg border border-zinc-800 bg-money-surface p-6">
-            <BillTextPanel
-              tldr={tldr}
-              officialSummary={officialSummary}
-              fullTextUrl={fullTextUrl}
-              billTitle={entity.name}
-            />
-          </div>
+// ---------------------------------------------------------------------------
+// Data Limitations Footer
+// ---------------------------------------------------------------------------
+
+function DataLimitations({ limitations }: { limitations: Record<string, unknown> }) {
+  const items: string[] = [];
+  if (limitations.fec_threshold) items.push(`FEC only reports individual donations above ${limitations.fec_threshold}`);
+  if (limitations.senate_stocks === false) items.push('Senate stock trades are self-reported with delays up to 45 days');
+  // surface any other keys
+  for (const [k, v] of Object.entries(limitations)) {
+    if (k === 'fec_threshold' || k === 'senate_stocks') continue;
+    if (typeof v === 'string') items.push(v);
+    if (typeof v === 'boolean' && !v) items.push(`${k.replace(/_/g, ' ')}: not available`);
+  }
+  if (items.length === 0) return null;
+
+  return (
+    <div className="border-t border-zinc-800 pt-6 mt-8">
+      <div className="flex items-center gap-2 mb-3">
+        <AlertTriangle className="w-4 h-4 text-zinc-600" />
+        <span className="text-xs font-bold uppercase tracking-widest text-zinc-600">Data Limitations</span>
+      </div>
+      <ul className="space-y-1.5">
+        {items.map((item, i) => (
+          <li key={i} className="text-xs text-zinc-500 flex gap-2">
+            <span className="text-zinc-700 mt-0.5 flex-shrink-0">&bull;</span>
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main Page Component
+// ---------------------------------------------------------------------------
+
+export default function BillPage() {
+  const { slug } = useParams<{ slug: string }>();
+  const [data, setData] = useState<V2BillResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [briefing, setBriefing] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!slug) return;
+    setLoading(true);
+    getV2Bill(slug)
+      .then(d => { setData(d); setBriefing(d.briefing); })
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
+  }, [slug]);
+
+  if (loading) return <div className="max-w-[900px] mx-auto p-6"><LoadingState variant="profile" /></div>;
+  if (error || !data) return (
+    <div className="max-w-[900px] mx-auto p-6 text-center">
+      <p className="text-zinc-500 mb-4">Bill not found.</p>
+      <Link href="/search" className="text-amber-400 hover:underline">Search for bills</Link>
+    </div>
+  );
+
+  const { entity, status_label, sponsors, summary, policy_area, percentile_rank, similar_bill_count, influence_signals, data_limitations, briefing: dataBriefing } = data;
+
+  const meta = (entity.metadata || entity.metadata_ || {}) as Record<string, unknown>;
+  const plainSummary = summary || (meta.crs_summary as string | undefined) || (meta.summary as string | undefined) || entity.summary;
+  const congressUrl = meta.congress_url as string | undefined;
+  const introducedDate = (data.freshness?.introduced_date || meta.introduced_date) as string | undefined;
+  const statusStyle = STATUS_COLORS[status_label] || STATUS_COLORS['INTRODUCED'];
+
+  const foundSignals = (influence_signals || []).filter(s => s.found);
+  const clearSignals = (influence_signals || []).filter(s => !s.found);
+
+  return (
+    <div className="max-w-[900px] mx-auto px-4 py-6">
+
+      {/* ── 1. Header ─────────────────────────────────────────────────── */}
+      <div className="mb-6">
+        <div className="flex items-center gap-3 mb-2 flex-wrap">
+          <span className={`text-xs font-bold px-2.5 py-1 rounded border ${statusStyle}`}>{status_label}</span>
+          {policy_area && <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded">{policy_area}</span>}
+          {introducedDate && <span className="text-xs text-zinc-600">Introduced {fmtDate(introducedDate) || introducedDate}</span>}
+        </div>
+        <h1 className="text-2xl font-bold mb-2">{entity.name}</h1>
+        {plainSummary ? (
+          <p className="text-zinc-400 text-sm leading-relaxed">{plainSummary}</p>
+        ) : (
+          <p className="text-zinc-500 text-sm italic">No summary available. Click Refresh to fetch the latest data.</p>
+        )}
+        {congressUrl && (
+          <a href={congressUrl as string} target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-amber-400 mt-2 transition-colors">
+            <ExternalLink className="w-3 h-3" />
+            View on Congress.gov
+          </a>
         )}
       </div>
 
-      {/* Why This Matters */}
-      {narrative && (
-        <div className="mt-8 rounded-lg border border-zinc-800 bg-money-surface p-6">
-          <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-money-gold">
-            Why This Matters
-          </h3>
-          <p className="text-sm leading-relaxed text-zinc-300">{narrative}</p>
+      {/* Controls (refresh + regen briefing) */}
+      <PageControls
+        slug={slug}
+        entityName={entity.name}
+        onBriefingUpdate={(text) => setBriefing(text)}
+        onDataRefresh={() => {
+          getV2Bill(slug).then(d => { setData(d); setBriefing(d.briefing); }).catch(() => {});
+        }}
+      />
+
+      {/* Freshness indicator */}
+      <div className="flex flex-wrap items-center gap-4 mb-6 text-xs text-zinc-500">
+        <div className="flex items-center gap-1.5">
+          <Clock className="w-3.5 h-3.5" />
+          <span>Last refreshed: {data.freshness?.last_refreshed ? fmtDate(data.freshness.last_refreshed) : (entity.updated_at ? fmtDate(entity.updated_at) : 'Unknown')}</span>
+        </div>
+      </div>
+
+      {/* ── 2. Compared to Similar Bills ──────────────────────────────── */}
+      {percentile_rank != null && (
+        <div className="mb-8">
+          <PercentileRing
+            pct={percentile_rank}
+            policyArea={policy_area || ''}
+            similarCount={similar_bill_count || 0}
+          />
         </div>
       )}
+
+      {/* ── 3. Influence Signal Cards ─────────────────────────────────── */}
+      {influence_signals && influence_signals.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800 flex items-center gap-2">
+            <ShieldCheck className="w-5 h-5 text-amber-500" />
+            Influence Signals
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* Found signals first (rare > unusual > expected), then clear */}
+            {foundSignals.map((s, i) => <SignalCard key={`found-${i}`} signal={s} />)}
+            {clearSignals.map((s, i) => <SignalCard key={`clear-${i}`} signal={s} />)}
+          </div>
+        </div>
+      )}
+
+      {/* ── 4. Who Wrote This Bill ────────────────────────────────────── */}
+      {sponsors.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-xl font-bold mb-4 pb-2 border-b border-zinc-800">
+            Who Wrote This Bill
+          </h2>
+          <div className="space-y-3">
+            {sponsors.map((s, i) => <SponsorCard key={i} sponsor={s} />)}
+          </div>
+        </div>
+      )}
+
+      {/* ── 5. AI Analysis ────────────────────────────────────────────── */}
+      <AIBriefing briefing={briefing ?? dataBriefing} />
+
+      {/* ── 6. Data Limitations ───────────────────────────────────────── */}
+      {data_limitations && Object.keys(data_limitations).length > 0 && (
+        <DataLimitations limitations={data_limitations} />
+      )}
+
     </div>
   );
 }

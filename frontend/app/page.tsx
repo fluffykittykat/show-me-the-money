@@ -1,736 +1,400 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import Link from 'next/link';
-import SearchBar from '@/components/SearchBar';
-import ConflictBadge from '@/components/ConflictBadge';
+import { useRouter } from 'next/navigation';
+import { Search, TrendingUp, Users, Shield, AlertTriangle, ArrowRight, Clock, Database } from 'lucide-react';
+import { getV2Homepage } from '@/lib/api';
+import type { V2HomepageResponse, V2StoryCard, V2TopOfficial } from '@/lib/types';
+import { formatMoney } from '@/lib/utils';
 import PartyBadge from '@/components/PartyBadge';
-import USMap from '@/components/USMap';
-import type { StateData } from '@/components/USMap';
-import { formatMoney, formatDate, truncate } from '@/lib/utils';
-import {
-  getDashboardStats,
-  getDashboardStates,
-  getActiveBills,
-  getTopConflicts,
-  getHiddenConnectionsFeed,
-} from '@/lib/api';
-import type {
-  DashboardStats,
-  StateMapData,
-  ActiveBill,
-  TopConflict,
-} from '@/lib/api';
-import type { HiddenConnectionsFeedItem } from '@/lib/types';
-import {
-  ArrowRight,
-  Users,
-  Shield,
-  Activity,
-  Eye,
-  TrendingUp,
-  BarChart3,
-  AlertTriangle,
-} from 'lucide-react';
 
 // ---------------------------------------------------------------------------
-// Constants
+// Date helpers
 // ---------------------------------------------------------------------------
 
-const ROTATING_SUBTEXTS = [
-  "A senator's staffer left government and now lobbies the same committee",
-  '3 officials traded pharmaceutical stocks before a drug pricing vote',
-  'A company donated $25,000. It received $14 million in contracts.',
-  "His wife's employer is regulated by the committee he chairs",
-];
+function fmtDate(d: string | null | undefined): string {
+  if (!d) return '';
+  try {
+    return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch { return ''; }
+}
 
-const DID_YOU_KNOW_FACTS = [
-  'Members of Congress are exempt from insider trading laws that apply to everyone else',
-  'The average revolving door lobbyist earns 1,400% more than their government salary',
-  'Federal officials are only required to disclose stock ranges, not exact amounts',
-  'Some officials have 0 financial conflicts. They exist. We show that too.',
-];
+function relativeTime(iso: string | null | undefined): string {
+  if (!iso) return '';
+  try {
+    const date = new Date(iso);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return fmtDate(iso);
+  } catch { return ''; }
+}
 
-const REVELATION_CARDS = [
-  {
-    emoji: '\uD83D\uDEAA',
-    title: 'THE REVOLVING DOOR',
-    description:
-      "When a senator's top staffer leaves government, they often become a lobbyist \u2014 and lobby the exact people they used to work with. This is legal. This happens constantly.",
-    example: "Fetterman's office: 3 former staffers now lobby his committees",
-    linkText: "See who's doing it",
-    href: '/officials/john-fetterman#hidden_connections',
-  },
-  {
-    emoji: '\uD83D\uDCB0',
-    title: 'SPEAKING FEES & OUTSIDE INCOME',
-    description:
-      'Major corporations pay politicians for speeches, book deals, and consulting. The organizations that pay are often regulated by those same politicians.',
-    example: 'Fetterman: paid by Financial Services Roundtable \u2014 while on Banking Committee',
-    linkText: 'See the payments',
-    href: '/officials/john-fetterman#hidden_connections',
-  },
-  {
-    emoji: '\uD83C\uDFE0',
-    title: 'FAMILY CONNECTIONS',
-    description:
-      "An official's spouse or child can legally work for companies the official regulates. Financial disclosures reveal this \u2014 but nobody puts it in one place.",
-    example: "Fetterman's wife works at JPMorgan \u2014 he sits on the Banking Committee that regulates JPMorgan",
-    linkText: 'See family ties',
-    href: '/officials/john-fetterman#hidden_connections',
-  },
-  {
-    emoji: '\uD83D\uDCC8',
-    title: 'STOCK HOLDINGS & TRADE TIMING',
-    description:
-      'Members of Congress can legally trade individual stocks. Some hold stock in companies their committees regulate.',
-    example: 'Fetterman: holds JPMorgan, BlackRock, ExxonMobil stock while on Banking Committee',
-    linkText: 'See the holdings',
-    href: '/officials/john-fetterman#money',
-  },
-  {
-    emoji: '\uD83C\uDFD7\uFE0F',
-    title: 'CONTRACTOR \u2192 DONOR PIPELINE',
-    description:
-      'Companies donate to campaigns. Some of those same companies later receive millions in government contracts. The connection is public record \u2014 just never shown together.',
-    example: 'Keystone Infrastructure: donated to Fetterman, received $14.2M in contracts',
-    linkText: 'See the contracts',
-    href: '/officials/john-fetterman#hidden_connections',
-  },
-  {
-    emoji: '\uD83D\uDD17',
-    title: 'EVIDENCE CHAINS',
-    description:
-      'No single fact is damning. But when you see the stock + the lobbying + the vote + the outcome \u2014 all connected to the same company \u2014 you can judge for yourself.',
-    example: 'Fetterman: holds Microsoft stock \u2192 Microsoft lobbies for Infrastructure Act \u2192 Fetterman votes YES',
-    linkText: 'See the chains',
-    href: '/officials/john-fetterman#conflicts',
-  },
-];
+// ---------------------------------------------------------------------------
+// Verdict helpers
+// ---------------------------------------------------------------------------
 
-const defaultStats: DashboardStats = {
-  officials_count: 0,
-  bills_count: 0,
-  donations_total: 0,
-  conflicts_count: 0,
-  lobbying_count: 0,
+const VERDICT_CONFIG: Record<string, { dot: string; bg: string; text: string; border: string; label: string }> = {
+  NORMAL: { dot: 'bg-green-500', bg: 'bg-green-500/10', text: 'text-green-400', border: 'border-green-500/30', label: 'NORMAL' },
+  CONNECTED: { dot: 'bg-yellow-500', bg: 'bg-yellow-500/10', text: 'text-yellow-400', border: 'border-yellow-500/30', label: 'CONNECTED' },
+  INFLUENCED: { dot: 'bg-red-500', bg: 'bg-red-500/10', text: 'text-red-400', border: 'border-red-500/30', label: 'INFLUENCED' },
+  OWNED: { dot: 'bg-red-800', bg: 'bg-red-900/30', text: 'text-red-300', border: 'border-red-800/50', label: 'OWNED' },
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  'ON FLOOR': 'bg-green-500/20 text-green-400 border-green-500/30',
-  PASSED: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-  'IN COMMITTEE': 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-  FAILED: 'bg-red-500/20 text-red-400 border-red-400/30',
+function getVerdict(v: string | undefined) {
+  if (!v) return VERDICT_CONFIG.NORMAL;
+  return VERDICT_CONFIG[v.toUpperCase()] ?? VERDICT_CONFIG.NORMAL;
+}
+
+const VERDICT_SEVERITY: Record<string, number> = { OWNED: 4, INFLUENCED: 3, CONNECTED: 2, NORMAL: 1 };
+
+function verdictSeverity(v: string | undefined): number {
+  if (!v) return 0;
+  return VERDICT_SEVERITY[v.toUpperCase()] ?? 0;
+}
+
+const STORY_TYPE_LABELS: Record<string, { label: string; color: string }> = {
+  owned: { label: 'OWNED', color: 'text-red-300 bg-red-900/30 border-red-800/50' },
+  influenced: { label: 'INFLUENCED', color: 'text-red-400 bg-red-500/10 border-red-500/30' },
+  middleman: { label: 'MIDDLEMAN', color: 'text-amber-400 bg-amber-500/10 border-amber-500/30' },
+  revolving_door: { label: 'REVOLVING DOOR', color: 'text-purple-400 bg-purple-500/10 border-purple-500/30' },
 };
 
 // ---------------------------------------------------------------------------
-// Small components
+// Skeleton components
 // ---------------------------------------------------------------------------
 
-function StatusBadge({ status }: { status: string }) {
-  const upper = status.toUpperCase();
-  const colors =
-    STATUS_COLORS[upper] ?? 'bg-zinc-700 text-zinc-300 border-zinc-600';
+function SkeletonBar({ className }: { className?: string }) {
+  return <div className={`animate-pulse rounded bg-zinc-800 ${className ?? ''}`} />;
+}
+
+function SkeletonStoryCard() {
   return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${colors}`}
-    >
-      {status}
-    </span>
+    <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-5 mb-4">
+      <div className="flex items-center gap-2 mb-3">
+        <SkeletonBar className="w-3 h-3 rounded-full" />
+        <SkeletonBar className="h-5 w-3/4" />
+      </div>
+      <SkeletonBar className="h-4 w-full mb-2" />
+      <SkeletonBar className="h-4 w-5/6 mb-4" />
+      <div className="flex gap-2">
+        <SkeletonBar className="h-6 w-20 rounded-full" />
+        <SkeletonBar className="h-6 w-24 rounded-full" />
+      </div>
+    </div>
   );
 }
 
-function StatCard({
-  label,
-  value,
-  icon,
-}: {
-  label: string;
-  value: string | number;
-  icon?: React.ReactNode;
-}) {
+function SkeletonOfficialCard() {
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/80 p-5 text-center transition-colors hover:border-zinc-700">
-      {icon && (
-        <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/10">
-          {icon}
+    <div className="rounded-xl bg-zinc-900 border border-zinc-800 p-4">
+      <SkeletonBar className="h-5 w-2/3 mb-2" />
+      <SkeletonBar className="h-4 w-1/3 mb-3" />
+      <SkeletonBar className="h-6 w-24 rounded-full" />
+    </div>
+  );
+}
+
+function LoadingSkeleton() {
+  return (
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+      {/* Header skeleton */}
+      <div className="text-center pt-16 pb-12 px-4">
+        <SkeletonBar className="h-4 w-48 mx-auto mb-4" />
+        <SkeletonBar className="h-10 w-96 mx-auto mb-8" />
+        <SkeletonBar className="h-14 w-full max-w-xl mx-auto rounded-xl" />
+      </div>
+
+      <div className="max-w-6xl mx-auto px-4">
+        {/* Stories skeleton */}
+        <SkeletonBar className="h-7 w-48 mb-6" />
+        <div className="space-y-4 mb-12">
+          <SkeletonStoryCard />
+          <SkeletonStoryCard />
+          <SkeletonStoryCard />
+        </div>
+
+        {/* Officials skeleton */}
+        <SkeletonBar className="h-7 w-64 mb-6" />
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-12">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <SkeletonOfficialCard key={i} />
+          ))}
+        </div>
+
+        {/* Stats skeleton */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-zinc-800 rounded-xl overflow-hidden">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="bg-zinc-900 p-6 text-center">
+              <SkeletonBar className="h-8 w-24 mx-auto mb-2" />
+              <SkeletonBar className="h-3 w-20 mx-auto" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Story Card
+// ---------------------------------------------------------------------------
+
+function StoryFeedCard({ story }: { story: V2StoryCard }) {
+  const router = useRouter();
+  const v = getVerdict(story.verdict);
+  const storyType = STORY_TYPE_LABELS[story.story_type] ?? { label: story.story_type.toUpperCase(), color: 'text-zinc-400 bg-zinc-800 border-zinc-700' };
+
+  const firstEntity = story.officials[0];
+  const getEntityHref = (o: { slug: string; entity_type?: string }) => {
+    const t = o.entity_type || 'person';
+    if (t === 'person') return `/officials/${o.slug}`;
+    return `/entities/${t}/${o.slug}`;
+  };
+
+  return (
+    <div
+      className="block rounded-xl bg-zinc-900 border border-zinc-800 p-5 mb-4 hover:border-zinc-700 transition-colors cursor-pointer"
+      onClick={() => firstEntity && router.push(getEntityHref(firstEntity))}
+    >
+      {/* Header: verdict dot + headline */}
+      <div className="flex items-start gap-3 mb-3">
+        <span className={`mt-1.5 w-3 h-3 rounded-full shrink-0 ${v.dot}`} />
+        <h3 className="font-bold text-lg leading-snug">{story.headline}</h3>
+      </div>
+
+      {/* Narrative */}
+      <p className="text-zinc-400 text-sm leading-relaxed mb-4 ml-6">{story.narrative}</p>
+
+      {/* Footer: officials, amount, type badge */}
+      <div className="flex flex-wrap items-center gap-2 ml-6">
+        {story.officials.map((o) => (
+          <Link
+            key={o.slug}
+            href={getEntityHref(o)}
+            className="inline-flex items-center gap-1.5 text-sm hover:text-[#d4a017] transition-colors"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="font-medium">{o.name}</span>
+            <PartyBadge party={o.party} className="text-[0.6rem] px-1.5 py-0" />
+          </Link>
+        ))}
+
+        {story.total_amount > 0 && (
+          <span className="text-money-success font-semibold text-sm ml-auto">
+            {formatMoney(story.total_amount)}
+          </span>
+        )}
+
+        <span className={`text-[0.65rem] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full border ${storyType.color}`}>
+          {storyType.label}
+        </span>
+
+        {/* Date provenance */}
+        {(story.fec_cycle || story.computed_at) && (
+          <span className="text-[0.6rem] text-zinc-600 ml-auto flex items-center gap-1">
+            <Database className="w-3 h-3" />
+            {story.fec_cycle ? `${story.fec_cycle} cycle` : relativeTime(story.computed_at)}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Official Card
+// ---------------------------------------------------------------------------
+
+function OfficialCard({ official }: { official: V2TopOfficial }) {
+  const v = getVerdict(official.verdict);
+
+  return (
+    <Link
+      href={`/officials/${official.slug}`}
+      className="block rounded-xl bg-zinc-900 border border-zinc-800 p-4 hover:border-zinc-600 transition-colors group"
+    >
+      <div className="font-semibold group-hover:text-[#d4a017] transition-colors mb-1">{official.name}</div>
+      <div className="flex items-center gap-2 mb-3">
+        <PartyBadge party={official.party} className="text-[0.65rem]" />
+        <span className="text-xs text-zinc-500">{official.state}</span>
+      </div>
+      <div className="flex items-center justify-between">
+        <span className={`text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${v.bg} ${v.text} ${v.border}`}>
+          {v.label}
+        </span>
+        <span className="text-xs text-zinc-500">{official.dot_count} dots</span>
+      </div>
+      {official.fec_cycle && (
+        <div className="text-[0.6rem] text-zinc-600 mt-2 flex items-center gap-1">
+          <Database className="w-3 h-3" />
+          FEC {official.fec_cycle} cycle
         </div>
       )}
-      <div className="font-mono text-2xl font-bold text-money-gold">
-        {typeof value === 'number' ? value.toLocaleString() : value}
-      </div>
-      <div className="mt-1 text-xs uppercase tracking-wider text-zinc-500">
-        {label}
-      </div>
-    </div>
-  );
-}
-
-function SkeletonRow() {
-  return (
-    <div className="flex h-16 animate-pulse items-center px-6">
-      <div className="h-4 w-full rounded bg-zinc-800/50" />
-    </div>
+    </Link>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Main page
+// Main Page
 // ---------------------------------------------------------------------------
 
 export default function HomePage() {
-  const [stats, setStats] = useState<DashboardStats>(defaultStats);
-  const [activeBills, setActiveBills] = useState<ActiveBill[]>([]);
-  const [topConflicts, setTopConflicts] = useState<TopConflict[]>([]);
-  const [hiddenFeed, setHiddenFeed] = useState<HiddenConnectionsFeedItem[]>(
-    []
-  );
-  const [stateData, setStateData] = useState<StateData[]>([]);
+  const router = useRouter();
+  const [data, setData] = useState<V2HomepageResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
-  // Rotating hero sub-text
-  const [subTextIndex, setSubTextIndex] = useState(0);
-  const [subTextFade, setSubTextFade] = useState(true);
-
-  // Rotating "Did You Know?" factoid
-  const [factIndex, setFactIndex] = useState(0);
-  const [factFade, setFactFade] = useState(true);
-
-  // ------ data fetch ------
   useEffect(() => {
-    async function fetchAll() {
-      try {
-        const [s, ab, tc, hf, sd] = await Promise.all([
-          getDashboardStats().catch(() => defaultStats),
-          getActiveBills().catch(() => []),
-          getTopConflicts().catch(() => []),
-          getHiddenConnectionsFeed().catch(
-            () => [] as HiddenConnectionsFeedItem[]
-          ),
-          getDashboardStates().catch(() => [] as StateMapData[]),
-        ]);
-        setStats(s);
-        setActiveBills(ab);
-        setTopConflicts(tc);
-        setHiddenFeed(hf);
-        // Map API data to USMap component format
-        setStateData((sd || []).map((s: StateMapData) => ({
-          state: s.state,
-          abbreviation: '',
-          senators: s.senators,
-          dominantParty: s.dominantParty,
-        })));
-      } catch {
-        setError(true);
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchAll();
+    getV2Homepage()
+      .then(setData)
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
-  // ------ rotating hero sub-text (every 4s) ------
-  useEffect(() => {
-    const id = setInterval(() => {
-      setSubTextFade(false);
-      setTimeout(() => {
-        setSubTextIndex((prev) => (prev + 1) % ROTATING_SUBTEXTS.length);
-        setSubTextFade(true);
-      }, 400);
-    }, 4000);
-    return () => clearInterval(id);
-  }, []);
+  function handleSearch(e: FormEvent) {
+    e.preventDefault();
+    const q = searchQuery.trim();
+    if (q) router.push(`/search?q=${encodeURIComponent(q)}`);
+  }
 
-  // ------ rotating factoid (every 6s) ------
-  useEffect(() => {
-    const id = setInterval(() => {
-      setFactFade(false);
-      setTimeout(() => {
-        setFactIndex((prev) => (prev + 1) % DID_YOU_KNOW_FACTS.length);
-        setFactFade(true);
-      }, 400);
-    }, 6000);
-    return () => clearInterval(id);
-  }, []);
+  if (loading) return <LoadingSkeleton />;
 
-  // ========================================================================
-  // RENDER
-  // ========================================================================
+  if (!data) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <div className="text-center text-zinc-500">
+          <AlertTriangle className="w-10 h-10 mx-auto mb-3 text-zinc-600" />
+          <p className="text-lg">Failed to load homepage data.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const { top_stories, stats, top_officials } = data;
+
+  // Sort officials by verdict severity (worst first)
+  const sortedOfficials = [...top_officials].sort((a, b) => verdictSeverity(b.verdict) - verdictSeverity(a.verdict));
 
   return (
-    <div className="min-h-screen bg-zinc-950">
-      {/* ================================================================
-          1. HERO SECTION
-          ================================================================ */}
-      <section className="hero-pattern relative overflow-hidden">
-        <div className="hero-grid absolute inset-0" aria-hidden="true" />
-        <div className="relative mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-28 lg:px-8 lg:py-36">
-          <div className="mx-auto max-w-3xl text-center">
-            <h1 className="font-mono text-4xl font-black tracking-tighter text-zinc-100 sm:text-5xl lg:text-6xl">
-              Follow the Money.{' '}
-              <span className="block text-money-gold sm:inline">
-                See What They Don&apos;t Want You To.
-              </span>
-            </h1>
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+      {/* ----------------------------------------------------------------- */}
+      {/* HEADER                                                            */}
+      {/* ----------------------------------------------------------------- */}
+      <header className="relative text-center pt-16 pb-12 px-4 overflow-hidden">
+        {/* Subtle radial glow */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{ background: 'radial-gradient(ellipse at center top, rgba(212,160,23,0.08) 0%, transparent 60%)' }}
+        />
 
-            {/* Rotating sub-text */}
-            <p
-              className="mx-auto mt-6 h-14 max-w-2xl text-base italic text-zinc-400 transition-opacity duration-400 sm:text-lg"
-              style={{ opacity: subTextFade ? 1 : 0 }}
+        <p className="relative text-xs font-bold uppercase tracking-[0.35em] text-[#d4a017] mb-4">
+          Follow the Money
+        </p>
+        <h1 className="relative text-4xl md:text-5xl font-extrabold mb-8 leading-tight">
+          Who Owns Your Representative?
+        </h1>
+
+        {/* Search bar */}
+        <form onSubmit={handleSearch} className="relative max-w-xl mx-auto">
+          <div className="flex items-center bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden focus-within:border-[#d4a017]/60 transition-colors">
+            <Search className="w-5 h-5 text-zinc-500 ml-4 shrink-0" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search officials, bills, companies..."
+              className="w-full bg-transparent px-4 py-4 text-zinc-100 placeholder:text-zinc-500 outline-none text-base"
+            />
+            <button
+              type="submit"
+              className="shrink-0 bg-[#d4a017] hover:bg-[#b8891a] text-zinc-950 font-semibold px-6 py-4 transition-colors"
             >
-              &ldquo;{ROTATING_SUBTEXTS[subTextIndex]}&rdquo;
-            </p>
-
-            {/* Search bar */}
-            <div className="mx-auto mt-8 max-w-2xl">
-              <SearchBar size="large" />
-            </div>
-
-            {/* Quick links */}
-            <div className="mt-5 flex flex-wrap items-center justify-center gap-x-1 gap-y-2 text-sm text-zinc-500">
-              <span>Try:</span>
-              <Link
-                href="/officials/john-fetterman"
-                className="rounded-md px-2 py-0.5 font-medium text-money-gold transition-colors hover:bg-money-gold/10 hover:text-money-gold-hover"
-              >
-                John Fetterman
-              </Link>
-              <span className="text-zinc-700">|</span>
-              <Link
-                href="/search?q=Banking+Committee"
-                className="rounded-md px-2 py-0.5 font-medium text-money-gold transition-colors hover:bg-money-gold/10 hover:text-money-gold-hover"
-              >
-                Banking Committee
-              </Link>
-              <span className="text-zinc-700">|</span>
-              <Link
-                href="/search?q=JPMorgan+Chase"
-                className="rounded-md px-2 py-0.5 font-medium text-money-gold transition-colors hover:bg-money-gold/10 hover:text-money-gold-hover"
-              >
-                JPMorgan Chase
-              </Link>
-            </div>
+              Search
+            </button>
           </div>
-        </div>
-      </section>
+        </form>
+      </header>
 
-      {/* ================================================================
-          2. BROWSE BY STATE — Interactive US Map
-          ================================================================ */}
-      {stateData.length > 0 && (
-        <section className="border-t border-zinc-800 bg-zinc-950">
-          <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-            <div className="mb-8 text-center">
-              <h2 className="font-mono text-2xl font-bold uppercase tracking-wider text-zinc-100 sm:text-3xl">
-                Browse by State
-              </h2>
-              <p className="mx-auto mt-3 max-w-xl text-sm text-zinc-500">
-                Click any state to see its senators and their financial connections.
-                Colors show the dominant party.
-              </p>
+      <div className="max-w-6xl mx-auto px-4 pb-16">
+        {/* ----------------------------------------------------------------- */}
+        {/* STORY FEED                                                        */}
+        {/* ----------------------------------------------------------------- */}
+        {top_stories.length > 0 && (
+          <section className="mb-14">
+            <div className="flex items-center gap-2 mb-6">
+              <TrendingUp className="w-5 h-5 text-[#d4a017]" />
+              <h2 className="text-xl font-bold">Top Money Trails</h2>
             </div>
-            <USMap stateData={stateData} />
-          </div>
-        </section>
-      )}
-
-      {/* ================================================================
-          3. "WHAT MOST PEOPLE DON'T KNOW" — Revelation Cards
-          ================================================================ */}
-      <section className="border-t border-zinc-800 bg-zinc-950">
-        <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
-          <div className="mb-10 text-center">
-            <h2 className="font-mono text-2xl font-bold uppercase tracking-wider text-zinc-100 sm:text-3xl">
-              What Most People Don&apos;t Know
-            </h2>
-            <p className="mx-auto mt-3 max-w-xl text-sm text-zinc-500">
-              Every fact below is legal. Every fact is public record. Nobody puts
-              them together &mdash; until now.
-            </p>
-          </div>
-
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {REVELATION_CARDS.map((card) => (
-              <Link
-                key={card.title}
-                href={card.href}
-                className="group rounded-xl border border-zinc-800 bg-zinc-900 p-6 transition-all hover:border-amber-500/30 hover:bg-zinc-900/90"
-              >
-                <div className="mb-3 text-3xl">{card.emoji}</div>
-                <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-money-gold">
-                  {card.title}
-                </h3>
-                <p className="mt-3 text-sm leading-relaxed text-zinc-400">
-                  {card.description}
-                </p>
-                {card.example && (
-                  <p className="mt-2 rounded-md border border-amber-500/10 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-amber-300/80">
-                    <span className="font-bold text-amber-400">Example: </span>
-                    {card.example}
-                  </p>
-                )}
-                <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-money-gold transition-colors group-hover:text-money-gold-hover">
-                  {card.linkText}
-                  <ArrowRight className="h-3.5 w-3.5" />
-                </span>
-              </Link>
+            {top_stories.map((story, i) => (
+              <StoryFeedCard key={i} story={story} />
             ))}
-          </div>
-        </div>
-      </section>
+          </section>
+        )}
 
-      {/* ================================================================
-          3. DASHBOARD STATS
-          ================================================================ */}
-      <section className="border-t border-zinc-800 bg-zinc-950">
-        <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-          <div className="mb-8 text-center">
-            <h2 className="font-mono text-xl font-bold uppercase tracking-wider text-zinc-100">
-              By the Numbers
-            </h2>
-          </div>
-          {loading ? (
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="h-28 animate-pulse rounded-xl bg-zinc-800/50"
-                />
+        {/* ----------------------------------------------------------------- */}
+        {/* TOP OFFICIALS BY VERDICT                                          */}
+        {/* ----------------------------------------------------------------- */}
+        {sortedOfficials.length > 0 && (
+          <section className="mb-14">
+            <div className="flex items-center gap-2 mb-6">
+              <Shield className="w-5 h-5 text-[#d4a017]" />
+              <h2 className="text-xl font-bold">Top Officials by Verdict</h2>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {sortedOfficials.map((o) => (
+                <OfficialCard key={o.slug} official={o} />
               ))}
             </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-              <StatCard
-                label="Officials Profiled"
-                value={stats.officials_count}
-                icon={<Users className="h-5 w-5 text-money-gold" />}
-              />
-              <StatCard
-                label="Bills Tracked"
-                value={stats.bills_count}
-                icon={<BarChart3 className="h-5 w-5 text-money-gold" />}
-              />
-              <StatCard
-                label="Donations Mapped"
-                value={formatMoney(stats.donations_total, { fromCents: true })}
-                icon={<TrendingUp className="h-5 w-5 text-money-gold" />}
-              />
-              <StatCard
-                label="Relationships Mapped"
-                value={stats.conflicts_count}
-                icon={<AlertTriangle className="h-5 w-5 text-money-gold" />}
-              />
-              <StatCard
-                label="Lobbying Links"
-                value={stats.lobbying_count}
-                icon={<Shield className="h-5 w-5 text-money-gold" />}
-              />
+          </section>
+        )}
+
+        {/* ----------------------------------------------------------------- */}
+        {/* DATA FRESHNESS                                                    */}
+        {/* ----------------------------------------------------------------- */}
+        <div className="flex flex-wrap items-center gap-4 mb-8 text-xs text-zinc-500">
+          <div className="flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5" />
+            <span>Data as of: {data.data_as_of ? relativeTime(data.data_as_of) : fmtDate(new Date().toISOString())}</span>
+          </div>
+          {data.fec_cycle && (
+            <div className="flex items-center gap-1.5">
+              <Database className="w-3.5 h-3.5" />
+              <span>FEC {data.fec_cycle} cycle</span>
             </div>
           )}
         </div>
-      </section>
 
-      {/* ================================================================
-          4. LIVE INTELLIGENCE — Hidden Connections Feed
-          ================================================================ */}
-      <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-        <div className="relative overflow-hidden rounded-xl border border-amber-500/20 bg-zinc-900/80">
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.02]">
-            <span className="rotate-[-15deg] select-none font-mono text-6xl font-black tracking-widest text-amber-400 sm:text-8xl">
-              CLASSIFIED
-            </span>
-          </div>
-
-          <div className="relative">
-            <div className="flex items-center justify-between border-b border-amber-500/10 px-6 py-4">
-              <div className="flex items-center gap-3">
-                <Eye className="h-5 w-5 text-amber-400" />
-                <h2 className="font-mono text-lg font-bold uppercase tracking-wider text-amber-400">
-                  Live Intelligence
-                </h2>
-              </div>
-              <span className="hidden font-mono text-[10px] uppercase tracking-widest text-zinc-700 sm:inline">
-                REAL-TIME ALERTS
-              </span>
-            </div>
-
-            <div className="divide-y divide-zinc-800/50">
-              {loading ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <SkeletonRow key={i} />
-                ))
-              ) : hiddenFeed.length === 0 ? (
-                <div className="px-6 py-12 text-center text-sm text-zinc-600">
-                  No hidden connection alerts at this time. Analysis ongoing.
+        {/* ----------------------------------------------------------------- */}
+        {/* STATS BAR                                                         */}
+        {/* ----------------------------------------------------------------- */}
+        <section>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-zinc-800 rounded-xl overflow-hidden">
+            {[
+              { icon: Users, n: stats.officials_count.toLocaleString(), label: 'Officials Profiled' },
+              { icon: Shield, n: stats.bills_count.toLocaleString(), label: 'Bills Tracked' },
+              { icon: TrendingUp, n: formatMoney(stats.donations_total), label: 'Money Mapped' },
+              { icon: ArrowRight, n: stats.relationship_count.toLocaleString(), label: 'Relationships' },
+            ].map((s, i) => {
+              const Icon = s.icon;
+              return (
+                <div key={i} className="bg-zinc-900 p-6 text-center">
+                  <Icon className="w-5 h-5 text-zinc-600 mx-auto mb-2" />
+                  <div className="text-2xl font-bold text-[#d4a017]">{s.n}</div>
+                  <div className="text-[0.7rem] text-zinc-500 uppercase tracking-wide mt-1">{s.label}</div>
                 </div>
-              ) : (
-                hiddenFeed.slice(0, 10).map((item, index) => (
-                  <Link
-                    key={`${item.entity_slug}-${item.alert_type}-${index}`}
-                    href={`/officials/${item.entity_slug}`}
-                    className="group flex items-start gap-4 px-6 py-4 transition-colors hover:bg-zinc-800/40"
-                  >
-                    <span className="mt-0.5 text-xl" aria-hidden="true">
-                      {item.alert_type === 'revolving_door' && '\uD83D\uDEAA'}
-                      {item.alert_type === 'trade_timing' && '\u23F1\uFE0F'}
-                      {item.alert_type === 'contractor_donor' &&
-                        '\uD83C\uDFD7\uFE0F'}
-                      {item.alert_type === 'family_conflict' &&
-                        '\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67'}
-                      {item.alert_type === 'speaking_fee' && '\uD83C\uDF99\uFE0F'}
-                      {![
-                        'revolving_door',
-                        'trade_timing',
-                        'contractor_donor',
-                        'family_conflict',
-                        'speaking_fee',
-                      ].includes(item.alert_type) && '\uD83D\uDD0D'}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-zinc-200 group-hover:text-amber-400">
-                        {item.headline}
-                      </p>
-                      <p className="mt-0.5 line-clamp-2 text-xs text-zinc-500">
-                        {item.description}
-                      </p>
-                      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
-                        <span className="font-medium text-zinc-400">
-                          {item.entity_name}
-                        </span>
-                        <span className="text-zinc-700">&middot;</span>
-                        <ConflictBadge severity={item.severity} size="sm" />
-                        {item.timestamp && (
-                          <>
-                            <span className="text-zinc-700">&middot;</span>
-                            <span className="text-zinc-600">
-                              {formatDate(item.timestamp)}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </Link>
-                ))
-              )}
-            </div>
+              );
+            })}
           </div>
-        </div>
-      </section>
-
-      {/* ================================================================
-          5. ACTIVE INTELLIGENCE — Bills
-          ================================================================ */}
-      <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-        <div className="relative overflow-hidden rounded-xl border border-money-gold/20 bg-zinc-900/80">
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-[0.03]">
-            <span className="rotate-[-15deg] select-none font-mono text-6xl font-black tracking-widest text-money-gold sm:text-8xl">
-              UNCLASSIFIED
-            </span>
-          </div>
-
-          <div className="relative">
-            <div className="flex items-center justify-between border-b border-money-gold/10 px-6 py-4">
-              <div className="flex items-center gap-3">
-                <Activity className="h-5 w-5 text-money-gold" />
-                <h2 className="font-mono text-lg font-bold uppercase tracking-wider text-money-gold">
-                  Active Intelligence
-                </h2>
-              </div>
-              <span className="hidden font-mono text-[10px] uppercase tracking-widest text-zinc-700 sm:inline">
-                UNCLASSIFIED // FOR OFFICIAL USE ONLY
-              </span>
-            </div>
-
-            <div className="divide-y divide-zinc-800/50">
-              {loading ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="flex h-14 animate-pulse items-center px-6"
-                  >
-                    <div className="h-4 w-full rounded bg-zinc-800/50" />
-                  </div>
-                ))
-              ) : activeBills.length === 0 ? (
-                <div className="px-6 py-12 text-center text-sm text-zinc-600">
-                  No active bills being tracked. Intelligence feed offline.
-                </div>
-              ) : (
-                activeBills.slice(0, 10).map((bill) => (
-                  <Link
-                    key={bill.slug}
-                    href={`/bills/${bill.slug}`}
-                    className="group flex items-center gap-4 px-6 py-3 transition-colors hover:bg-zinc-800/40"
-                  >
-                    <StatusBadge status={bill.status} />
-                    <span className="min-w-0 flex-1">
-                      <span className="font-mono text-xs text-zinc-500">
-                        {bill.number}
-                      </span>{' '}
-                      <span className="text-sm text-zinc-300 group-hover:text-zinc-100">
-                        {truncate(bill.title, 80)}
-                      </span>
-                    </span>
-                    <ConflictBadge severity={bill.conflict_score} size="sm" />
-                    <span className="hidden font-mono text-xs text-zinc-600 sm:inline">
-                      {formatDate(bill.update_date)}
-                    </span>
-                  </Link>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ================================================================
-          6. TOP CONFLICTS
-          ================================================================ */}
-      <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-        <div className="overflow-hidden rounded-xl border border-orange-500/20 bg-gradient-to-br from-orange-950/30 via-amber-950/20 to-zinc-900/80">
-          <div className="border-b border-orange-500/10 px-6 py-4">
-            <div className="flex items-center gap-3">
-              <Shield className="h-5 w-5 text-orange-400" />
-              <h2 className="font-mono text-lg font-bold uppercase tracking-wider text-orange-400">
-                Officials with Most Conflicts
-              </h2>
-            </div>
-          </div>
-
-          <div className="divide-y divide-orange-900/20">
-            {loading ? (
-              Array.from({ length: 5 }).map((_, i) => (
-                <SkeletonRow key={i} />
-              ))
-            ) : topConflicts.length === 0 ? (
-              <div className="px-6 py-12 text-center text-sm text-zinc-600">
-                No structural relationship data available. Analysis pending.
-              </div>
-            ) : (
-              topConflicts.slice(0, 8).map((official, index) => (
-                <Link
-                  key={official.slug}
-                  href={`/officials/${official.slug}`}
-                  className="group flex items-center gap-4 px-6 py-4 transition-colors hover:bg-orange-950/20"
-                >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-orange-500/10 font-mono text-sm font-bold text-orange-400">
-                    {index + 1}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-zinc-200 group-hover:text-money-gold">
-                        {official.name}
-                      </span>
-                      <PartyBadge party={official.party} />
-                      <span className="text-xs text-zinc-600">
-                        {official.state}
-                      </span>
-                    </div>
-                    <p className="mt-0.5 truncate text-xs text-zinc-500">
-                      {official.top_conflict}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="hidden text-xs text-zinc-600 sm:inline">
-                      {official.total_conflicts} potential conflict
-                      {official.total_conflicts !== 1 ? 's' : ''}
-                    </span>
-                    <ConflictBadge severity={official.conflict_score} size="sm" />
-                  </div>
-                </Link>
-              ))
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* ================================================================
-          7. "DID YOU KNOW?" FACTOID BAR
-          ================================================================ */}
-      <section className="border-t border-amber-500/20 bg-amber-500/5">
-        <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-center gap-3 text-center">
-            <span className="hidden shrink-0 font-mono text-xs font-bold uppercase tracking-wider text-amber-500 sm:inline">
-              Did you know?
-            </span>
-            <span className="text-zinc-700 hidden sm:inline">|</span>
-            <p
-              className="text-sm text-zinc-300 transition-opacity duration-400"
-              style={{ opacity: factFade ? 1 : 0 }}
-            >
-              {DID_YOU_KNOW_FACTS[factIndex]}
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* ================================================================
-          8. BROWSE LINKS
-          ================================================================ */}
-      <section className="border-t border-zinc-800 bg-zinc-900/30">
-        <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
-          <div className="grid gap-6 sm:grid-cols-3">
-            <Link
-              href="/officials"
-              className="group flex items-center gap-4 rounded-xl border border-zinc-800 bg-zinc-900/80 p-6 transition-all hover:border-money-gold/30 hover:bg-zinc-800/60"
-            >
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-money-gold/10">
-                <Users className="h-6 w-6 text-money-gold" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-zinc-200 group-hover:text-money-gold">
-                  Browse Officials
-                </h3>
-                <p className="mt-1 text-xs text-zinc-500">
-                  All 535 members of Congress profiled
-                </p>
-              </div>
-            </Link>
-
-            <Link
-              href="/trades"
-              className="group flex items-center gap-4 rounded-xl border border-zinc-800 bg-zinc-900/80 p-6 transition-all hover:border-money-gold/30 hover:bg-zinc-800/60"
-            >
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-money-gold/10">
-                <TrendingUp className="h-6 w-6 text-money-gold" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-zinc-200 group-hover:text-money-gold">
-                  Stock Trades
-                </h3>
-                <p className="mt-1 text-xs text-zinc-500">
-                  Congressional trading activity and timing analysis
-                </p>
-              </div>
-            </Link>
-
-            <Link
-              href="/search"
-              className="group flex items-center gap-4 rounded-xl border border-zinc-800 bg-zinc-900/80 p-6 transition-all hover:border-money-gold/30 hover:bg-zinc-800/60"
-            >
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-money-gold/10">
-                <Shield className="h-6 w-6 text-money-gold" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-zinc-200 group-hover:text-money-gold">
-                  Investigate
-                </h3>
-                <p className="mt-1 text-xs text-zinc-500">
-                  Search politicians, companies, bills, PACs
-                </p>
-              </div>
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* Error banner */}
-      {error && (
-        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-red-500/30 bg-red-950/90 px-6 py-3 text-sm text-red-300 shadow-xl">
-          Some dashboard data failed to load. Showing cached results.
-        </div>
-      )}
+        </section>
+      </div>
     </div>
   );
 }

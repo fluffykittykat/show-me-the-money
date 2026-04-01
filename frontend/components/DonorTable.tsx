@@ -10,6 +10,10 @@ import DidYouKnow from '@/components/DidYouKnow';
 
 interface DonorTableProps {
   donations: Relationship[];
+  fecTotalReceipts?: number | null;
+  fecCycle?: number | string | null;
+  officialSlug?: string;
+  officialName?: string;
 }
 
 function slugify(name: string): string {
@@ -29,7 +33,37 @@ function RecipientBadge({ slug }: { slug: string }) {
   );
 }
 
-export default function DonorTable({ donations }: DonorTableProps) {
+function isSelfDonation(donorName: string, officialSlug?: string, officialName?: string): boolean {
+  if (!donorName) return false;
+  const dn = donorName.toLowerCase().replace(/[^a-z]/g, '');
+  // Check if donor name matches official name
+  if (officialName) {
+    const on = officialName.toLowerCase().replace(/[^a-z]/g, '');
+    // "MCCORMICK, DAVE" vs "McCormick, David" — check if last name matches + first few chars
+    const donorParts = donorName.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/);
+    const officialParts = officialName.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/);
+    if (donorParts[0] && officialParts[0] && donorParts[0] === officialParts[0] && donorParts.length > 1 && officialParts.length > 1) {
+      return true; // Same last name in "Last, First" format
+    }
+    if (dn.length > 5 && on.length > 5 && (dn.includes(on.slice(0, 6)) || on.includes(dn.slice(0, 6)))) {
+      return true;
+    }
+  }
+  // Check slug match
+  if (officialSlug) {
+    const slugParts = officialSlug.split('-');
+    if (slugParts[0] && dn.includes(slugParts[0]) && (
+      dn.includes('victory') || dn.includes('forcongress') || dn.includes('forsenate') ||
+      dn.includes('committee') || dn.includes('fund') ||
+      (slugParts[1] && dn.includes(slugParts[1]))
+    )) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export default function DonorTable({ donations, fecTotalReceipts, fecCycle, officialSlug, officialName }: DonorTableProps) {
   if (donations.length === 0) {
     return (
       <p className="py-8 text-center text-sm text-zinc-500">
@@ -38,15 +72,28 @@ export default function DonorTable({ donations }: DonorTableProps) {
     );
   }
 
+  // Aggregate multiple donations from the same donor into one line
+  const aggregated = new Map<string, Relationship>();
+  for (const d of donations) {
+    const key = d.connected_entity?.slug || d.from_entity_id;
+    const existing = aggregated.get(key);
+    if (existing) {
+      existing.amount_usd = (existing.amount_usd ?? 0) + (d.amount_usd ?? 0);
+    } else {
+      aggregated.set(key, { ...d, amount_usd: d.amount_usd ?? 0 });
+    }
+  }
+
   // Sort by amount descending
-  const sorted = [...donations].sort((a, b) => {
-    const aVal = a.amount_usd ?? 0;
-    const bVal = b.amount_usd ?? 0;
-    return bVal - aVal;
+  const sorted = Array.from(aggregated.values()).sort((a, b) => {
+    return (b.amount_usd ?? 0) - (a.amount_usd ?? 0);
   });
 
-  // Calculate total
-  const totalRaised = sorted.reduce((sum, d) => sum + (d.amount_usd ?? 0), 0);
+  // Use FEC total receipts if available (more accurate), else sum captured donors
+  const capturedTotal = sorted.reduce((sum, d) => sum + (d.amount_usd ?? 0), 0);
+  // fecTotalReceipts is in dollars from the API, convert to cents for consistency
+  const fecCents = fecTotalReceipts ? Math.round(Number(fecTotalReceipts) * 100) : 0;
+  const totalRaised = fecCents > 0 ? fecCents : capturedTotal;
 
   // Top 10 for the bar chart
   const top10 = sorted.slice(0, 10);
@@ -57,11 +104,17 @@ export default function DonorTable({ donations }: DonorTableProps) {
       {/* Total raised */}
       <div className="mb-6 rounded-lg border border-zinc-800 bg-money-surface px-6 py-4">
         <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-          Total Campaign Contributions
+          Total Campaign Contributions (FEC{fecCycle ? ` — ${fecCycle} cycle` : ''})
         </span>
         <div className="mt-1 text-2xl font-bold text-money-success">
           {formatMoney(totalRaised)}
         </div>
+        {fecTotalReceipts && capturedTotal > 0 && capturedTotal !== totalRaised && (
+          <p className="mt-1 text-xs text-zinc-500">
+            Showing top {sorted.length} donors ({formatMoney(capturedTotal)} of {formatMoney(totalRaised)} total).
+            The rest comes from hundreds of smaller contributions.
+          </p>
+        )}
       </div>
 
       {/* Top 10 donors bar chart */}
@@ -138,6 +191,7 @@ export default function DonorTable({ donations }: DonorTableProps) {
                   ? `/officials/${entity.slug}`
                   : `/entities/${entity.entity_type}/${entity.slug}`
                 : null;
+              const selfFunded = entity ? isSelfDonation(entity.name, officialSlug, officialName) : false;
 
               return (
                 <tr
@@ -145,7 +199,7 @@ export default function DonorTable({ donations }: DonorTableProps) {
                   className="border-b border-zinc-800/50 transition-colors hover:bg-zinc-800/30"
                 >
                   <td className="px-4 py-3">
-                    <div className="flex items-center flex-wrap">
+                    <div className="flex items-center flex-wrap gap-2">
                       {href && entity ? (
                         <Link
                           href={href}
@@ -156,7 +210,12 @@ export default function DonorTable({ donations }: DonorTableProps) {
                       ) : (
                         <span className="text-zinc-300">Unknown</span>
                       )}
-                      {entity?.slug && <RecipientBadge slug={entity.slug} />}
+                      {selfFunded && (
+                        <span className="text-[10px] font-medium text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded">
+                          SELF-FUNDED
+                        </span>
+                      )}
+                      {entity?.slug && !selfFunded && <RecipientBadge slug={entity.slug} />}
                     </div>
                   </td>
                   <td className="px-4 py-3 text-zinc-400">{donorType}</td>

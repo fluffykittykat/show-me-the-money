@@ -77,13 +77,13 @@ async def detect_trade_pattern(
     window_start = trade_date - timedelta(days=14)
     window_end = trade_date + timedelta(days=14)
 
-    # Find all holds_stock relationships for this ticker in the window
+    # Find all holds_stock / stock_trade relationships for this ticker in the window
     stmt = (
         select(Relationship, Entity)
         .join(Entity, Relationship.from_entity_id == Entity.id)
         .where(
             and_(
-                Relationship.relationship_type == "holds_stock",
+                Relationship.relationship_type.in_(["holds_stock", "stock_trade"]),
                 Relationship.metadata_["ticker"].astext == ticker,
                 Relationship.date_start >= window_start,
                 Relationship.date_start <= window_end,
@@ -233,7 +233,7 @@ async def detect_trade_pattern(
 
 
 async def get_recent_trades(
-    session: AsyncSession, days: int = 7, limit: int = 50, offset: int = 0
+    session: AsyncSession, days: int = 365, limit: int = 50, offset: int = 0
 ) -> dict:
     """Get all trades filed in last N days."""
     cutoff = date.today() - timedelta(days=days)
@@ -244,7 +244,7 @@ async def get_recent_trades(
         .select_from(Relationship)
         .where(
             and_(
-                Relationship.relationship_type == "holds_stock",
+                Relationship.relationship_type.in_(["holds_stock", "stock_trade"]),
                 Relationship.date_start >= cutoff,
             )
         )
@@ -258,7 +258,7 @@ async def get_recent_trades(
         .join(Entity, Relationship.from_entity_id == Entity.id)
         .where(
             and_(
-                Relationship.relationship_type == "holds_stock",
+                Relationship.relationship_type.in_(["holds_stock", "stock_trade"]),
                 Relationship.date_start >= cutoff,
             )
         )
@@ -303,7 +303,7 @@ async def get_trades_by_ticker(
         .select_from(Relationship)
         .where(
             and_(
-                Relationship.relationship_type == "holds_stock",
+                Relationship.relationship_type.in_(["holds_stock", "stock_trade"]),
                 Relationship.metadata_["ticker"].astext == ticker_upper,
             )
         )
@@ -316,7 +316,7 @@ async def get_trades_by_ticker(
         .join(Entity, Relationship.from_entity_id == Entity.id)
         .where(
             and_(
-                Relationship.relationship_type == "holds_stock",
+                Relationship.relationship_type.in_(["holds_stock", "stock_trade"]),
                 Relationship.metadata_["ticker"].astext == ticker_upper,
             )
         )
@@ -361,7 +361,7 @@ async def get_trade_alerts_for_official(
         .where(
             and_(
                 Entity.slug == slug,
-                Relationship.relationship_type == "holds_stock",
+                Relationship.relationship_type.in_(["holds_stock", "stock_trade"]),
             )
         )
         .order_by(Relationship.date_start.desc())
@@ -407,7 +407,7 @@ async def get_cross_reference_trades(
         )
         .where(
             and_(
-                Relationship.relationship_type == "holds_stock",
+                Relationship.relationship_type.in_(["holds_stock", "stock_trade"]),
                 Relationship.date_start >= cutoff,
                 Relationship.metadata_["ticker"].astext.isnot(None),
             )
@@ -424,7 +424,7 @@ async def get_cross_reference_trades(
         )
         .where(
             and_(
-                Relationship.relationship_type == "holds_stock",
+                Relationship.relationship_type.in_(["holds_stock", "stock_trade"]),
                 Relationship.date_start >= cutoff,
                 Relationship.metadata_["ticker"].astext.isnot(None),
             )
@@ -450,7 +450,7 @@ async def get_cross_reference_trades(
             .join(Entity, Relationship.from_entity_id == Entity.id)
             .where(
                 and_(
-                    Relationship.relationship_type == "holds_stock",
+                    Relationship.relationship_type.in_(["holds_stock", "stock_trade"]),
                     Relationship.metadata_["ticker"].astext == ticker,
                     Relationship.date_start >= cutoff,
                 )
@@ -513,7 +513,7 @@ async def clear_stale_new_flags(session: AsyncSession, days: int = 7):
         select(Relationship)
         .where(
             and_(
-                Relationship.relationship_type == "holds_stock",
+                Relationship.relationship_type.in_(["holds_stock", "stock_trade"]),
                 Relationship.metadata_["is_new"].astext == "true",
                 Relationship.date_start < cutoff,
             )

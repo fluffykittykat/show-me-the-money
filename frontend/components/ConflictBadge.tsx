@@ -6,16 +6,16 @@ interface ConflictBadgeProps {
 }
 
 const SEVERITY_CONFIG: Record<string, { label: string; colors: string }> = {
-  // New severity values
-  high_concern: { label: 'High Concern', colors: 'bg-red-500/20 text-red-400 border-red-500/30' },
-  notable_pattern: { label: 'Notable Pattern', colors: 'bg-orange-500/20 text-orange-400 border-orange-500/30' },
-  structural_relationship: { label: 'Structural Relationship', colors: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' },
-  connection_noted: { label: 'Connection Noted', colors: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
+  // New severity values — user-friendly labels
+  high_concern: { label: 'Multiple Conflicts', colors: 'bg-red-500/20 text-red-400 border-red-500/30' },
+  notable_pattern: { label: 'Money Trail Found', colors: 'bg-orange-500/20 text-orange-400 border-orange-500/30' },
+  structural_relationship: { label: 'Financial Tie', colors: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' },
+  connection_noted: { label: 'Worth Watching', colors: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
   // Backwards compat with old values
-  critical: { label: 'High Concern', colors: 'bg-red-500/20 text-red-400 border-red-500/30' },
-  high: { label: 'Notable Pattern', colors: 'bg-orange-500/20 text-orange-400 border-orange-500/30' },
-  medium: { label: 'Structural Relationship', colors: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' },
-  low: { label: 'Connection Noted', colors: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
+  critical: { label: 'Multiple Conflicts', colors: 'bg-red-500/20 text-red-400 border-red-500/30' },
+  high: { label: 'Money Trail Found', colors: 'bg-orange-500/20 text-orange-400 border-orange-500/30' },
+  medium: { label: 'Financial Tie', colors: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' },
+  low: { label: 'Worth Watching', colors: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
   none: { label: 'No Concerns', colors: 'bg-zinc-700 text-zinc-400' },
 };
 

@@ -445,9 +445,35 @@ export default function FBIBriefing({
               FBI Special Agent Briefing // Follow The Money
             </span>
           </div>
-          <span className="hidden font-mono text-xs text-zinc-600 sm:inline">
-            {capitalize(entityType)} // {entitySlug}
-          </span>
+          <div className="flex items-center gap-2">
+            {briefing && !loading && (
+              <button
+                onClick={() => {
+                  setLoading(true);
+                  setError(null);
+                  setBriefing(null);
+                  briefingCache.delete(entitySlug);
+                  getBriefing(entitySlug, true)
+                    .then((data) => {
+                      briefingCache.set(entitySlug, data);
+                      setBriefing(data);
+                    })
+                    .catch(() => {
+                      setError('Regeneration failed. Try again.');
+                    })
+                    .finally(() => {
+                      setLoading(false);
+                    });
+                }}
+                className="rounded border border-zinc-700 px-2 py-1 font-mono text-[10px] text-zinc-400 hover:border-money-gold hover:text-money-gold transition-colors"
+              >
+                Regenerate
+              </button>
+            )}
+            <span className="hidden font-mono text-xs text-zinc-600 sm:inline">
+              {capitalize(entityType)} // {entitySlug}
+            </span>
+          </div>
         </div>
 
         {/* Classification line */}
@@ -478,11 +504,33 @@ export default function FBIBriefing({
           </div>
         )}
 
-        {/* Error state */}
+        {/* Error state with retry button */}
         {error && !loading && (
-          <div className="flex items-center gap-3 rounded-md border border-yellow-500/20 bg-yellow-500/5 px-4 py-3">
-            <AlertTriangle className="h-4 w-4 shrink-0 text-yellow-500" />
-            <span className="font-mono text-sm text-yellow-200">{error}</span>
+          <div className="flex items-center justify-between gap-3 rounded-md border border-yellow-500/20 bg-yellow-500/5 px-4 py-3">
+            <div className="flex items-center gap-3">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-yellow-500" />
+              <span className="font-mono text-sm text-yellow-200">{error}</span>
+            </div>
+            <button
+              onClick={() => {
+                setLoading(true);
+                setError(null);
+                getBriefing(entitySlug)
+                  .then((data) => {
+                    briefingCache.set(entitySlug, data);
+                    setBriefing(data);
+                  })
+                  .catch(() => {
+                    setError('Briefing generation unavailable. AI service may be offline.');
+                  })
+                  .finally(() => {
+                    setLoading(false);
+                  });
+              }}
+              className="shrink-0 rounded-md bg-money-gold px-3 py-1.5 text-xs font-bold text-zinc-950 hover:bg-money-gold-hover transition-colors"
+            >
+              Retry
+            </button>
           </div>
         )}
 

@@ -1,13 +1,15 @@
 /**
  * Format a number of cents as a USD currency string.
- * If the value is already in dollars (not cents), pass `fromCents: false`.
+ * amount_usd in the DB is always stored in cents.
+ * Pass `fromCents: false` only if the value is already in dollars.
  */
 export function formatMoney(
   amount: number | null | undefined,
   options?: { fromCents?: boolean }
 ): string {
   if (amount == null) return '$0';
-  const dollars = options?.fromCents ? amount / 100 : amount;
+  const fromCents = options?.fromCents ?? true;
+  const dollars = fromCents ? amount / 100 : amount;
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
@@ -27,6 +29,27 @@ export function formatDate(dateString: string | null | undefined): string {
     month: 'short',
     day: 'numeric',
   });
+}
+
+/**
+ * Format a date as relative time (e.g., "2 hours ago", "3 days ago").
+ */
+export function timeAgo(dateString: string | null | undefined): string {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  const now = new Date();
+  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  return `${Math.floor(months / 12)}y ago`;
 }
 
 /**

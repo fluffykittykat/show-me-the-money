@@ -12,6 +12,10 @@ import type {
   InsiderTimingResponse,
   HiddenConnectionsSummary,
   HiddenConnectionsFeedItem,
+  V2HomepageResponse,
+  V2OfficialResponse,
+  V2BillResponse,
+  V2EntityResponse,
 } from './types';
 
 const API_BASE = '/api';
@@ -64,9 +68,9 @@ export async function getConnections(
   );
 }
 
-export async function getBriefing(slug: string): Promise<BriefingResponse> {
+export async function getBriefing(slug: string, refresh?: boolean): Promise<BriefingResponse> {
   return apiFetch<BriefingResponse>(
-    `/entities/${encodeURIComponent(slug)}/briefing`
+    `/entities/${encodeURIComponent(slug)}/briefing${refresh ? '?refresh=true' : ''}`
   );
 }
 
@@ -217,6 +221,7 @@ export interface TimelineEvent {
   description: string;
   amount_usd: number | null;
   days_before_vote: number | null;
+  related_entity_slug: string | null;
 }
 
 export interface DonationTimeline {
@@ -490,6 +495,37 @@ export async function getFeaturedStory(): Promise<FeaturedStory> {
   return apiFetch<FeaturedStory>('/dashboard/featured-story');
 }
 
+export interface DualInfluenceItem {
+  donor_name: string;
+  donor_slug: string;
+  donation_amount: number;
+  lobby_client_name: string;
+}
+
+export interface InfluenceMap {
+  entity: string;
+  entity_name: string;
+  dual_influence: DualInfluenceItem[];
+  total: number;
+  total_donors: number;
+}
+
+export async function getInfluenceMap(slug: string): Promise<InfluenceMap> {
+  return apiFetch<InfluenceMap>(`/entities/${encodeURIComponent(slug)}/influence-map`);
+}
+
+export interface TopInfluencer {
+  slug: string;
+  name: string;
+  entity_type: string;
+  total_donated: number;
+  officials_funded: number;
+}
+
+export async function getTopInfluencers(): Promise<TopInfluencer[]> {
+  return apiFetch<TopInfluencer[]>('/dashboard/top-influencers');
+}
+
 // ---------------------------------------------------------------------------
 // Hidden Connections API
 // ---------------------------------------------------------------------------
@@ -644,6 +680,51 @@ export async function getAllChains(officialSlug: string): Promise<EvidenceChainR
 
 export async function getCompanyChains(companySlug: string): Promise<CompanyChainsResponse> {
   return apiFetch<CompanyChainsResponse>(`/investigate/chains/company/${encodeURIComponent(companySlug)}`);
+}
+
+// ---------------------------------------------------------------------------
+// Money-to-Bills chain types & API
+// ---------------------------------------------------------------------------
+
+export interface MoneyToBillChain {
+  policy_area: string;
+  total_donated: number;
+  donor_count: number;
+  bill_count: number;
+  top_donors: { name: string; slug: string; amount: number }[];
+  related_bills: { name: string; slug: string; type: string }[];
+  narrative: string;
+}
+
+export interface MoneyToBillsResponse {
+  entity: string;
+  entity_name: string;
+  chains: MoneyToBillChain[];
+  total_chains: number;
+}
+
+export async function getMoneyToBills(slug: string): Promise<MoneyToBillsResponse> {
+  return apiFetch<MoneyToBillsResponse>(`/entities/${encodeURIComponent(slug)}/money-to-bills`);
+}
+
+// ---------------------------------------------------------------------------
+// V2 API functions
+// ---------------------------------------------------------------------------
+
+export async function getV2Homepage(): Promise<V2HomepageResponse> {
+  return apiFetch<V2HomepageResponse>('/v2/homepage');
+}
+
+export async function getV2Official(slug: string): Promise<V2OfficialResponse> {
+  return apiFetch<V2OfficialResponse>(`/v2/official/${encodeURIComponent(slug)}`);
+}
+
+export async function getV2Bill(slug: string): Promise<V2BillResponse> {
+  return apiFetch<V2BillResponse>(`/v2/bill/${encodeURIComponent(slug)}`);
+}
+
+export async function getV2Entity(slug: string): Promise<V2EntityResponse> {
+  return apiFetch<V2EntityResponse>(`/v2/entity/${encodeURIComponent(slug)}`);
 }
 
 export { ApiError };

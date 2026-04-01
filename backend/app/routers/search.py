@@ -112,7 +112,7 @@ async def autocomplete(
 @router.get("/browse")
 async def list_entities(
     type: Optional[str] = Query(None, description="Filter by entity_type"),
-    limit: int = Query(50, ge=1, le=1000),
+    limit: int = Query(50, ge=1, le=2000),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
@@ -120,6 +120,11 @@ async def list_entities(
     base_q = select(Entity)
     if type:
         base_q = base_q.where(Entity.entity_type == type)
+        # For person type, only return actual officials (not donors/lobbyists)
+        if type == "person":
+            base_q = base_q.where(
+                Entity.metadata_.has_key("bioguide_id")
+            )
 
     count_q = select(func.count()).select_from(base_q.subquery())
     total = (await db.execute(count_q)).scalar() or 0

@@ -26,6 +26,7 @@ class EntityBrief(BaseModel):
     entity_type: str
     name: str
     summary: Optional[str] = None
+    metadata_: Optional[dict] = None
 
 
 class FlatConnectionItem(BaseModel):
@@ -542,3 +543,106 @@ class SchedulerJobStatus(BaseModel):
 class SchedulerStatusResponse(BaseModel):
     jobs: list[SchedulerJobStatus]
     scheduler_running: bool
+
+
+# ---------------------------------------------------------------------------
+# V2 single-response-per-page schemas
+# ---------------------------------------------------------------------------
+
+
+class V2MoneyTrail(BaseModel):
+    industry: str
+    verdict: str
+    dot_count: int
+    dots: list[str]
+    narrative: str | None
+    total_amount: int
+    chain: dict
+
+
+class V2InfluenceSignal(BaseModel):
+    type: str
+    found: bool
+    rarity_label: str | None = None
+    rarity_pct: float | None = None
+    p_value: float | None = None
+    baseline_rate: float | None = None
+    observed_rate: float | None = None
+    description: str | None = None
+    evidence: dict = {}
+
+
+class V2OfficialResponse(BaseModel):
+    entity: EntityResponse
+    overall_verdict: str
+    total_dots: int
+    money_trails: list[V2MoneyTrail]
+    top_donors: list[dict]
+    middlemen: list[dict]
+    committees: list[dict]
+    briefing: str | None
+    freshness: dict
+    stock_trades: list[dict] = []
+    fec_cycles: list[dict] = []
+    total_all_cycles: int = 0
+    influence_signals: list[V2InfluenceSignal] = []
+    percentile_rank: int | None = None
+    peer_count: int = 0
+    peer_group: str = ""
+
+
+class V2SponsorVerifiedConnection(BaseModel):
+    entity: str
+    type: str
+    amount: int = 0
+
+
+class V2SponsorContext(BaseModel):
+    industry_donations_90d: int = 0
+    career_pac_total: int = 0
+    committee: str | None = None
+
+
+class V2BillSponsor(BaseModel):
+    name: str
+    slug: str
+    party: str = ""
+    state: str = ""
+    role: str = ""
+    verified_connections: list[V2SponsorVerifiedConnection] = []
+    context: V2SponsorContext = V2SponsorContext()
+
+
+class V2BillResponse(BaseModel):
+    entity: EntityResponse
+    status_label: str
+    sponsors: list[V2BillSponsor]
+    briefing: str | None
+    summary: str | None = None
+    policy_area: str | None = ""
+    total_money_behind: int = 0
+    top_donors_across: list = []
+    votes: list = []
+    percentile_rank: int | None = None
+    similar_bill_count: int = 0
+    influence_signals: list[V2InfluenceSignal] = []
+    data_limitations: dict = {}
+
+
+class V2EntityResponse(BaseModel):
+    entity: EntityResponse
+    money_in: list[dict]
+    money_out: list[dict]
+    money_trails: list[dict]  # traced forward: donor → PAC → official → legislation
+    briefing: str | None
+    connections: list[dict] = []  # all non-donation relationships
+    dossier: dict = {}  # key metadata fields
+
+
+class V2HomepageResponse(BaseModel):
+    top_stories: list[dict]
+    stats: dict
+    top_officials: list[dict]
+    top_influencers: list[dict]
+    revolving_door: list[dict]
+    last_computed: str | None = None

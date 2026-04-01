@@ -174,7 +174,7 @@ CONFLICT_RELEVANT_TYPES = {"committee_member", "donated_to", "holds_stock",
                             "received_gov_contract"}
 
 KNOWN_INDUSTRY_ENTITIES = {
-    # Banking/Finance
+    # Banking/Finance — major banks
     "jpmorgan": ["finance", "banking", "securities"],
     "bank of america": ["finance", "banking"],
     "wells fargo": ["finance", "banking"],
@@ -182,26 +182,283 @@ KNOWN_INDUSTRY_ENTITIES = {
     "blackrock": ["finance", "banking", "securities", "investment"],
     "vanguard": ["finance", "investment", "securities"],
     "charles schwab": ["finance", "banking", "securities"],
+    "schwab": ["finance", "banking", "securities"],
     "visa": ["finance", "banking"],
     "mastercard": ["finance", "banking"],
-    # Tech
+    "morgan stanley": ["finance", "banking", "securities"],
+    "citigroup": ["finance", "banking"],
+    "citi": ["finance", "banking"],
+    "capital one": ["finance", "banking"],
+    "state street": ["finance", "banking", "securities"],
+    "fidelity": ["finance", "investment", "securities"],
+    "northern trust": ["finance", "banking", "investment"],
+    "bank of new york": ["finance", "banking"],
+    "mellon": ["finance", "banking"],
+    "ubs": ["finance", "banking", "securities"],
+    "credit suisse": ["finance", "banking"],
+    "deutsche bank": ["finance", "banking"],
+    "barclays": ["finance", "banking"],
+    "hsbc": ["finance", "banking"],
+    "td bank": ["finance", "banking"],
+    "pnc": ["finance", "banking"],
+    "usaa": ["finance", "banking", "insurance"],
+    "ally financial": ["finance", "banking"],
+    "discover": ["finance", "banking"],
+    "american express": ["finance", "banking"],
+    "amex": ["finance", "banking"],
+    "synchrony": ["finance", "banking"],
+    "navient": ["finance", "banking"],
+    "sallie mae": ["finance", "banking"],
+    "freddie mac": ["finance", "banking", "real estate"],
+    "fannie mae": ["finance", "banking", "real estate"],
+    # Insurance/Finance
+    "aig": ["finance", "insurance"],
+    "prudential": ["finance", "insurance"],
+    "metlife": ["finance", "insurance"],
+    "aflac": ["finance", "insurance"],
+    "allstate": ["finance", "insurance"],
+    "geico": ["finance", "insurance"],
+    "berkshire": ["finance", "insurance", "investment"],
+    "progressive insurance": ["finance", "insurance"],
+    "travelers": ["finance", "insurance"],
+    # Technology
     "apple": ["technology"],
     "microsoft": ["technology"],
     "amazon": ["technology", "retail"],
     "google": ["technology"],
+    "alphabet": ["technology"],
     "meta": ["technology"],
+    "facebook": ["technology"],
+    "intel": ["technology"],
+    "nvidia": ["technology"],
+    "amd": ["technology"],
+    "qualcomm": ["technology"],
+    "broadcom": ["technology"],
+    "cisco": ["technology", "telecommunications"],
+    "oracle": ["technology"],
+    "ibm": ["technology"],
+    "salesforce": ["technology"],
+    "adobe": ["technology"],
+    "palantir": ["technology", "defense"],
+    "dell": ["technology"],
+    "hp": ["technology"],
+    "hewlett": ["technology"],
+    "samsung": ["technology"],
+    "sony": ["technology"],
+    "tiktok": ["technology"],
+    "bytedance": ["technology"],
+    "snap": ["technology"],
+    "twitter": ["technology"],
+    "uber": ["technology", "transportation"],
+    "lyft": ["technology", "transportation"],
+    "airbnb": ["technology"],
+    "doordash": ["technology"],
+    "spotify": ["technology", "entertainment"],
+    "netflix": ["technology", "entertainment"],
+    "roku": ["technology", "entertainment"],
+    "zoom": ["technology"],
+    "crowdstrike": ["technology", "cybersecurity"],
+    "palo alto": ["technology", "cybersecurity"],
     # Energy
     "exxon": ["energy", "oil"],
     "chevron": ["energy", "oil"],
     "bp": ["energy", "oil"],
+    "shell": ["energy", "oil"],
+    "conocophillips": ["energy", "oil"],
+    "marathon": ["energy", "oil"],
+    "phillips 66": ["energy", "oil"],
+    "valero": ["energy", "oil"],
+    "halliburton": ["energy", "oil"],
+    "schlumberger": ["energy", "oil"],
+    "baker hughes": ["energy", "oil"],
+    "devon": ["energy", "oil"],
+    "pioneer": ["energy", "oil"],
+    "diamondback": ["energy", "oil"],
+    "williams": ["energy", "oil"],
+    "kinder morgan": ["energy", "oil"],
+    "sempra": ["energy"],
+    "dominion": ["energy"],
+    "duke energy": ["energy"],
+    "southern company": ["energy"],
+    "nextera": ["energy"],
+    "firstenergy": ["energy"],
+    "entergy": ["energy"],
+    "xcel": ["energy"],
+    "constellation": ["energy"],
     # Healthcare/Pharma
     "pfizer": ["health", "pharma"],
     "johnson & johnson": ["health", "pharma"],
     "unitedhealth": ["health", "insurance"],
-    # Defense
+    "abbvie": ["health", "pharma"],
+    "merck": ["health", "pharma"],
+    "eli lilly": ["health", "pharma"],
+    "lilly": ["health", "pharma"],
+    "bristol myers": ["health", "pharma"],
+    "novartis": ["health", "pharma"],
+    "roche": ["health", "pharma"],
+    "astrazeneca": ["health", "pharma"],
+    "sanofi": ["health", "pharma"],
+    "gsk": ["health", "pharma"],
+    "glaxo": ["health", "pharma"],
+    "gilead": ["health", "pharma"],
+    "regeneron": ["health", "pharma"],
+    "moderna": ["health", "pharma"],
+    "biogen": ["health", "pharma"],
+    "amgen": ["health", "pharma"],
+    "cigna": ["health", "insurance"],
+    "humana": ["health", "insurance"],
+    "centene": ["health", "insurance"],
+    "molina": ["health", "insurance"],
+    "anthem": ["health", "insurance"],
+    "elevance": ["health", "insurance"],
+    "cvs": ["health", "retail"],
+    "walgreens": ["health", "retail"],
+    "mckesson": ["health"],
+    "cardinal health": ["health"],
+    "medtronic": ["health"],
+    "stryker": ["health"],
+    "baxter": ["health"],
+    "becton dickinson": ["health"],
+    "hca": ["health"],
+    "tenet": ["health"],
+    "community health": ["health"],
+    # Defense/Aerospace
     "lockheed": ["defense"],
     "boeing": ["defense"],
     "raytheon": ["defense"],
+    "northrop grumman": ["defense"],
+    "northrop": ["defense"],
+    "general dynamics": ["defense"],
+    "l3harris": ["defense"],
+    "bae systems": ["defense"],
+    "textron": ["defense"],
+    "huntington ingalls": ["defense"],
+    "leidos": ["defense"],
+    "saic": ["defense"],
+    "booz allen": ["defense"],
+    "caci": ["defense"],
+    "mantech": ["defense"],
+    "parsons": ["defense"],
+    "vectrus": ["defense"],
+    # Telecom
+    "at&t": ["telecommunications"],
+    "verizon": ["telecommunications"],
+    "t-mobile": ["telecommunications"],
+    "comcast": ["telecommunications", "entertainment"],
+    "charter": ["telecommunications"],
+    "cox": ["telecommunications"],
+    "lumen": ["telecommunications"],
+    "centurylink": ["telecommunications"],
+    # Agriculture/Food
+    "cargill": ["agriculture"],
+    "adm": ["agriculture"],
+    "archer daniels": ["agriculture"],
+    "bunge": ["agriculture"],
+    "tyson": ["agriculture", "food"],
+    "jbs": ["agriculture", "food"],
+    "smithfield": ["agriculture", "food"],
+    "hormel": ["agriculture", "food"],
+    "conagra": ["agriculture", "food"],
+    "general mills": ["agriculture", "food"],
+    "kellogg": ["agriculture", "food"],
+    "kraft": ["agriculture", "food"],
+    "mondelez": ["agriculture", "food"],
+    "pepsico": ["agriculture", "food", "beverage"],
+    "coca-cola": ["agriculture", "food", "beverage"],
+    "nestle": ["agriculture", "food"],
+    "mars": ["agriculture", "food"],
+    "hershey": ["agriculture", "food"],
+    "mccormick": ["agriculture", "food"],
+    "smucker": ["agriculture", "food"],
+    "farm bureau": ["agriculture"],
+    "cattlemen": ["agriculture"],
+    "dairy": ["agriculture"],
+    "growers": ["agriculture"],
+    "sugar": ["agriculture"],
+    # Transportation
+    "fedex": ["transportation"],
+    "ups": ["transportation"],
+    "union pacific": ["transportation"],
+    "bnsf": ["transportation"],
+    "csx": ["transportation"],
+    "norfolk southern": ["transportation"],
+    "delta": ["transportation"],
+    "united airlines": ["transportation"],
+    "american airlines": ["transportation"],
+    "southwest": ["transportation"],
+    "jetblue": ["transportation"],
+    "spirit": ["transportation"],
+    "ford": ["transportation", "automotive"],
+    "general motors": ["transportation", "automotive"],
+    "gm": ["transportation", "automotive"],
+    "toyota": ["transportation", "automotive"],
+    "honda": ["transportation", "automotive"],
+    "tesla": ["transportation", "automotive", "technology"],
+    "stellantis": ["transportation", "automotive"],
+    "chrysler": ["transportation", "automotive"],
+    # Real Estate/Construction
+    "realtors": ["real estate"],
+    "homebuilders": ["real estate", "construction"],
+    "lennar": ["real estate", "construction"],
+    "d.r. horton": ["real estate", "construction"],
+    "pulte": ["real estate", "construction"],
+    "toll brothers": ["real estate", "construction"],
+    "brookfield": ["real estate", "finance"],
+    "simon property": ["real estate"],
+    "prologis": ["real estate"],
+    "caterpillar": ["construction", "manufacturing"],
+    "deere": ["construction", "agriculture"],
+    "john deere": ["construction", "agriculture"],
+    # Retail
+    "walmart": ["retail"],
+    "target": ["retail"],
+    "costco": ["retail"],
+    "home depot": ["retail", "construction"],
+    "lowe": ["retail", "construction"],
+    "kroger": ["retail", "food"],
+    "albertsons": ["retail", "food"],
+    "publix": ["retail", "food"],
+    "macy": ["retail"],
+    "nordstrom": ["retail"],
+    "gap": ["retail"],
+    "nike": ["retail"],
+    "best buy": ["retail", "technology"],
+    # Labor Unions
+    "teamsters": ["labor", "transportation"],
+    "seiu": ["labor", "health"],
+    "afscme": ["labor", "government"],
+    "aft": ["labor", "education"],
+    "nea": ["labor", "education"],
+    "ufcw": ["labor", "retail"],
+    "ibew": ["labor"],
+    "painters": ["labor", "construction"],
+    "plumbers": ["labor", "construction"],
+    "pipefitters": ["labor", "construction"],
+    "ironworkers": ["labor", "construction"],
+    "carpenters": ["labor", "construction"],
+    "laborers": ["labor", "construction"],
+    "operating engineers": ["labor", "construction"],
+    "steelworkers": ["labor", "manufacturing"],
+    "machinists": ["labor", "manufacturing"],
+    "autoworkers": ["labor", "automotive"],
+    "uaw": ["labor", "automotive"],
+    "aflcio": ["labor"],
+    "afl-cio": ["labor"],
+    # Lobbying/Legal/Political
+    "akin gump": ["legal", "lobbying"],
+    "squire patton": ["legal", "lobbying"],
+    "holland knight": ["legal", "lobbying"],
+    "brownstein": ["legal", "lobbying"],
+    "bgr": ["lobbying"],
+    "podesta": ["lobbying"],
+    "invariant": ["lobbying"],
+    "crossroads": ["lobbying"],
+    "majority forward": ["lobbying"],
+    "senate majority": ["lobbying"],
+    "house majority": ["lobbying"],
+    "emily's list": ["lobbying"],
+    "club for growth": ["lobbying"],
+    "americans for prosperity": ["lobbying"],
 }
 
 BANKING_COMMITTEE_STOCKS = ["jpmorgan", "bank of america", "wells fargo", "goldman",
@@ -216,22 +473,53 @@ def _sanitize(text: str) -> str:
     return text.encode("ascii", errors="ignore").decode("ascii")
 
 
+_VALID_INDUSTRY_TERMS: set[str] = set()
+
+def _build_valid_industry_terms() -> set[str]:
+    """Build the set of recognised industry keywords from all maps."""
+    if _VALID_INDUSTRY_TERMS:
+        return _VALID_INDUSTRY_TERMS
+    # From COMMITTEE_INDUSTRY_MAP values
+    for kws in COMMITTEE_INDUSTRY_MAP.values():
+        _VALID_INDUSTRY_TERMS.update(kw.lower() for kw in kws)
+    # From KNOWN_INDUSTRY_ENTITIES values
+    for kws in KNOWN_INDUSTRY_ENTITIES.values():
+        _VALID_INDUSTRY_TERMS.update(kw.lower() for kw in kws)
+    # Canonical industry names themselves
+    _VALID_INDUSTRY_TERMS.update([
+        "finance", "energy", "health", "defense", "technology", "agriculture",
+        "environment", "legal", "transportation", "international", "government",
+        "native affairs", "education", "labor", "veterans", "intelligence",
+        "retail", "construction", "manufacturing", "telecommunications",
+        "entertainment", "real estate", "insurance", "banking", "securities",
+        "telecom", "media", "hospitality", "tourism", "mining", "chemicals",
+        "automotive", "aerospace", "cybersecurity", "fintech", "biotech",
+        "crypto", "cannabis", "gambling", "gaming", "firearms", "tobacco",
+        "alcohol", "food", "beverage", "pharma", "investment", "lobbying",
+        "oil", "utilities", "housing",
+    ])
+    return _VALID_INDUSTRY_TERMS
+
+
 def _extract_industry_keywords(entity: Entity) -> list[str]:
-    """Pull industry-related keywords — checks known entities first."""
+    """Pull industry-related keywords — checks known entities first,
+    then metadata fields, filtering to only recognised industry terms."""
+    valid = _build_valid_industry_terms()
     name_lower = _sanitize(entity.name).lower()
     # Check known entities map first
     for known_name, keywords in KNOWN_INDUSTRY_ENTITIES.items():
         if known_name in name_lower:
             return keywords
-    # Fall back to word extraction
-    words: list[str] = []
-    words.extend(name_lower.split())
+    # Collect candidate words from name + metadata
+    candidates: list[str] = []
+    candidates.extend(name_lower.split())
     meta = entity.metadata_ or {}
     for key in ("industry", "sector", "category", "employer", "occupation"):
         val = meta.get(key, "")
         if val:
-            words.extend(_sanitize(str(val)).lower().split())
-    return words
+            candidates.extend(_sanitize(str(val)).lower().split())
+    # Only return words that are recognised industry terms
+    return [w for w in candidates if w in valid]
 
 
 def _industries_for_committee(committee_name: str) -> list[str]:
@@ -1006,7 +1294,7 @@ async def detect_conflicts(
     for rel, bill_ent in yes_votes:
         bill_keywords[bill_ent.slug] = _extract_industry_keywords(bill_ent)
 
-    # 1) Committee-Donor overlap (vote-based signals use different severity)
+    # 1) Committee-Donor overlap — aggregate per committee, not per donor
     for c_rel in committees:
         c_other_id = c_rel.to_entity_id if c_rel.from_entity_id == entity.id else c_rel.from_entity_id
         c_ent = entities_map.get(c_other_id)
@@ -1015,28 +1303,52 @@ async def detect_conflicts(
         c_industries = _industries_for_committee(c_ent.name)
         if not c_industries:
             continue
+
+        # Collect ALL donors that overlap with this committee's industries
+        overlapping_donors = []
+        total_amount = 0
         for d_rel, d_ent in donations:
             d_kws = donor_keywords.get(d_ent.slug, [])
             if _keyword_overlap(c_industries, d_kws):
-                signals.append(ConflictSignal(
-                    entity_slug=entity_slug,
-                    conflict_type="structural_committee_donor_overlap",
-                    severity="structural_relationship",
-                    description=(
-                        f"Structural relationship: This official sits on {_sanitize(c_ent.name)}, "
-                        f"which has regulatory jurisdiction over the industry that "
-                        f"{_sanitize(d_ent.name)} operates in. {_sanitize(d_ent.name)} has "
-                        f"contributed to this official's campaign. This is a structural "
-                        f"relationship the public should be aware of."
-                    ),
-                    why_this_matters=WHY_THIS_MATTERS["structural_committee_donor_overlap"],
-                    evidence=[
-                        {"type": "committee", "entity": c_ent.slug, "name": _sanitize(c_ent.name)},
-                        {"type": "donation", "entity": d_ent.slug, "name": _sanitize(d_ent.name),
-                         "amount": d_rel.amount_usd},
-                    ],
-                    related_entities=[c_ent.slug, d_ent.slug],
-                ))
+                amount = d_rel.amount_usd or 0
+                overlapping_donors.append((_sanitize(d_ent.name), amount, d_ent.slug))
+                total_amount += amount
+
+        if not overlapping_donors:
+            continue
+
+        # Sort by amount descending, take top 3 for the description
+        overlapping_donors.sort(key=lambda x: x[1], reverse=True)
+        top_names = ", ".join(d[0] for d in overlapping_donors[:3])
+        total_dollars = total_amount / 100 if total_amount else 0
+
+        # Severity based on number of donors and amounts
+        if len(overlapping_donors) >= 5 or total_dollars >= 100000:
+            severity = "notable_pattern"
+        elif len(overlapping_donors) >= 2:
+            severity = "structural_relationship"
+        else:
+            severity = "connection_noted"
+
+        signals.append(ConflictSignal(
+            entity_slug=entity_slug,
+            conflict_type="structural_committee_donor_overlap",
+            severity=severity,
+            description=(
+                f"Sits on {_sanitize(c_ent.name)} which regulates industries that "
+                f"{len(overlapping_donors)} of their donors operate in. "
+                f"Top donors: {top_names}. "
+                f"Total from these donors: ${total_dollars:,.0f}."
+            ),
+            why_this_matters=WHY_THIS_MATTERS["structural_committee_donor_overlap"],
+            evidence=[
+                {"type": "committee", "entity": c_ent.slug, "name": _sanitize(c_ent.name)},
+            ] + [
+                {"type": "donation", "entity": d[2], "name": d[0], "amount": d[1]}
+                for d in overlapping_donors[:5]
+            ],
+            related_entities=[c_ent.slug] + [d[2] for d in overlapping_donors[:5]],
+        ))
 
     # 2) Stock-Vote overlap
     for s_rel, s_ent in stocks:

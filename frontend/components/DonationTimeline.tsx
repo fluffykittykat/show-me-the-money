@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { AlertTriangle, DollarSign, Vote } from 'lucide-react';
 import { formatMoney, formatDate } from '@/lib/utils';
 import type { TimelineEvent } from '@/lib/api';
@@ -46,12 +47,12 @@ export default function DonationTimeline({
     );
   }
 
-  // Sort events by date
+  // Sort events by date — newest first
   const sorted = [...events].sort((a, b) => {
     if (!a.date && !b.date) return 0;
     if (!a.date) return 1;
     if (!b.date) return -1;
-    return new Date(a.date).getTime() - new Date(b.date).getTime();
+    return new Date(b.date).getTime() - new Date(a.date).getTime();
   });
 
   return (
@@ -113,7 +114,20 @@ export default function DonationTimeline({
                 </div>
 
                 <p className="mt-1.5 text-sm text-zinc-300">
-                  {event.description}
+                  {event.related_entity_slug ? (
+                    <Link
+                      href={
+                        event.event_type === 'vote'
+                          ? `/bills/${event.related_entity_slug}`
+                          : `/entities/pac/${event.related_entity_slug}`
+                      }
+                      className="hover:text-money-gold transition-colors"
+                    >
+                      {event.description}
+                    </Link>
+                  ) : (
+                    event.description
+                  )}
                 </p>
 
                 <div className="mt-2 flex flex-wrap items-center gap-3">
