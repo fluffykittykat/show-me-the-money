@@ -6,16 +6,21 @@ how structurally "bought" an official appears to be.
 
 For each official, donors are grouped by industry and dots are counted:
 
-  Dot 1: DONOR_FROM_INDUSTRY   — A donor from this industry donated (FEC)
-  Dot 2: REGULATING_COMMITTEE  — Official sits on a committee regulating this industry
+  Dot 1: DONOR_FROM_INDUSTRY    — A donor from this industry donated (FEC)
+  Dot 2: REGULATING_COMMITTEE   — Official sits on a committee regulating this industry
   Dot 3: SPONSORED_ALIGNED_BILLS — Official sponsored/cosponsored bills in this policy area
-  Dot 4: DONOR_LOBBIES         — Donor (or related entity) also lobbies Congress
-  Dot 5: MIDDLEMAN_PAC         — Money flows through a middleman PAC
+  Dot 4: DONOR_LOBBIES          — Donor (or related entity) also lobbies Congress
+  Dot 5: MIDDLEMAN_PAC          — Money flows through a middleman PAC
+  Dot 6: SIGNIFICANT_MONEY      — Industry donations >= $50K
+  Dot 7: MAJOR_MONEY            — Industry donations >= $500K
+  Dot 8: SUSPICIOUS_TIMING      — Donation within 90 days before bill introduction
+  Dot 9: INSIDER_TRADE          — Official traded stocks in companies they regulate
+  Dot 10: VOTED_FOR_DONOR_INTEREST — Official voted YES on bill their donor lobbied for
 
 Verdicts:
   1 dot   = NORMAL      (just got donations, everyone does)
   2 dots  = CONNECTED   (structural relationship exists)
-  3+ dots = INFLUENCED  (money -> power -> legislation chain complete)
+  4+ dots = INFLUENCED  (money -> power -> legislation chain complete)
   OWNED   = 2+ industries each score INFLUENCED or higher
 """
 
@@ -110,6 +115,7 @@ def _generate_narrative(
     total_campaign: int = 0,
     timing_hits: list[dict] | None = None,
     trades: list[dict] | None = None,
+    votes: list[dict] | None = None,
 ) -> str:
     """Build a human-readable narrative for an industry trail."""
     parts: list[str] = []
@@ -173,6 +179,16 @@ def _generate_narrative(
             f"({buys} buys, {sells} sells) — stocks in the same industry they regulate and legislate."
         )
 
+    if votes:
+        unique_bills = {v["bill"] for v in votes}
+        unique_donors = {v["donor"] for v in votes}
+        total_vote_money = sum(v.get("donation_amount", 0) for v in votes)
+        parts.append(
+            f"🔴 VOTED WITH DONORS: This official voted YES on {len(unique_bills)} bill(s) "
+            f"that {len(unique_donors)} of their donors lobbied for "
+            f"(donors gave {_fmt_amount(total_vote_money)} total)."
+        )
+
     return " ".join(parts)
 
 
@@ -202,14 +218,15 @@ async def compute_verdicts(
     }
     """
     # ── Step 1: Load all relationships involving this official ────────
-    # Outgoing: official -> committee, official -> bill (sponsored/cosponsored)
+    # Outgoing: official -> committee, official -> bill (sponsored/cosponsored/voted)
     # Incoming: donor -> official (donated_to)
     outgoing_q = (
         select(Relationship)
         .where(Relationship.from_entity_id == official_id)
         .where(
             Relationship.relationship_type.in_(
-                ["committee_member", "sponsored", "cosponsored", "stock_trade", "holds_stock"]
+                ["committee_member", "sponsored", "cosponsored",
+                 "stock_trade", "holds_stock", "voted_yes", "voted_no"]
             )
         )
     )
@@ -234,6 +251,7 @@ async def compute_verdicts(
     donor_rels: list[Relationship] = list(incoming_rels)
 
     trade_rels: list[Relationship] = []
+    vote_rels: dict[uuid.UUID, str] = {}  # bill_id -> "voted_yes" or "voted_no"
     for rel in outgoing_rels:
         entity_ids.add(rel.to_entity_id)
         if rel.relationship_type == "committee_member":
@@ -242,6 +260,8 @@ async def compute_verdicts(
             bill_rel_map[rel.to_entity_id].append(rel)
         elif rel.relationship_type in ("stock_trade", "holds_stock"):
             trade_rels.append(rel)
+        elif rel.relationship_type in ("voted_yes", "voted_no"):
+            vote_rels[rel.to_entity_id] = rel.relationship_type
 
     donor_ids: set[uuid.UUID] = set()
     for rel in donor_rels:
@@ -679,6 +699,49 @@ async def compute_verdicts(
         if chain_trades:
             dots.append("insider_trade")
 
+        # ── Dot 10: VOTED_FOR_DONOR_INTEREST ─────────────────────────
+        # Did the official vote YES on a bill that was lobbied on by one of
+        # their donors (or a donor's lobbying client)?
+        chain_votes: list[dict] = []
+        if vote_rels and chain_bills:
+            # Get bill IDs from this industry that the official voted YES on
+            voted_yes_bills = set()
+            for bill_entry in chain_bills:
+                bill_slug = bill_entry.get("slug", "")
+                for bid, kws in bill_industries.items():
+                    bill_ent = entities_by_id.get(bid)
+                    if bill_ent and bill_ent.slug == bill_slug:
+                        if vote_rels.get(bid) == "voted_yes":
+                            voted_yes_bills.add(bid)
+                        break
+
+            if voted_yes_bills:
+                # Check if any donor (or connected entity) lobbied on these bills
+                for bill_id in voted_yes_bills:
+                    bill_ent = entities_by_id.get(bill_id)
+                    bill_name = _sanitize(bill_ent.name) if bill_ent else "Unknown"
+                    # Check lobbied_on relationships for this bill
+                    for donor_entity, donor_rel in unique_donors:
+                        # Direct match: donor entity lobbied on the bill
+                        for lrel in lobby_rels:
+                            lobby_connected = (
+                                lrel.from_entity_id == donor_entity.id
+                                or lrel.to_entity_id == donor_entity.id
+                            )
+                            if lobby_connected:
+                                chain_votes.append({
+                                    "bill": bill_name,
+                                    "bill_slug": bill_ent.slug if bill_ent else "",
+                                    "donor": _sanitize(donor_entity.name),
+                                    "donor_slug": donor_entity.slug,
+                                    "vote": "YES",
+                                    "donation_amount": donor_rel.amount_usd or 0,
+                                })
+                                break
+
+        if chain_votes:
+            dots.append("voted_for_donor_interest")
+
         # ── Build trail ───────────────────────────────────────────────
         dot_count = len(dots)
         verdict = _verdict_for_dots(dot_count)
@@ -694,6 +757,7 @@ async def compute_verdicts(
             total_campaign=total_campaign,
             timing_hits=timing_hits,
             trades=chain_trades,
+            votes=chain_votes,
         )
 
         # Build "other top donors" — biggest donors NOT in this industry
@@ -721,6 +785,7 @@ async def compute_verdicts(
                 "lobbying": chain_lobbying,
                 "timing_hits": timing_hits,
                 "trades": chain_trades,
+                "votes": chain_votes,
             },
             "narrative": narrative,
             "total_amount": total_amount,

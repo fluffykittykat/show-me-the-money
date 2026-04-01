@@ -257,8 +257,21 @@ async def admin_ingest(slug: str):
     elif slug == "house-trades":
         import asyncio as _aio
         from app.services.ingestion.house_trades import ingest_house_trades
-        _aio.create_task(ingest_house_trades(2024))
-        return {"status": "started", "message": "Ingesting House stock trades for 2024"}
+        async def _run_house_trades():
+            await ingest_house_trades(2024)
+            await ingest_house_trades(2025)
+        _aio.create_task(_run_house_trades())
+        return {"status": "started", "message": "Ingesting House stock trades for 2024+2025"}
+    elif slug == "votes":
+        import asyncio as _aio
+        from app.services.ingestion.ingest_votes import run_full_vote_ingestion
+        _aio.create_task(run_full_vote_ingestion())
+        return {"status": "started", "message": "Scraping roll call votes from Senate.gov + House Clerk"}
+    elif slug == "batch-refresh":
+        import asyncio as _aio
+        from app.services.ingestion.batch_refresh import run_batch_refresh
+        _aio.create_task(run_batch_refresh())
+        return {"status": "started", "message": "Batch refreshing all politicians missing donor data"}
     elif slug == "precompute":
         import asyncio as _aio
         from app.services.precompute import run_precompute
