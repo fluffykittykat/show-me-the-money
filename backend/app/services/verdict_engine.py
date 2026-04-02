@@ -725,6 +725,24 @@ async def compute_verdicts(
         if chain_trades:
             dots.append("insider_trade")
 
+            # ── Dot 9b: MAJOR_INSIDER_TRADE ─────────────────────────
+            # Scale by trade size — $100K+ trades get extra dots
+            _AMOUNT_RANGES = {
+                "$1,000,001": 3,   # $1M+ = 3 extra dots
+                "$500,001": 2,     # $500K+ = 2 extra dots
+                "$250,001": 1,     # $250K+ = 1 extra dot
+                "$100,001": 1,     # $100K+ = 1 extra dot
+            }
+            max_trade_bonus = 0
+            for trade in chain_trades:
+                amt_range = trade.get("amount_range", "")
+                for threshold, bonus in _AMOUNT_RANGES.items():
+                    if threshold in amt_range:
+                        max_trade_bonus = max(max_trade_bonus, bonus)
+                        break
+            for _ in range(max_trade_bonus):
+                dots.append("major_insider_trade")
+
         # ── Dot 10: VOTED_FOR_DONOR_INTEREST ─────────────────────────
         # Did the official vote YES on a bill that was lobbied on by one of
         # their donors (or a donor's lobbying client)?
