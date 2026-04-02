@@ -581,6 +581,91 @@ async def _run_precompute():
         logger.error(f"[Scheduler] precompute failed: {exc}")
 
 
+async def _weekly_top_refresh():
+    """Full refresh of top 50 politicians by dot count + all OWNED/COMPROMISED."""
+    job_id = "weekly_top_refresh"
+    logger.info("[Scheduler] Running %s", job_id)
+
+    async with async_session() as session:
+        try:
+            from sqlalchemy import select, text
+
+            # Get top 50 by dot count + all OWNED/COMPROMISED
+            result = await session.execute(
+                select(Entity.slug, Entity.name).where(
+                    Entity.entity_type == "person",
+                    Entity.metadata_["chamber"].astext.isnot(None),
+                ).order_by(
+                    text("(metadata->>'v2_dot_count')::int DESC NULLS LAST")
+                ).limit(50)
+            )
+            top_politicians = list(result.all())
+
+            # Also grab any OWNED/COMPROMISED not already in the top 50
+            top_slugs = {slug for slug, _ in top_politicians}
+            owned_result = await session.execute(
+                select(Entity.slug, Entity.name).where(
+                    Entity.entity_type == "person",
+                    Entity.metadata_["v2_verdict"].astext.in_(["OWNED", "COMPROMISED"]),
+                    Entity.slug.notin_(top_slugs),
+                )
+            )
+            for slug, name in owned_result.all():
+                top_politicians.append((slug, name))
+
+            logger.info(
+                "[Scheduler] Weekly top refresh: %d politicians to refresh",
+                len(top_politicians),
+            )
+
+            import httpx
+            success = 0
+            failed = 0
+            for idx, (slug, name) in enumerate(top_politicians, 1):
+                try:
+                    async with httpx.AsyncClient(timeout=180.0) as client:
+                        resp = await client.post(
+                            f"http://localhost:8000/refresh/{slug}"
+                        )
+                        if resp.status_code == 200:
+                            success += 1
+                        else:
+                            failed += 1
+                except Exception as exc:
+                    logger.warning(
+                        "[Scheduler] Weekly refresh failed for %s: %s", name, exc
+                    )
+                    failed += 1
+
+                # Rate limit between refreshes
+                import asyncio as _asyncio
+                await _asyncio.sleep(3)
+
+                if idx % 10 == 0:
+                    logger.info(
+                        "[Scheduler] Weekly refresh progress: %d/%d",
+                        idx, len(top_politicians),
+                    )
+
+            await _set_last_run(session, job_id)
+            await _record_ingestion_job(
+                session, job_id, "completed",
+                records_fetched=len(top_politicians),
+                records_created=success,
+                error_message=f"{failed} failed" if failed else "",
+            )
+            logger.info(
+                "[Scheduler] %s complete: %d/%d refreshed, %d failed",
+                job_id, success, len(top_politicians), failed,
+            )
+
+        except Exception as exc:
+            logger.error("[Scheduler] %s failed: %s", job_id, exc)
+            await _record_ingestion_job(
+                session, job_id, "failed", error_message=str(exc),
+            )
+
+
 # ---------------------------------------------------------------------------
 # Job registry
 # ---------------------------------------------------------------------------
@@ -615,6 +700,11 @@ JOB_REGISTRY = {
         "func": _weekly_lobbying,
         "trigger": CronTrigger(day_of_week="sun", hour=2, minute=0),
         "description": "Update lobbying disclosures",
+    },
+    "weekly_top_refresh": {
+        "func": _weekly_top_refresh,
+        "trigger": CronTrigger(day_of_week="sat", hour=4, minute=0),
+        "description": "Full refresh of top 50 + OWNED/COMPROMISED politicians (weekly)",
     },
     "precompute_verdicts": {
         "func": _run_precompute,
