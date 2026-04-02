@@ -331,6 +331,32 @@ async def compute_verdicts(
         if entity:
             committee_industries[cid] = _industries_for_committee(entity.name)
 
+    # Leadership detection: Speaker, Majority/Minority Leader, Whips
+    # have jurisdiction over ALL legislation, so they regulate every industry
+    is_leadership = False
+    official_entity = entities_by_id.get(official_id)
+    if official_entity and not committee_industries:
+        official_name_raw = (official_entity.name or "").lower()
+        meta = official_entity.metadata_ or {}
+        leadership_keywords = {"speaker", "majority leader", "minority leader",
+                               "whip", "majority whip", "minority whip", "leader"}
+        title = (meta.get("title") or meta.get("leadership_role") or "").lower()
+        # Known leadership members by slug
+        known_leaders = {
+            "pelosi-nancy", "johnson-mike", "jeffries-hakeem-s",
+            "scalise-steve", "clark-katherine-m", "schumer-charles-e",
+            "mcconnell-mitch", "thune-john",
+        }
+        if (any(kw in title for kw in leadership_keywords)
+                or official_entity.slug in known_leaders):
+            is_leadership = True
+            # Leadership has jurisdiction over all industries
+            all_industry_keywords = list(set(
+                kw for kws in POLICY_AREA_INDUSTRY_MAP.values() for kw in kws
+            ))
+            # Create a synthetic "leadership" committee entry
+            committee_industries[official_id] = all_industry_keywords
+
     # All industry keywords from all committees the official sits on
     all_committee_keywords: list[str] = []
     for kws in committee_industries.values():
