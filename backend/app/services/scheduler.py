@@ -117,9 +117,12 @@ async def _fetch_new_trades():
         try:
             import httpx
 
-            # Fetch PTRs via Senate eFD search with retry and DNS error handling
+            # Fetch PTRs via Senate eFD search with exponential backoff
+            import asyncio
+
             results = []
-            for attempt in range(3):
+            max_attempts = 5
+            for attempt in range(max_attempts):
                 try:
                     async with httpx.AsyncClient(timeout=30.0) as client:
                         response = await client.get(
@@ -142,13 +145,18 @@ async def _fetch_new_trades():
                                 "[Scheduler] eFD returned status %s", response.status_code
                             )
                     break  # Success, exit retry loop
-                except (httpx.ConnectError, OSError) as dns_err:
-                    if attempt < 2:
-                        import asyncio
-                        logger.info("[Scheduler] eFD connection failed (attempt %d), retrying: %s", attempt + 1, dns_err)
-                        await asyncio.sleep(5)
+                except (httpx.ConnectError, httpx.ConnectTimeout, OSError) as err:
+                    backoff = min(10 * (2 ** attempt), 120)  # 10s, 20s, 40s, 80s, 120s
+                    if attempt < max_attempts - 1:
+                        logger.info(
+                            "[Scheduler] eFD connection failed (attempt %d/%d), retrying in %ds: %s",
+                            attempt + 1, max_attempts, backoff, err,
+                        )
+                        await asyncio.sleep(backoff)
                     else:
-                        logger.warning("[Scheduler] eFD unreachable after 3 attempts: %s", dns_err)
+                        logger.warning(
+                            "[Scheduler] eFD unreachable after %d attempts: %s", max_attempts, err
+                        )
 
             records_fetched = len(results)
             for record in results:
@@ -278,7 +286,12 @@ async def _process_ptr_record(session, record: dict):
 
 
 async def _fetch_new_votes():
-    """Check Congress.gov for new floor votes."""
+    """Check Congress.gov for new floor votes.
+
+    NOTE: The Congress.gov API v3 does NOT support per-member vote endpoints
+    (/member/{id}/votes returns 404). Instead we poll the chamber-level
+    recent-votes endpoint and match members from the vote rolls.
+    """
     job_id = "fetch_new_votes"
     logger.info("[Scheduler] Running %s", job_id)
 
@@ -299,42 +312,46 @@ async def _fetch_new_votes():
                 )
                 return
 
-            from app.services.ingestion.congress_client import CongressClient
-            from sqlalchemy import select
+            import asyncio
+            import httpx
 
-            client = CongressClient(api_key)
+            base_params = {"api_key": api_key, "format": "json", "limit": 50}
 
-            # Get all officials with bioguide_id
-            stmt = select(Entity).where(
-                Entity.entity_type == "person",
-                Entity.metadata_["bioguide_id"].astext.isnot(None),
-            )
-            result = await session.execute(stmt)
-            officials = result.scalars().all()
-
-            for official in officials:
-                bioguide_id = (official.metadata_ or {}).get("bioguide_id")
-                if not bioguide_id:
-                    continue
+            # Fetch recent votes from both chambers instead of per-member
+            for chamber in ("house", "senate"):
+                # Congress.gov v3: /vote/{congress}/{chamber}
+                # Current congress is 119th (2025-2027)
+                congress_num = 119
+                url = f"https://api.congress.gov/v3/vote/{congress_num}/{chamber}"
 
                 try:
-                    votes = await client.fetch_member_votes(bioguide_id, limit=10)
-                    records_fetched += len(votes)
+                    async with httpx.AsyncClient(timeout=30.0) as http:
+                        await asyncio.sleep(0.5)
+                        resp = await http.get(url, params=base_params)
+                        resp.raise_for_status()
+                        data = resp.json()
+                        votes = data.get("votes", [])
+                        records_fetched += len(votes)
 
-                    for vote in votes:
-                        vote_date_str = vote.get("date", "")
-                        if vote_date_str and last_run:
-                            from app.services.trade_alerts import _parse_date_safe
+                        for vote in votes:
+                            vote_date_str = vote.get("date", "")
+                            if vote_date_str and last_run:
+                                from app.services.trade_alerts import _parse_date_safe
 
-                            vote_date = _parse_date_safe(vote_date_str)
-                            if vote_date and vote_date < last_run.date():
-                                continue
+                                vote_date = _parse_date_safe(vote_date_str)
+                                if vote_date and vote_date < last_run.date():
+                                    continue
 
-                        records_created += 1
+                            records_created += 1
 
+                except httpx.HTTPStatusError as exc:
+                    logger.warning(
+                        "[Scheduler] Failed to fetch %s votes (congress %d): HTTP %s",
+                        chamber, congress_num, exc.response.status_code,
+                    )
                 except Exception as exc:
                     logger.warning(
-                        "Failed to fetch votes for %s: %s", bioguide_id, exc
+                        "[Scheduler] Failed to fetch %s votes: %s", chamber, exc
                     )
 
             await _set_last_run(session, job_id)
@@ -447,6 +464,7 @@ async def _fetch_fec_updates():
                 )
                 return
 
+            import httpx
             from app.services.ingestion.fec_client import FECClient
             from sqlalchemy import select
 
@@ -460,7 +478,11 @@ async def _fetch_fec_updates():
             result = await session.execute(stmt)
             officials = result.scalars().all()
 
-            for official in officials:
+            import asyncio
+
+            DELAY_BETWEEN_OFFICIALS = 2  # seconds — FEC rate limit is ~1000 req/hr
+
+            for idx, official in enumerate(officials, 1):
                 meta = official.metadata_ or {}
                 candidate_id = meta.get("fec_candidate_id")
                 committee_id = meta.get("fec_committee_id")
@@ -468,17 +490,30 @@ async def _fetch_fec_updates():
                     continue
 
                 try:
+                    await asyncio.sleep(DELAY_BETWEEN_OFFICIALS)
                     totals = await fec.fetch_candidate_totals(candidate_id)
                     if totals:
                         records_fetched += 1
 
                     if committee_id:
+                        await asyncio.sleep(DELAY_BETWEEN_OFFICIALS)
                         contributors = await fec.fetch_top_contributors(
                             committee_id
                         )
                         records_fetched += len(contributors)
                         records_created += len(contributors)
 
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code == 429:
+                        logger.warning(
+                            "[Scheduler] FEC rate limited at official %d/%d, backing off 60s",
+                            idx, len(officials),
+                        )
+                        await asyncio.sleep(60)
+                    else:
+                        logger.warning(
+                            "Failed to fetch FEC data for %s: %s", candidate_id, exc
+                        )
                 except Exception as exc:
                     logger.warning(
                         "Failed to fetch FEC data for %s: %s", candidate_id, exc
@@ -678,8 +713,8 @@ JOB_REGISTRY = {
     },
     "fetch_new_votes": {
         "func": _fetch_new_votes,
-        "trigger": IntervalTrigger(hours=2),
-        "description": "Check Congress.gov for new floor votes",
+        "trigger": IntervalTrigger(hours=4),
+        "description": "Check Congress.gov for new floor votes (by chamber)",
     },
     "fetch_new_bills": {
         "func": _fetch_new_bills,
