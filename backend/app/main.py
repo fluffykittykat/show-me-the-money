@@ -453,6 +453,15 @@ async def admin_generate_briefings(entity_type: str = "person", force: bool = Fa
     return {"status": "started", "message": f"Generating briefings for all {entity_type} entities in background"}
 
 
+@admin_router.get("/health/deep")
+async def deep_health_check():
+    """Run comprehensive health checks against all external APIs,
+    database, and scheduler. Use after deploys or to diagnose issues."""
+    from app.services.health_check import run_deep_health_check
+
+    return await run_deep_health_check()
+
+
 app.include_router(admin_router)
 
 
