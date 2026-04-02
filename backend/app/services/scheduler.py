@@ -315,44 +315,50 @@ async def _fetch_new_votes():
             import asyncio
             import httpx
 
+            # Congress.gov v3 supports house-vote/{congress}/{session} but
+            # has no equivalent senate-vote endpoint.
+            congress_num = 119
+            session_num = 1
             base_params = {"api_key": api_key, "format": "json", "limit": 50}
 
-            # Fetch recent votes from both chambers instead of per-member
-            for chamber in ("house", "senate"):
-                # Congress.gov v3: /vote/{congress}/{chamber}
-                # Current congress is 119th (2025-2027)
-                congress_num = 119
-                url = f"https://api.congress.gov/v3/vote/{congress_num}/{chamber}"
+            # --- House votes via Congress.gov v3 API ---
+            url = f"https://api.congress.gov/v3/house-vote/{congress_num}/{session_num}"
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as http:
+                    await asyncio.sleep(0.5)
+                    resp = await http.get(url, params=base_params)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    votes = data.get("houseRollCallVotes", [])
+                    records_fetched += len(votes)
 
-                try:
-                    async with httpx.AsyncClient(timeout=30.0) as http:
-                        await asyncio.sleep(0.5)
-                        resp = await http.get(url, params=base_params)
-                        resp.raise_for_status()
-                        data = resp.json()
-                        votes = data.get("votes", [])
-                        records_fetched += len(votes)
+                    for vote in votes:
+                        vote_date_str = vote.get("startDate", "")
+                        if vote_date_str and last_run:
+                            from app.services.trade_alerts import _parse_date_safe
 
-                        for vote in votes:
-                            vote_date_str = vote.get("date", "")
-                            if vote_date_str and last_run:
-                                from app.services.trade_alerts import _parse_date_safe
+                            vote_date = _parse_date_safe(vote_date_str[:10])
+                            if vote_date and vote_date < last_run.date():
+                                continue
+                        records_created += 1
 
-                                vote_date = _parse_date_safe(vote_date_str)
-                                if vote_date and vote_date < last_run.date():
-                                    continue
-
-                            records_created += 1
-
-                except httpx.HTTPStatusError as exc:
-                    logger.warning(
-                        "[Scheduler] Failed to fetch %s votes (congress %d): HTTP %s",
-                        chamber, congress_num, exc.response.status_code,
+                    logger.info(
+                        "[Scheduler] House votes: fetched %d roll calls", len(votes)
                     )
-                except Exception as exc:
-                    logger.warning(
-                        "[Scheduler] Failed to fetch %s votes: %s", chamber, exc
-                    )
+            except httpx.HTTPStatusError as exc:
+                logger.warning(
+                    "[Scheduler] Failed to fetch house votes: HTTP %s",
+                    exc.response.status_code,
+                )
+            except Exception as exc:
+                logger.warning("[Scheduler] Failed to fetch house votes: %s", exc)
+
+            # --- Senate votes: not available in Congress.gov v3 API ---
+            # Senate roll-call data requires scraping senate.gov XML feeds.
+            # Skipped for now; logged as known gap.
+            logger.info(
+                "[Scheduler] Senate votes: skipped (no Congress.gov v3 endpoint)"
+            )
 
             await _set_last_run(session, job_id)
             await _record_ingestion_job(
