@@ -143,25 +143,26 @@ async def _check_fec_api() -> dict:
 
 
 async def _check_senate_efd() -> dict:
-    """Verify Senate eFD system is reachable (DNS + HTTP)."""
+    """Verify Senate eFD system is reachable (DNS + HTTP).
+
+    The Senate moved from efts.senate.gov (now NXDOMAIN) to
+    efdsearch.senate.gov in early 2026.
+    """
     start = time.monotonic()
     try:
-        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            resp = await client.get(
-                "https://efts.senate.gov/LATEST/search-results",
-                params={"type": "ptr", "limit": "1"},
-            )
-            # Accept any HTTP response as "reachable"
+        async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
+            resp = await client.get("https://efdsearch.senate.gov/search/home/")
             status_code = resp.status_code
 
         elapsed = round(time.monotonic() - start, 3)
         if status_code == 200:
-            return {"status": "ok", "latency_s": elapsed}
+            return {"status": "ok", "latency_s": elapsed, "domain": "efdsearch.senate.gov"}
         else:
             return {
                 "status": "warning",
                 "latency_s": elapsed,
                 "http_status": status_code,
+                "domain": "efdsearch.senate.gov",
             }
     except (httpx.ConnectError, httpx.ConnectTimeout, OSError) as exc:
         elapsed = round(time.monotonic() - start, 3)
@@ -169,6 +170,7 @@ async def _check_senate_efd() -> dict:
             "status": "error",
             "latency_s": elapsed,
             "error": f"Unreachable: {exc}",
+            "domain": "efdsearch.senate.gov",
         }
     except Exception as exc:
         elapsed = round(time.monotonic() - start, 3)

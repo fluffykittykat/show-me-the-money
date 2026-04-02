@@ -115,48 +115,14 @@ async def _fetch_new_trades():
         records_created = 0
 
         try:
-            import httpx
+            # Fetch PTRs via Senate eFD (efdsearch.senate.gov)
+            from app.services.ingestion.efd_client import EFDClient
 
-            # Fetch PTRs via Senate eFD search with exponential backoff
-            import asyncio
-
-            results = []
-            max_attempts = 5
-            for attempt in range(max_attempts):
-                try:
-                    async with httpx.AsyncClient(timeout=30.0) as client:
-                        response = await client.get(
-                            "https://efts.senate.gov/LATEST/search-results",
-                            params={
-                                "type": "ptr",
-                                "dateRange": "custom",
-                                "fromDate": from_date.strftime("%m/%d/%Y"),
-                                "toDate": to_date.strftime("%m/%d/%Y"),
-                            },
-                        )
-                        if response.status_code == 200:
-                            try:
-                                data = response.json()
-                            except Exception:
-                                data = []
-                            results = data if isinstance(data, list) else data.get("results", [])
-                        else:
-                            logger.warning(
-                                "[Scheduler] eFD returned status %s", response.status_code
-                            )
-                    break  # Success, exit retry loop
-                except (httpx.ConnectError, httpx.ConnectTimeout, OSError) as err:
-                    backoff = min(10 * (2 ** attempt), 120)  # 10s, 20s, 40s, 80s, 120s
-                    if attempt < max_attempts - 1:
-                        logger.info(
-                            "[Scheduler] eFD connection failed (attempt %d/%d), retrying in %ds: %s",
-                            attempt + 1, max_attempts, backoff, err,
-                        )
-                        await asyncio.sleep(backoff)
-                    else:
-                        logger.warning(
-                            "[Scheduler] eFD unreachable after %d attempts: %s", max_attempts, err
-                        )
+            efd = EFDClient()
+            results = await efd.fetch_ptr_reports(
+                start_date=from_date.strftime("%m/%d/%Y"),
+                end_date=to_date.strftime("%m/%d/%Y"),
+            )
 
             records_fetched = len(results)
             for record in results:
@@ -190,10 +156,13 @@ async def _process_ptr_record(session, record: dict):
     """Process a single PTR record from eFD and create/update entities + relationships."""
     from sqlalchemy import select
 
-    senator_name = record.get("senator", record.get("name", "Unknown"))
+    # Support both old format (senator, date) and new format (first_name, last_name, date_received)
+    first = record.get("first_name", "")
+    last = record.get("last_name", "")
+    senator_name = record.get("senator") or f"{first} {last}".strip() or "Unknown"
     slug = senator_name.lower().replace(" ", "-").replace(",", "").replace(".", "")
     description = record.get("description", "")
-    report_date = record.get("date", "")
+    report_date = record.get("date_received", record.get("date", ""))
     transaction_type = record.get("transaction_type", "")
     amount = record.get("amount", "")
     ticker = record.get("ticker", "")
@@ -268,7 +237,7 @@ async def _process_ptr_record(session, record: dict):
         relationship_type="holds_stock",
         amount_label=amount or None,
         date_start=trade_date,
-        source_url=f"https://efts.senate.gov/LATEST/search-results",
+        source_url=record.get("report_url", "https://efdsearch.senate.gov/search/"),
         source_label="Senate eFD PTR",
         metadata_=meta,
     )
