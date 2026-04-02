@@ -847,10 +847,11 @@ async def compute_verdicts(
 def compute_overall_verdict(trails: list[dict]) -> tuple[str, int]:
     """Given all industry trails, compute the official's overall verdict.
 
-    OWNED      = 2+ industries at INFLUENCED level, OR total > $1M with 1+ INFLUENCED
-    INFLUENCED = any industry at 4+ dots
-    CONNECTED  = any industry at 2+ dots
-    NORMAL     = all industries at 1 dot or less
+    OWNED       = Deep structural capture across multiple industries
+    COMPROMISED = Strong trade-based conflicts even without donation chains
+    INFLUENCED  = Clear money → power → legislation chain in at least 1 industry
+    CONNECTED   = Structural relationships exist
+    NORMAL      = No concerning patterns detected
 
     Returns (verdict, total_dots_across_all_industries)
     """
@@ -860,11 +861,43 @@ def compute_overall_verdict(trails: list[dict]) -> tuple[str, int]:
     total_dots = sum(t["dot_count"] for t in trails)
     total_money = sum(t["total_amount"] for t in trails)
     influenced_count = sum(1 for t in trails if t["verdict"] == "INFLUENCED")
+    connected_count = sum(1 for t in trails if t["verdict"] == "CONNECTED")
 
+    # Count industries with insider trades and trade-size bonus dots
+    has_insider_trade = sum(
+        1 for t in trails
+        if "insider_trade" in t.get("dots", [])
+    )
+    has_major_trade = sum(
+        1 for t in trails
+        if "major_insider_trade" in t.get("dots", [])
+    )
+    has_voted_for_donors = sum(
+        1 for t in trails
+        if "voted_for_donor_interest" in t.get("dots", [])
+    )
+
+    # OWNED: deep structural capture
     if influenced_count >= 2:
         return ("OWNED", total_dots)
     if influenced_count >= 1 and total_money >= 1_000_000_00:  # $1M in cents
         return ("OWNED", total_dots)
+    # OWNED via trades: major insider trades in 2+ industries
+    if has_major_trade >= 2:
+        return ("OWNED", total_dots)
+    # OWNED via combined signals: influenced + insider trades
+    if influenced_count >= 1 and has_insider_trade >= 1:
+        return ("OWNED", total_dots)
+
+    # COMPROMISED: trade-based conflicts without full donation chain
+    if has_major_trade >= 1 and connected_count >= 2:
+        return ("COMPROMISED", total_dots)
+    if has_insider_trade >= 2 and connected_count >= 1:
+        return ("COMPROMISED", total_dots)
+    # Voted with donor interest + trades = COMPROMISED
+    if has_voted_for_donors >= 1 and has_insider_trade >= 1:
+        return ("COMPROMISED", total_dots)
+
     if influenced_count >= 1:
         return ("INFLUENCED", total_dots)
     if any(t["dot_count"] >= 2 for t in trails):
