@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -90,32 +90,42 @@ async def _build_story_feed(session: AsyncSession) -> list[dict]:
     seen_official_ids: set[str] = set()
 
     # ── 1. OWNED stories ─────────────────────────────────────────────
-    # One story per official who is OWNED, showing their top industries
-    owned_q = (
-        select(MoneyTrail, Entity)
-        .join(Entity, MoneyTrail.official_id == Entity.id)
-        .where(MoneyTrail.verdict == "OWNED")
-        .order_by(MoneyTrail.dot_count.desc(), MoneyTrail.total_amount.desc())
-    )
-    result = await session.execute(owned_q)
-    owned_rows = result.all()
-
-    # Group by official
-    owned_by_official: dict[str, dict] = {}
-    for trail, official in owned_rows:
-        oid = str(official.id)
-        if oid not in owned_by_official:
-            owned_by_official[oid] = {
-                "official": official,
-                "industries": [],
-                "total_amount": 0,
-                "max_dots": 0,
-            }
-        owned_by_official[oid]["industries"].append(trail.industry)
-        owned_by_official[oid]["total_amount"] += _to_int(trail.total_amount)
-        owned_by_official[oid]["max_dots"] = max(
-            owned_by_official[oid]["max_dots"], trail.dot_count
+    # OWNED verdict lives on the official's metadata (v2_verdict), not on
+    # individual money_trails rows. Query officials with OWNED/COMPROMISED
+    # verdict, then pull their top money trails for the story narrative.
+    owned_officials_q = (
+        select(Entity)
+        .where(
+            Entity.entity_type == "person",
+            Entity.metadata_["v2_verdict"].astext.in_(["OWNED", "COMPROMISED"]),
         )
+        .order_by(
+            text("(metadata->>'v2_dot_count')::int DESC NULLS LAST")
+        )
+        .limit(10)
+    )
+    owned_officials_result = await session.execute(owned_officials_q)
+    owned_officials = owned_officials_result.scalars().all()
+
+    # For each OWNED official, get their top money trails
+    owned_by_official: dict[str, dict] = {}
+    for official in owned_officials:
+        oid = str(official.id)
+        meta = official.metadata_ or {}
+        trail_q = (
+            select(MoneyTrail)
+            .where(MoneyTrail.official_id == official.id)
+            .order_by(MoneyTrail.total_amount.desc())
+        )
+        trail_result = await session.execute(trail_q)
+        trails = trail_result.scalars().all()
+
+        owned_by_official[oid] = {
+            "official": official,
+            "industries": [t.industry for t in trails if t.industry],
+            "total_amount": sum(_to_int(t.total_amount) for t in trails),
+            "max_dots": int(meta.get("v2_dot_count", 0)),
+        }
 
     # Sort by max dot count desc, then total amount desc
     sorted_owned = sorted(
