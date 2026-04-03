@@ -18,7 +18,7 @@ router = APIRouter(prefix="/investigate", tags=["trades"])
 
 @router.get("/trades/recent")
 async def recent_trades(
-    days: int = Query(7, ge=1, le=90, description="Number of days to look back"),
+    days: int = Query(365, ge=1, le=730, description="Number of days to look back"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),

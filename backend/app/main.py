@@ -257,10 +257,19 @@ async def admin_ingest(slug: str):
         return {"status": "started", "message": "Fetching ALL FEC cycles for all officials"}
     elif slug == "house-trades":
         import asyncio as _aio
+        import logging as _log
         from app.services.ingestion.house_trades import ingest_house_trades
+        _logger = _log.getLogger(__name__)
         async def _run_house_trades():
-            await ingest_house_trades(2024)
-            await ingest_house_trades(2025)
+            try:
+                _logger.warning("[house-trades] Starting 2025 ingestion...")
+                r1 = await ingest_house_trades(2025)
+                _logger.warning("[house-trades] 2025 done: %s", r1)
+                _logger.warning("[house-trades] Starting 2024 ingestion...")
+                r2 = await ingest_house_trades(2024)
+                _logger.warning("[house-trades] 2024 done: %s", r2)
+            except Exception as exc:
+                _logger.error("[house-trades] FAILED: %s", exc, exc_info=True)
         _aio.create_task(_run_house_trades())
         return {"status": "started", "message": "Ingesting House stock trades for 2024+2025"}
     elif slug == "votes":
