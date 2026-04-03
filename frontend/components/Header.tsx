@@ -2,14 +2,25 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
-import { Search, Menu, X, Settings } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Search, Menu, X, Settings, Bell } from 'lucide-react';
+import { getUnreadAlertCount } from '@/lib/api';
 
 export default function Header() {
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [unreadAlerts, setUnreadAlerts] = useState(0);
+
+  useEffect(() => {
+    const fetchCount = () => {
+      getUnreadAlertCount().then((d) => setUnreadAlerts(d.count)).catch(() => {});
+    };
+    fetchCount();
+    const interval = setInterval(fetchCount, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   function handleSearchSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -48,6 +59,20 @@ export default function Header() {
             className="text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-100"
           >
             Trades
+          </Link>
+          <Link
+            href="/alerts"
+            className="relative text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-100"
+          >
+            <span className="flex items-center gap-1">
+              <Bell className="h-3.5 w-3.5" />
+              Alerts
+            </span>
+            {unreadAlerts > 0 && (
+              <span className="absolute -right-3 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                {unreadAlerts > 99 ? '99+' : unreadAlerts}
+              </span>
+            )}
           </Link>
           <Link
             href="/search"
@@ -135,6 +160,18 @@ export default function Header() {
               className="text-sm font-medium text-zinc-300"
             >
               Trades
+            </Link>
+            <Link
+              href="/alerts"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center gap-2 text-sm font-medium text-zinc-300"
+            >
+              Alerts
+              {unreadAlerts > 0 && (
+                <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  {unreadAlerts}
+                </span>
+              )}
             </Link>
             <Link
               href="/admin/config"

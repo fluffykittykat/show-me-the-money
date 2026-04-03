@@ -727,4 +727,94 @@ export async function getV2Entity(slug: string): Promise<V2EntityResponse> {
   return apiFetch<V2EntityResponse>(`/v2/entity/${encodeURIComponent(slug)}`);
 }
 
+// ---------------------------------------------------------------------------
+// Trade Alerts API (real-time alert system)
+// ---------------------------------------------------------------------------
+
+export interface AlertItem {
+  id: string;
+  official_name: string;
+  official_slug: string;
+  ticker: string;
+  transaction_type: string;
+  amount_label: string;
+  trade_date: string | null;
+  filed_date: string | null;
+  alert_level: string;
+  narrative: string;
+  signals: string[];
+  context: Record<string, unknown>;
+  source: string;
+  status: string;
+  created_at: string | null;
+}
+
+export interface AlertFeedResponse {
+  alerts: AlertItem[];
+  total: number;
+  unread_count: number;
+}
+
+export interface SubscriptionItem {
+  id: string;
+  sub_type: string;
+  target_value: string;
+  channel: string;
+  channel_target: string | null;
+  is_active: boolean;
+  created_at: string | null;
+}
+
+export async function getAlertsFeed(params?: {
+  limit?: number;
+  offset?: number;
+  ticker?: string;
+  official_slug?: string;
+  status?: string;
+  alert_level?: string;
+}): Promise<AlertFeedResponse> {
+  const qs = new URLSearchParams();
+  if (params?.limit) qs.set('limit', String(params.limit));
+  if (params?.offset) qs.set('offset', String(params.offset));
+  if (params?.ticker) qs.set('ticker', params.ticker);
+  if (params?.official_slug) qs.set('official_slug', params.official_slug);
+  if (params?.status) qs.set('status', params.status);
+  if (params?.alert_level) qs.set('alert_level', params.alert_level);
+  return apiFetch<AlertFeedResponse>(`/alerts/feed?${qs.toString()}`);
+}
+
+export async function getUnreadAlertCount(): Promise<{ count: number }> {
+  return apiFetch<{ count: number }>('/alerts/unread-count');
+}
+
+export async function markAlertSeen(alertId: string): Promise<void> {
+  await apiFetch(`/alerts/${alertId}/seen`, { method: 'POST' });
+}
+
+export async function markAllAlertsSeen(): Promise<{ updated: number }> {
+  return apiFetch<{ updated: number }>('/alerts/seen-all', { method: 'POST' });
+}
+
+export async function getSubscriptions(): Promise<SubscriptionItem[]> {
+  return apiFetch<SubscriptionItem[]>('/alerts/subscriptions');
+}
+
+export async function createSubscription(params: {
+  sub_type: string;
+  target_value: string;
+  channel?: string;
+  channel_target?: string;
+}): Promise<SubscriptionItem> {
+  const qs = new URLSearchParams();
+  qs.set('sub_type', params.sub_type);
+  qs.set('target_value', params.target_value);
+  if (params.channel) qs.set('channel', params.channel);
+  if (params.channel_target) qs.set('channel_target', params.channel_target);
+  return apiFetch<SubscriptionItem>(`/alerts/subscriptions?${qs.toString()}`, { method: 'POST' });
+}
+
+export async function deleteSubscription(id: string): Promise<void> {
+  await apiFetch(`/alerts/subscriptions/${id}`, { method: 'DELETE' });
+}
+
 export { ApiError };
