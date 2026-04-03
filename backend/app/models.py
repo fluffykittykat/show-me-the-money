@@ -263,3 +263,63 @@ class OfficialInfluenceSignal(Base):
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class TradeAlert(Base):
+    __tablename__ = "trade_alerts"
+    __table_args__ = (
+        Index("ix_trade_alerts_official_id", "official_id"),
+        Index("ix_trade_alerts_ticker", "ticker"),
+        Index("ix_trade_alerts_status", "status"),
+        Index("ix_trade_alerts_created_at", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    relationship_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("relationships.id"), unique=True, nullable=False,
+    )
+    official_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("entities.id"), nullable=False,
+    )
+    ticker: Mapped[str] = mapped_column(String(20), nullable=False)
+    transaction_type: Mapped[Optional[str]] = mapped_column(String(50))
+    amount_label: Mapped[Optional[str]] = mapped_column(String(100))
+    trade_date: Mapped[Optional[date]] = mapped_column(Date)
+    filed_date: Mapped[Optional[date]] = mapped_column(Date)
+    alert_level: Mapped[str] = mapped_column(String(30), default="ROUTINE")
+    narrative: Mapped[Optional[str]] = mapped_column(Text)
+    signals: Mapped[dict] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    context: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    source: Mapped[str] = mapped_column(String(30), default="senate_efd")
+    status: Mapped[str] = mapped_column(String(20), default="new")
+    notified_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"),
+    )
+
+
+class AlertSubscription(Base):
+    __tablename__ = "alert_subscriptions"
+    __table_args__ = (
+        Index("ix_alert_subs_type_target", "sub_type", "target_value"),
+        Index("ix_alert_subs_channel_active", "channel", "is_active"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    sub_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    target_value: Mapped[str] = mapped_column(String(200), nullable=False)
+    channel: Mapped[str] = mapped_column(String(20), default="feed")
+    channel_target: Mapped[Optional[str]] = mapped_column(String(200))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"),
+    )
