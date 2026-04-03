@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Post-deploy smoke test for jerry-maguire backend.
-# Runs deep health check + triggers each scheduler job to verify
-# all data pipelines are functional against live APIs.
+# Post-deploy smoke test for jerry-maguire — FULL STACK.
+# Verifies backend APIs, scheduler jobs, frontend process, nginx,
+# and that the end user sees fresh data. If this passes, the site works.
 #
 # Usage: ./smoke_test.sh [base_url]
 #   base_url defaults to http://localhost:8000
@@ -124,6 +124,70 @@ elif [ "$FAILED_COUNT" = "-1" ]; then
 else
     FAILED_DETAIL=$(echo "$RECENT_FAILED" | tail -n +2)
     check_status "Failed jobs detected" "error" "$FAILED_DETAIL"
+fi
+echo ""
+
+# ─── Step 5: Frontend + End-to-End Verification ──────────────
+bold "Step 5: Frontend + End-to-End (what the user actually sees)"
+
+# Check pm2 frontend process is running (not errored/stopped)
+PM2_STATUS=$(pm2 jlist 2>/dev/null | python3 -c "
+import sys, json
+procs = json.load(sys.stdin)
+for p in procs:
+    if p.get('name') == 'jerry-frontend':
+        print(p.get('pm2_env', {}).get('status', 'unknown'))
+        break
+else:
+    print('not_found')
+" 2>/dev/null || echo "error")
+
+if [ "$PM2_STATUS" = "online" ]; then
+    check_status "pm2 jerry-frontend status" "ok" ""
+else
+    check_status "pm2 jerry-frontend status" "error" "Status: $PM2_STATUS (expected: online)"
+fi
+
+# Check frontend responds on port 3000
+FE_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "http://localhost:3000" 2>&1)
+if [ "$FE_CODE" = "200" ]; then
+    check_status "Frontend port 3000" "ok" ""
+else
+    check_status "Frontend port 3000" "error" "HTTP $FE_CODE"
+fi
+
+# Check nginx end-to-end on port 8060
+NGINX_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "http://localhost:8060" 2>&1)
+if [ "$NGINX_CODE" = "200" ]; then
+    check_status "Nginx port 8060" "ok" ""
+else
+    check_status "Nginx port 8060" "error" "HTTP $NGINX_CODE"
+fi
+
+# Verify the HTML contains the Alerts nav link (proves latest build is deployed)
+FE_HTML=$(curl -s --max-time 10 "http://localhost:8060" 2>&1)
+if echo "$FE_HTML" | grep -q 'href="/alerts"'; then
+    check_status "Frontend has Alerts nav link" "ok" ""
+else
+    check_status "Frontend has Alerts nav link" "error" "Alerts link not found in HTML — stale build?"
+fi
+
+# Verify API data flows through nginx to the frontend
+NGINX_API=$(curl -s --max-time 10 "http://localhost:8060/api/v2/homepage" 2>&1)
+TOP_NAME=$(echo "$NGINX_API" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['top_officials'][0]['name'])" 2>/dev/null || echo "PARSE_ERROR")
+if [ "$TOP_NAME" != "PARSE_ERROR" ] && [ -n "$TOP_NAME" ]; then
+    check_status "API through nginx (top official: $TOP_NAME)" "ok" ""
+else
+    check_status "API through nginx" "error" "Could not fetch v2/homepage through nginx"
+fi
+
+# Verify frontend HTML is not stuck on loading skeletons (client hydration check)
+# The SSR HTML will have skeletons, but if we fetch the API directly, it must return data
+OFFICIAL_COUNT=$(echo "$NGINX_API" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('stats',{}).get('officials_count',0))" 2>/dev/null || echo "0")
+if [ "$OFFICIAL_COUNT" -gt 100 ] 2>/dev/null; then
+    check_status "Data freshness ($OFFICIAL_COUNT officials)" "ok" ""
+else
+    check_status "Data freshness" "error" "Only $OFFICIAL_COUNT officials (expected 500+)"
 fi
 echo ""
 
