@@ -124,10 +124,40 @@ async def _fetch_new_trades():
                 end_date=to_date.strftime("%m/%d/%Y"),
             )
 
+            is_backfill = last_run is None
             records_fetched = len(results)
+            alerts_created = 0
             for record in results:
-                await _process_ptr_record(session, record)
-                records_created += 1
+                rel, pattern = await _process_ptr_record(session, record)
+                if rel:
+                    records_created += 1
+                    # Create trade alert
+                    try:
+                        from app.services.alert_engine import create_trade_alert
+                        from app.services.telegram_notifier import notify_trade_alert
+
+                        meta = rel.metadata_ or {}
+                        alert = await create_trade_alert(
+                            session,
+                            relationship_id=rel.id,
+                            official_id=rel.from_entity_id,
+                            ticker=meta.get("ticker", ""),
+                            transaction_type=meta.get("transaction_type", ""),
+                            amount_label=rel.amount_label or "",
+                            trade_date=rel.date_start,
+                            filed_date=rel.date_start,
+                            source="senate_efd",
+                            signals=pattern.get("signals", []) if pattern else [],
+                            narrative=pattern.get("narrative", "") if pattern else "",
+                            context={"source_url": rel.source_url or ""},
+                        )
+                        if alert:
+                            alerts_created += 1
+                            await notify_trade_alert(session, alert, is_backfill=is_backfill)
+                    except Exception as exc:
+                        logger.warning("[Scheduler] Alert creation failed: %s", exc)
+
+            logger.info("[Scheduler] %s alerts created: %d", job_id, alerts_created)
 
             # Clear stale is_new flags
             from app.services.trade_alerts import clear_stale_new_flags
@@ -153,7 +183,11 @@ async def _fetch_new_trades():
 
 
 async def _process_ptr_record(session, record: dict):
-    """Process a single PTR record from eFD and create/update entities + relationships."""
+    """Process a single PTR record from eFD and create/update entities + relationships.
+
+    Returns (Relationship, pattern_dict) if a new trade was created, or (None, None) if
+    the record was skipped (no entity match or duplicate).
+    """
     from sqlalchemy import select
 
     # Support both old format (senator, date) and new format (first_name, last_name, date_received)
@@ -193,7 +227,7 @@ async def _process_ptr_record(session, record: dict):
 
     if not official:
         logger.debug("No entity found for senator: %s", senator_name)
-        return
+        return None, None
 
     # Find or create the stock entity
     stock_name = ticker or description[:100] if description else "Unknown Asset"
@@ -215,6 +249,24 @@ async def _process_ptr_record(session, record: dict):
         session.add(stock_entity)
         await session.flush()
 
+    trade_date = None
+    if report_date:
+        from app.services.trade_alerts import _parse_date_safe
+
+        trade_date = _parse_date_safe(report_date)
+
+    # Dedup: skip if this exact trade already exists
+    dup = await session.execute(
+        select(Relationship).where(
+            Relationship.from_entity_id == official.id,
+            Relationship.to_entity_id == stock_entity.id,
+            Relationship.relationship_type == "holds_stock",
+            Relationship.date_start == trade_date,
+        )
+    )
+    if dup.scalars().first():
+        return None, None
+
     # Create the trade relationship
     meta = {
         "ticker": ticker,
@@ -224,12 +276,6 @@ async def _process_ptr_record(session, record: dict):
         "description": description[:500] if description else "",
         "raw_record": record,
     }
-
-    trade_date = None
-    if report_date:
-        from app.services.trade_alerts import _parse_date_safe
-
-        trade_date = _parse_date_safe(report_date)
 
     rel = Relationship(
         from_entity_id=official.id,
@@ -245,13 +291,16 @@ async def _process_ptr_record(session, record: dict):
     await session.commit()
 
     # Cross-reference: detect trade patterns
+    pattern = None
     if ticker and trade_date:
         try:
             from app.services.trade_alerts import detect_trade_pattern
 
-            await detect_trade_pattern(session, ticker, trade_date, official.slug)
+            pattern = await detect_trade_pattern(session, ticker, trade_date, official.slug)
         except Exception as exc:
             logger.warning("Trade pattern detection failed for %s: %s", ticker, exc)
+
+    return rel, pattern or {}
 
 
 async def _fetch_new_votes():
@@ -683,8 +732,8 @@ async def _weekly_top_refresh():
 JOB_REGISTRY = {
     "fetch_new_trades": {
         "func": _fetch_new_trades,
-        "trigger": IntervalTrigger(hours=4),
-        "description": "Poll Senate eFD for new PTRs",
+        "trigger": IntervalTrigger(minutes=15),
+        "description": "Poll Senate eFD for new PTRs (every 15 min)",
     },
     "fetch_new_votes": {
         "func": _fetch_new_votes,
