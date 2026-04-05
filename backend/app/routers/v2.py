@@ -8,8 +8,8 @@ import json
 import os
 import re
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -32,6 +32,65 @@ router = APIRouter(tags=["v2"])
 
 
 # ---------------------------------------------------------------------------
+# GET /v2/officials — list officials with verdicts
+# ---------------------------------------------------------------------------
+
+
+@router.get("/officials")
+async def v2_officials(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    verdict: str = Query(None, description="Filter by verdict: OWNED, INFLUENCED, CONNECTED, NORMAL"),
+    chamber: str = Query(None, description="Filter by chamber: Senate, House of Representatives"),
+    party: str = Query(None, description="Filter by party: Republican, Democratic"),
+    sort: str = Query("dots", description="Sort by: dots, name, verdict"),
+    db: AsyncSession = Depends(get_db),
+):
+    """List officials with verdicts, dot counts, and basic metadata."""
+    base = select(Entity).where(
+        Entity.entity_type == "person",
+        Entity.metadata_["chamber"].astext.isnot(None),
+    )
+
+    if verdict:
+        base = base.where(Entity.metadata_["v2_verdict"].astext == verdict)
+    if chamber:
+        base = base.where(Entity.metadata_["chamber"].astext == chamber)
+    if party:
+        base = base.where(Entity.metadata_["party"].astext == party)
+
+    # Count total
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
+
+    # Sort
+    if sort == "dots":
+        base = base.order_by(text("(metadata->>'v2_dot_count')::int DESC NULLS LAST"))
+    elif sort == "verdict":
+        base = base.order_by(Entity.metadata_["v2_verdict"].astext.desc(), text("(metadata->>'v2_dot_count')::int DESC NULLS LAST"))
+    else:
+        base = base.order_by(Entity.name)
+
+    result = await db.execute(base.offset(offset).limit(limit))
+    officials = result.scalars().all()
+
+    return {
+        "officials": [
+            {
+                "name": o.name,
+                "slug": o.slug,
+                "party": (o.metadata_ or {}).get("party", ""),
+                "state": (o.metadata_ or {}).get("state", ""),
+                "chamber": (o.metadata_ or {}).get("chamber", ""),
+                "verdict": (o.metadata_ or {}).get("v2_verdict", "NORMAL"),
+                "dot_count": (o.metadata_ or {}).get("v2_dot_count", 0),
+            }
+            for o in officials
+        ],
+        "total": total,
+    }
+
+
+# ---------------------------------------------------------------------------
 # GET /v2/official/{slug}
 # ---------------------------------------------------------------------------
 
@@ -43,6 +102,14 @@ async def v2_official(slug: str, db: AsyncSession = Depends(get_db)):
     entity = (
         await db.execute(select(Entity).where(Entity.slug == slug))
     ).scalar_one_or_none()
+
+    # Try reversed slug (first-last → last-first or vice versa)
+    if (not entity or entity.entity_type != "person") and "-" in slug:
+        parts = slug.split("-")
+        reversed_slug = "-".join(parts[::-1])
+        entity = (
+            await db.execute(select(Entity).where(Entity.slug == reversed_slug))
+        ).scalar_one_or_none()
 
     if not entity or entity.entity_type != "person":
         raise HTTPException(status_code=404, detail="Official not found")

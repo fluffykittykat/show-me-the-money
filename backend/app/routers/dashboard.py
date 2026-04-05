@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import AppConfig, Entity, Relationship
+from app.models import AppConfig, Entity, MoneyTrail, Relationship
 from app.schemas import (
     ActiveBillItem,
     DashboardStats,
@@ -531,7 +531,13 @@ async def dashboard_stats(db: AsyncSession = Depends(get_db)):
         officials_count=officials,
         bills_count=bills,
         donations_total=donations_total,
-        conflicts_count=0,  # Computed later when conflict engine is fully integrated
+        conflicts_count=(
+            await db.execute(
+                select(func.count())
+                .select_from(MoneyTrail)
+                .where(MoneyTrail.verdict.in_(["OWNED", "INFLUENCED"]))
+            )
+        ).scalar() or 0,
         lobbying_count=lobbying,
     )
 
