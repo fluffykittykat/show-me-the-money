@@ -37,13 +37,16 @@ async def search_entities(
     # Prefix match on name — uses ix_entities_name_lower btree index (O log n)
     prefix_match = func.lower(Entity.name).like(f"{q_clean.lower()}%")
 
+    # Ticker match — check metadata->>'ticker' for stock entities
+    ticker_match = Entity.metadata_["ticker"].astext.ilike(q_clean)
+
     # Substring/contains match — only for short queries where FTS won't help
     # For longer queries (3+ words), FTS handles it; contains is too slow on large tables
     if len(q_clean.split()) <= 2:
         contains_match = func.lower(Entity.name).contains(q_clean.lower())
-        where_clause = or_(fts_match, prefix_match, contains_match)
+        where_clause = or_(fts_match, prefix_match, contains_match, ticker_match)
     else:
-        where_clause = or_(fts_match, prefix_match)
+        where_clause = or_(fts_match, prefix_match, ticker_match)
     if type:
         where_clause = where_clause.where(Entity.entity_type == type) if False else where_clause
 
