@@ -409,23 +409,71 @@ export default function HomePage() {
             </Link>
           </div>
           {recent_activity && recent_activity.length > 0 ? (
-            <div className="space-y-2">
-              {recent_activity.slice(0, 5).map((event: Record<string, string>) => (
-                <div key={event.id} className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3">
-                  <div className="h-2 w-2 rounded-full bg-money-gold flex-shrink-0" />
-                  <span className="text-sm text-zinc-200 flex-1">{event.headline}</span>
-                  {event.entity_slug && (
-                    <Link href={`/officials/${event.entity_slug}`} className="text-xs text-money-gold hover:underline flex-shrink-0">
-                      {event.entity_name || 'View'}
-                    </Link>
-                  )}
-                  {event.created_at && (
-                    <span className="text-[10px] text-zinc-600 flex-shrink-0">
-                      {new Date(event.created_at).toLocaleDateString()}
-                    </span>
-                  )}
-                </div>
-              ))}
+            <div className="space-y-3">
+              {recent_activity.slice(0, 5).map((event: Record<string, string>) => {
+                const typeColors: Record<string, string> = {
+                  new_trade: 'bg-emerald-500',
+                  verdict_change: 'bg-red-500',
+                  new_conflict: 'bg-orange-500',
+                  data_refresh: 'bg-blue-500',
+                  system: 'bg-zinc-500',
+                };
+                const typeBadge: Record<string, string> = {
+                  new_trade: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+                  verdict_change: 'text-red-400 bg-red-500/10 border-red-500/30',
+                  new_conflict: 'text-orange-400 bg-orange-500/10 border-orange-500/30',
+                  data_refresh: 'text-blue-400 bg-blue-500/10 border-blue-500/30',
+                  system: 'text-zinc-400 bg-zinc-500/10 border-zinc-500/30',
+                };
+                const typeLabels: Record<string, string> = {
+                  new_trade: 'Trade',
+                  verdict_change: 'Verdict',
+                  new_conflict: 'Conflict',
+                  data_refresh: 'Update',
+                  system: 'System',
+                };
+                const dotColor = typeColors[event.event_type] || 'bg-zinc-500';
+                const badge = typeBadge[event.event_type] || typeBadge.system;
+                const label = typeLabels[event.event_type] || event.event_type;
+                const isClickable = !!event.entity_slug;
+
+                const card = (
+                  <div className={`rounded-lg border border-zinc-800 bg-zinc-900 p-4 transition-colors ${isClickable ? 'hover:border-zinc-600 hover:bg-zinc-800/80 cursor-pointer' : ''}`}>
+                    <div className="flex items-start gap-3">
+                      <div className={`mt-1.5 h-2.5 w-2.5 rounded-full flex-shrink-0 ${dotColor}`} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${badge}`}>
+                            {label}
+                          </span>
+                          {event.created_at && (
+                            <span className="text-[10px] text-zinc-600">
+                              {new Date(event.created_at).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm font-medium text-zinc-100">{event.headline}</p>
+                        {event.detail && (
+                          <p className="mt-1 text-xs text-zinc-400 line-clamp-2">{event.detail}</p>
+                        )}
+                        {event.entity_name && (
+                          <span className="mt-1.5 inline-block text-xs font-medium text-money-gold">
+                            {event.entity_name} &rarr;
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+
+                return isClickable ? (
+                  <Link key={event.id} href={`/officials/${event.entity_slug}`}>
+                    {card}
+                  </Link>
+                ) : (
+                  <div key={event.id}>{card}</div>
+                );
+              })}
             </div>
           ) : (
             <div className="rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-6 text-center text-sm text-zinc-500">

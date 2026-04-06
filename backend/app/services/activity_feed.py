@@ -101,8 +101,10 @@ async def get_latest(session: AsyncSession, limit: int = 10) -> list[dict]:
             "id": str(e.id),
             "event_type": e.event_type,
             "headline": e.headline,
+            "detail": e.detail or "",
             "entity_slug": e.entity_slug,
             "entity_name": e.entity_name,
+            "metadata": e.metadata_ or {},
             "created_at": e.created_at.isoformat() if e.created_at else None,
         }
         for e in events
