@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import async_session
-from app.routers import alerts, briefings, chat, config, cross_ref, dashboard, entities, graph, hidden_connections, investigation, refresh, search, trades, v2
+from app.routers import activity, alerts, briefings, chat, config, cross_ref, dashboard, entities, graph, hidden_connections, investigation, refresh, search, trades, v2
 from app.schemas import HealthResponse, IngestionJobResponse
 from app.services.seed_service import is_database_empty, seed_database
 
@@ -94,6 +94,7 @@ class CacheMiddleware(BaseHTTPMiddleware):
 app.add_middleware(CacheMiddleware)
 
 # Include routers
+app.include_router(activity.router)
 app.include_router(alerts.router)
 app.include_router(entities.router)
 app.include_router(search.router)

@@ -1063,6 +1063,11 @@ async def v2_homepage(db: AsyncSession = Depends(get_db)):
     if story_config and story_config.updated_at:
         last_computed = story_config.updated_at.isoformat()
 
+    # --- Recent activity ---
+    from app.services.activity_feed import get_latest
+
+    recent_activity = await get_latest(db, limit=10)
+
     return V2HomepageResponse(
         top_stories=top_stories,
         stats=stats,
@@ -1070,4 +1075,5 @@ async def v2_homepage(db: AsyncSession = Depends(get_db)):
         top_influencers=top_influencers,
         revolving_door=revolving_door,
         last_computed=last_computed,
+        recent_activity=recent_activity,
     )

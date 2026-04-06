@@ -461,6 +461,7 @@ export interface V2HomepageResponse {
   top_officials: V2TopOfficial[];
   top_influencers: V2TopInfluencer[];
   revolving_door: V2RevolvingDoor[];
+  recent_activity?: Record<string, string>[];
   data_as_of?: string | null;
   fec_cycle?: string | null;
 }

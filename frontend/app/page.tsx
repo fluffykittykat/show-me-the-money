@@ -3,7 +3,7 @@
 import { useState, useEffect, FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Search, TrendingUp, Users, Shield, AlertTriangle, ArrowRight, Clock, Database } from 'lucide-react';
+import { Search, TrendingUp, Users, Shield, AlertTriangle, ArrowRight, Clock, Database, Activity } from 'lucide-react';
 import { getV2Homepage } from '@/lib/api';
 import type { V2HomepageResponse, V2StoryCard, V2TopOfficial } from '@/lib/types';
 import { formatMoney } from '@/lib/utils';
@@ -278,7 +278,7 @@ export default function HomePage() {
     );
   }
 
-  const { top_stories, stats, top_officials } = data;
+  const { top_stories, stats, top_officials, recent_activity } = data;
 
   // Sort officials by verdict severity (worst first)
   const sortedOfficials = [...top_officials].sort((a, b) => verdictSeverity(b.verdict) - verdictSeverity(a.verdict));
@@ -393,6 +393,45 @@ export default function HomePage() {
               );
             })}
           </div>
+        </section>
+
+        {/* ----------------------------------------------------------------- */}
+        {/* LATEST ACTIVITY                                                    */}
+        {/* ----------------------------------------------------------------- */}
+        <section className="mt-10">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Activity className="w-5 h-5 text-[#d4a017]" />
+              <h2 className="text-xl font-bold">Latest Activity</h2>
+            </div>
+            <Link href="/activity" className="text-xs text-money-gold hover:underline">
+              View all
+            </Link>
+          </div>
+          {recent_activity && recent_activity.length > 0 ? (
+            <div className="space-y-2">
+              {recent_activity.slice(0, 5).map((event: Record<string, string>) => (
+                <div key={event.id} className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3">
+                  <div className="h-2 w-2 rounded-full bg-money-gold flex-shrink-0" />
+                  <span className="text-sm text-zinc-200 flex-1">{event.headline}</span>
+                  {event.entity_slug && (
+                    <Link href={`/officials/${event.entity_slug}`} className="text-xs text-money-gold hover:underline flex-shrink-0">
+                      {event.entity_name || 'View'}
+                    </Link>
+                  )}
+                  {event.created_at && (
+                    <span className="text-[10px] text-zinc-600 flex-shrink-0">
+                      {new Date(event.created_at).toLocaleDateString()}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-6 text-center text-sm text-zinc-500">
+              Activity feed will populate as the system detects new trades, verdict changes, and data updates.
+            </div>
+          )}
         </section>
       </div>
     </div>

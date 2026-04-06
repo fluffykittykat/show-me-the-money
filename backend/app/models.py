@@ -323,3 +323,28 @@ class AlertSubscription(Base):
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=text("now()"),
     )
+
+
+class ActivityEvent(Base):
+    """Chronological feed of system events — trades, verdict changes, conflicts, etc."""
+    __tablename__ = "activity_events"
+    __table_args__ = (
+        Index("ix_activity_events_created_at", "created_at"),
+        Index("ix_activity_events_event_type", "event_type"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    event_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    headline: Mapped[str] = mapped_column(String(500), nullable=False)
+    detail: Mapped[Optional[str]] = mapped_column(Text)
+    entity_slug: Mapped[Optional[str]] = mapped_column(String(200))
+    entity_name: Mapped[Optional[str]] = mapped_column(String(500))
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONB, server_default=text("'{}'::jsonb"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"),
+    )
