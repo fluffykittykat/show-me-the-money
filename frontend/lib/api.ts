@@ -817,4 +817,42 @@ export async function deleteSubscription(id: string): Promise<void> {
   await apiFetch(`/alerts/subscriptions/${id}`, { method: 'DELETE' });
 }
 
+// ---------------------------------------------------------------------------
+// Activity Feed API
+// ---------------------------------------------------------------------------
+
+export interface ActivityEventItem {
+  id: string;
+  event_type: string;
+  headline: string;
+  detail: string;
+  entity_slug: string | null;
+  entity_name: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string | null;
+}
+
+export interface ActivityFeedResponse {
+  events: ActivityEventItem[];
+  total: number;
+}
+
+export async function getActivityFeed(params?: {
+  limit?: number;
+  offset?: number;
+  event_type?: string;
+  days?: number;
+}): Promise<ActivityFeedResponse> {
+  const qs = new URLSearchParams();
+  if (params?.limit) qs.set('limit', String(params.limit));
+  if (params?.offset) qs.set('offset', String(params.offset));
+  if (params?.event_type) qs.set('event_type', params.event_type);
+  if (params?.days) qs.set('days', String(params.days));
+  return apiFetch<ActivityFeedResponse>(`/activity/feed?${qs.toString()}`);
+}
+
+export async function getActivityLatest(limit = 10): Promise<ActivityEventItem[]> {
+  return apiFetch<ActivityEventItem[]>(`/activity/latest?limit=${limit}`);
+}
+
 export { ApiError };

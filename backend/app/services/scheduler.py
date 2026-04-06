@@ -159,6 +159,20 @@ async def _fetch_new_trades():
 
             logger.info("[Scheduler] %s alerts created: %d", job_id, alerts_created)
 
+            # Record activity event if new trades were found
+            if records_created > 0:
+                try:
+                    from app.services.activity_feed import record_event
+                    await record_event(
+                        session,
+                        event_type="new_trade",
+                        headline=f"{records_created} new stock trade{'s' if records_created != 1 else ''} detected",
+                        detail=f"Fetched {records_fetched} PTR filings, {records_created} new trades created, {alerts_created} alerts triggered.",
+                        metadata={"fetched": records_fetched, "created": records_created, "alerts": alerts_created},
+                    )
+                except Exception as exc:
+                    logger.warning("[Scheduler] Activity event failed: %s", exc)
+
             # Clear stale is_new flags
             from app.services.trade_alerts import clear_stale_new_flags
 
@@ -636,6 +650,22 @@ async def _run_precompute():
         logger.info("[Scheduler] Starting precompute job")
         result = await run_precompute()
         logger.info(f"[Scheduler] Precompute complete: {result}")
+
+        # Record activity event for verdict changes
+        if isinstance(result, dict) and result.get("verdict_changes", 0) > 0:
+            try:
+                from app.services.activity_feed import record_event
+                async with async_session() as session:
+                    await record_event(
+                        session,
+                        event_type="verdict_change",
+                        headline=f"{result['verdict_changes']} official verdict{'s' if result['verdict_changes'] != 1 else ''} changed",
+                        detail=str(result),
+                        metadata=result,
+                    )
+                    await session.commit()
+            except Exception:
+                pass
     except Exception as exc:
         logger.error(f"[Scheduler] precompute failed: {exc}")
 
