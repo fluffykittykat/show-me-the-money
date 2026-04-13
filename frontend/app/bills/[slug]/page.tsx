@@ -10,6 +10,7 @@ import { formatMoney } from '@/lib/utils';
 import LoadingState from '@/components/LoadingState';
 import PartyBadge from '@/components/PartyBadge';
 import AIBriefing from '@/components/AIBriefing';
+import BillExplainer from '@/components/BillExplainer';
 import PageControls from '@/components/PageControls';
 
 // ---------------------------------------------------------------------------
@@ -373,6 +374,9 @@ export default function BillPage() {
           </a>
         )}
       </div>
+
+      {/* ── Bill Explainer ──────────────────────────────────────────── */}
+      <BillExplainer explainer={data.explainer} />
 
       {/* Controls (refresh + regen briefing) */}
       <PageControls

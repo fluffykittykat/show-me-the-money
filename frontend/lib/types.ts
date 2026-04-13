@@ -371,6 +371,12 @@ export interface V2BillDataLimitations {
   [key: string]: unknown;
 }
 
+export interface V2BillExplainer {
+  what_it_does: string;
+  why_it_matters: string;
+  who_it_affects: string;
+}
+
 export interface V2BillResponse {
   entity: Entity;
   summary?: string;
@@ -381,6 +387,7 @@ export interface V2BillResponse {
   influence_signals?: V2BillInfluenceSignal[];
   sponsors: V2Sponsor[];
   briefing: string | null;
+  explainer?: V2BillExplainer | null;
   data_limitations?: V2BillDataLimitations | null;
   freshness?: {
     last_refreshed: string | null;

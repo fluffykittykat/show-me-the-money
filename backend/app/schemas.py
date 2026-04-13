@@ -618,6 +618,7 @@ class V2BillResponse(BaseModel):
     status_label: str
     sponsors: list[V2BillSponsor]
     briefing: str | None
+    explainer: dict | None = None
     summary: str | None = None
     policy_area: str | None = ""
     total_money_behind: int = 0

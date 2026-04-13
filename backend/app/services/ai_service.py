@@ -564,3 +564,78 @@ class AIBriefingService:
 
 
 ai_briefing_service = AIBriefingService()
+
+
+async def generate_bill_explainer(
+    entity: Entity,
+    session: AsyncSession,
+    force_refresh: bool = False,
+) -> dict | None:
+    """Generate a plain-English bill explainer with three sections:
+    what_it_does, why_it_matters, who_it_affects.
+
+    Cached in entity.metadata_["bill_explainer"].
+    """
+    meta = entity.metadata_ or {}
+
+    # Fast path: return cached
+    if not force_refresh:
+        cached = meta.get("bill_explainer")
+        if cached and isinstance(cached, dict):
+            return cached
+
+    # Gather inputs
+    crs = meta.get("crs_summary") or entity.summary or ""
+    policy_area = meta.get("policy_area") or ""
+    status = meta.get("status") or ""
+    bill_name = entity.name or ""
+
+    if not crs and not bill_name:
+        return None
+
+    system_prompt = (
+        "You are a nonpartisan congressional analyst who explains bills "
+        "in plain English for everyday citizens. Be concise, clear, and neutral. "
+        "Return ONLY valid JSON with exactly three keys: "
+        "what_it_does, why_it_matters, who_it_affects. "
+        "Each value should be 1-2 sentences. No markdown, no code fences."
+    )
+    data_prompt = (
+        f"Bill: {bill_name}\n"
+        f"Policy area: {policy_area}\n"
+        f"Status: {status}\n"
+        f"Official summary: {crs[:2000]}\n\n"
+        "Explain this bill in plain English."
+    )
+
+    raw = await _generate_via_claude(system_prompt, data_prompt)
+    if not raw or raw.startswith("BRIEFING GENERATION UNAVAILABLE"):
+        return None
+
+    # Parse JSON from response
+    try:
+        # Strip code fences if present
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            cleaned = "\n".join(cleaned.split("\n")[1:])
+        if cleaned.endswith("```"):
+            cleaned = cleaned.rsplit("```", 1)[0]
+        explainer = json.loads(cleaned.strip())
+        if not isinstance(explainer, dict):
+            return None
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+    # Validate expected keys
+    expected = {"what_it_does", "why_it_matters", "who_it_affects"}
+    if not expected.issubset(explainer.keys()):
+        return None
+
+    # Cache in metadata
+    try:
+        entity.metadata_ = {**meta, "bill_explainer": explainer}
+        await session.commit()
+    except Exception:
+        pass
+
+    return explainer

@@ -525,6 +525,17 @@ async def _v2_bill_inner(entity, slug: str, db):
     top_donors_across = [[name, int(amt)] for name, amt in sorted(all_donor_names.items(), key=lambda x: -x[1])[:10]]
 
     briefing = meta.get("fbi_briefing")
+    explainer = meta.get("bill_explainer")
+
+    # Generate explainer lazily on first visit
+    if not explainer or not isinstance(explainer, dict):
+        try:
+            from app.services.ai_service import generate_bill_explainer
+            explainer = await generate_bill_explainer(entity, db)
+        except Exception as e:
+            print(f"[v2] Explainer generation error for {slug}: {e}")
+            explainer = None
+
     policy_area = meta.get("policy_area") or ""
 
     # --- Percentile rank ---
@@ -591,6 +602,7 @@ async def _v2_bill_inner(entity, slug: str, db):
         status_label=status_label,
         sponsors=sponsors,
         briefing=briefing,
+        explainer=explainer,
         summary=entity.summary,
         policy_area=policy_area,
         total_money_behind=total_money_behind,
