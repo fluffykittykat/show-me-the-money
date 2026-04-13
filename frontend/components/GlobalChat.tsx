@@ -21,11 +21,24 @@ export default function GlobalChat() {
     entityName = slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   } else if (pathname.startsWith('/bills/')) {
     slug = pathname.split('/bills/')[1]?.split('/')[0]?.split('#')[0] || '';
-    entityName = `Bill ${slug}`;
+    entityName = slug ? `Bill ${slug}` : 'Bills';
+    if (!slug) slug = 'page:bills';
   } else if (pathname.startsWith('/entities/')) {
     const parts = pathname.split('/entities/')[1]?.split('/') || [];
     slug = parts[1]?.split('#')[0] || '';
     entityName = slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  } else if (pathname === '/trades' || pathname.startsWith('/trades')) {
+    slug = 'page:trades';
+    entityName = 'Stock Trades';
+  } else if (pathname === '/activity' || pathname.startsWith('/activity')) {
+    slug = 'page:activity';
+    entityName = 'Activity Feed';
+  } else if (pathname === '/alerts' || pathname.startsWith('/alerts')) {
+    slug = 'page:alerts';
+    entityName = 'Alerts';
+  } else if (pathname === '/officials') {
+    slug = 'page:officials';
+    entityName = 'Officials';
   }
 
   const triggerPageRefresh = () => {

@@ -314,13 +314,187 @@ Here's what you know:
 """
 
 
+async def _build_page_context(page_slug: str, db: AsyncSession) -> tuple[str, str] | None:
+    """Build context for non-entity pages like trades, activity, alerts."""
+    from sqlalchemy import text
+
+    page_type = page_slug.replace("page:", "")
+
+    try:
+        return await _build_page_context_inner(page_type, db)
+    except Exception as e:
+        logger.error("Page context error for %s: %s", page_type, e)
+        return f"## {page_type.title()} Page\nThe user is on the {page_type} page. Context loading failed, but you can still answer general questions about this topic.", page_type.title()
+
+
+async def _build_page_context_inner(page_type: str, db: AsyncSession) -> tuple[str, str] | None:
+    """Inner implementation for page context building."""
+    from sqlalchemy import text
+
+    if page_type == "trades":
+        from app.services.trade_alerts import get_recent_trades
+        trades_data = await get_recent_trades(db, days=365, limit=50)
+
+        context = "## Stock Trades Page\nThe user is viewing the stock trades page showing congressional stock transactions.\n\n"
+        context += f"## Recent Stock Trades ({trades_data.get('total', 0)} total in last year, showing 50 most recent)\n"
+        for t in trades_data.get("trades", []):
+            name = t.get("official_name", "")
+            slug = t.get("official_slug", "")
+            ticker = t.get("ticker", "")
+            tx_type = t.get("transaction_type", "")
+            amount = t.get("amount_label", "")
+            filed = t.get("filed_date", "")
+            flagged = " [FLAGGED]" if t.get("is_flagged") else ""
+            context += f"- {filed}: **{name}** {tx_type} {ticker} ({amount}){flagged} — /officials/{slug}\n"
+
+        # Summarize by ticker to show most-traded stocks
+        ticker_counts: dict[str, list[str]] = {}
+        for t in trades_data.get("trades", []):
+            tk = t.get("ticker", "")
+            if tk:
+                ticker_counts.setdefault(tk, []).append(t.get("official_name", ""))
+        if ticker_counts:
+            sorted_tickers = sorted(ticker_counts.items(), key=lambda x: -len(x[1]))[:15]
+            context += "\n## Most Traded Stocks (by number of transactions)\n"
+            for ticker, officials in sorted_tickers:
+                unique = list(dict.fromkeys(officials))  # preserve order, dedupe
+                context += f"- **{ticker}**: {len(officials)} transactions by {', '.join(unique[:5])}\n"
+
+        return context, "Stock Trades"
+
+    elif page_type == "activity":
+        from app.services.activity_feed import get_feed
+        feed_data = await get_feed(db, limit=30, days=30)
+        events = feed_data if isinstance(feed_data, list) else feed_data.get("events", [])
+
+        context = "## Activity Feed Page\nThe user is viewing the activity feed showing recent platform events.\n\n"
+        context += "## Recent Events (last 30 days)\n"
+        for ev in events:
+            if isinstance(ev, dict):
+                etype = ev.get("event_type", "")
+                title = ev.get("title", "")
+                desc = ev.get("description", "")[:120]
+                ts = str(ev.get("created_at", ""))[:10]
+                context += f"- [{etype}] {title}: {desc} ({ts})\n"
+
+        return context, "Activity Feed"
+
+    elif page_type == "alerts":
+        alerts_q = await db.execute(text("""
+            SELECT e.name, e.slug, r.metadata->>'ticker' as ticker,
+                   r.metadata->>'tx_type' as tx_type, r.metadata->>'tx_date' as tx_date,
+                   r.metadata->>'amount_range' as amount
+            FROM relationships r
+            JOIN entities e ON e.id = r.from_entity_id
+            WHERE r.relationship_type = 'holds_stock'
+              AND r.metadata->>'cross_ref_alert' = 'true'
+            ORDER BY r.metadata->>'tx_date' DESC
+            LIMIT 30
+        """))
+        alerts = alerts_q.all()
+
+        context = "## Alerts Page\nThe user is viewing the alerts page showing flagged trading activity and cross-reference alerts.\n\n"
+        context += "## Recent Alerts\n"
+        if alerts:
+            for a in alerts:
+                name, slug, ticker, tx_type, tx_date, amount = a
+                context += f"- {tx_date}: {name} — {tx_type} {ticker} ({amount})\n"
+        else:
+            context += "No active alerts currently.\n"
+
+        return context, "Alerts"
+
+    elif page_type == "officials":
+        officials_q = await db.execute(text("""
+            SELECT e.name, e.slug, e.metadata->>'party' as party,
+                   e.metadata->>'state' as state,
+                   e.metadata->>'v2_verdict' as verdict,
+                   e.metadata->>'v2_dot_count' as dots
+            FROM entities e
+            WHERE e.entity_type = 'person' AND e.metadata->>'bioguide_id' IS NOT NULL
+            ORDER BY (e.metadata->>'v2_dot_count')::int DESC NULLS LAST
+            LIMIT 30
+        """))
+        officials = officials_q.all()
+
+        context = "## Officials Page\nThe user is browsing the officials directory.\n\n"
+        context += "## Top Officials (by influence signals)\n"
+        for o in officials:
+            name, slug, party, state, verdict, dots = o
+            context += f"- **{name}** ({party}-{state}) — Verdict: {verdict}, {dots} dots — /officials/{slug}\n"
+
+        return context, "Officials"
+
+    elif page_type == "bills":
+        bills_q = await db.execute(text("""
+            SELECT e.name, e.slug, e.metadata->>'policy_area' as policy,
+                   e.metadata->>'status' as status,
+                   e.metadata->>'influence_percentile' as pct
+            FROM entities e
+            WHERE e.entity_type = 'bill'
+            ORDER BY e.updated_at DESC
+            LIMIT 30
+        """))
+        bills = bills_q.all()
+
+        context = "## Bills Page\nThe user is browsing the bills directory.\n\n"
+        context += "## Recent Bills\n"
+        for b in bills:
+            name, slug, policy, status, pct = b
+            pct_str = f" (top {pct}%)" if pct else ""
+            context += f"- **{name}** — {policy or 'N/A'}, {(status or '')[:50]}{pct_str} — /bills/{slug}\n"
+
+        return context, "Bills"
+
+    return None
+
+
 @router.post("", response_model=ChatResponse)
 async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
     # 1. Load entity — allow homepage/general questions without an entity
     entity = None
-    if req.slug and req.slug not in ("homepage", "general", ""):
+    page_context = None
+    if req.slug and req.slug.startswith("page:"):
+        page_context = await _build_page_context(req.slug, db)
+    elif req.slug and req.slug not in ("homepage", "general", ""):
         result = await db.execute(select(Entity).where(Entity.slug == req.slug))
         entity = result.scalar_one_or_none()
+
+    # If we have page context, use it directly
+    if page_context:
+        context, entity_name = page_context
+
+        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+            entity_name=entity_name,
+            context=context,
+        )
+
+        messages = []
+        for msg in req.history:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": req.message})
+
+        if not CHAT_API_KEY:
+            raise HTTPException(status_code=500, detail="AI service not configured")
+
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=CHAT_API_KEY)
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=2000,
+                system=system_prompt,
+                messages=messages,
+            )
+            reply = response.content[0].text if response.content else "No response."
+        except Exception as e:
+            logger.error("Chat API error: %s", e, exc_info=True)
+            raise HTTPException(status_code=500, detail=f"AI error: {e}")
+
+        return ChatResponse(reply=reply, sources=[], action_taken=None)
 
     # If no entity, build a general context with top-level stats
     if not entity:
