@@ -585,12 +585,64 @@ async def generate_bill_explainer(
             return cached
 
     # Gather inputs
-    crs = meta.get("crs_summary") or entity.summary or ""
+    crs = meta.get("crs_summary") or ""
     policy_area = meta.get("policy_area") or ""
     status = meta.get("status") or ""
     bill_name = entity.name or ""
 
-    if not crs and not bill_name:
+    # If no CRS summary, try to fetch one from Congress.gov
+    if not crs:
+        congress_api_key = os.environ.get("CONGRESS_API_KEY", "")
+        congress_num = meta.get("congress")
+        bill_number = meta.get("bill_number")
+        if congress_api_key and congress_num and bill_number:
+            try:
+                from app.services.ingestion.congress_client import CongressClient
+                origin = (meta.get("origin_chamber") or "").lower()
+                name_lower = (bill_name or "").lower()
+                if "joint resolution" in name_lower:
+                    bill_type = "hjres" if origin == "house" else "sjres"
+                elif "concurrent resolution" in name_lower:
+                    bill_type = "hconres" if origin == "house" else "sconres"
+                elif "resolution" in name_lower:
+                    bill_type = "hres" if origin == "house" else "sres"
+                elif origin == "senate":
+                    bill_type = "s"
+                else:
+                    bill_type = "hr"
+                client = CongressClient(congress_api_key)
+                crs = await client.fetch_bill_summaries(
+                    int(congress_num), bill_type, int(bill_number)
+                )
+                # Cache the CRS summary for future use
+                if crs:
+                    from sqlalchemy.orm.attributes import flag_modified
+                    meta["crs_summary"] = crs
+                    entity.metadata_ = meta
+                    flag_modified(entity, "metadata_")
+                    await session.commit()
+            except Exception as e:
+                print(f"[explainer] CRS fetch error: {e}")
+
+    # If still no CRS, try to fetch the bill's full text from Congress.gov
+    bill_text_excerpt = ""
+    if not crs:
+        full_text_url = meta.get("full_text_url", "")
+        if full_text_url:
+            try:
+                import httpx, re
+                async with httpx.AsyncClient(timeout=15) as client:
+                    resp = await client.get(full_text_url)
+                    resp.raise_for_status()
+                    # Strip HTML tags and take first 3000 chars
+                    raw_text = re.sub(r"<[^>]+>", " ", resp.text)
+                    raw_text = re.sub(r"\s+", " ", raw_text).strip()
+                    bill_text_excerpt = raw_text[:3000]
+                    print(f"[explainer] Fetched {len(bill_text_excerpt)} chars of bill text from {full_text_url}")
+            except Exception as e:
+                print(f"[explainer] Bill text fetch error: {e}")
+
+    if not bill_name:
         return None
 
     system_prompt = (
@@ -598,15 +650,24 @@ async def generate_bill_explainer(
         "in plain English for everyday citizens. Be concise, clear, and neutral. "
         "Return ONLY valid JSON with exactly three keys: "
         "what_it_does, why_it_matters, who_it_affects. "
-        "Each value should be 1-2 sentences. No markdown, no code fences."
+        "Each value should be 2-3 sentences with enough detail to be genuinely "
+        "informative. No markdown, no code fences. "
+        "IMPORTANT: Never say 'it is unclear' or 'without the full text' or "
+        "'based on the title alone'. Use the bill title, policy area, and any "
+        "available summary to give a direct, confident explanation. If a CRS "
+        "summary is not available, infer the bill's purpose from its title and "
+        "policy area — congressional bill titles are designed to be descriptive."
     )
     data_prompt = (
         f"Bill: {bill_name}\n"
         f"Policy area: {policy_area}\n"
         f"Status: {status}\n"
-        f"Official summary: {crs[:2000]}\n\n"
-        "Explain this bill in plain English."
     )
+    if crs:
+        data_prompt += f"Official summary: {crs[:2000]}\n"
+    elif bill_text_excerpt:
+        data_prompt += f"Bill text excerpt: {bill_text_excerpt[:2000]}\n"
+    data_prompt += "\nExplain this bill in plain English."
 
     raw = await _generate_via_claude(system_prompt, data_prompt)
     if not raw or raw.startswith("BRIEFING GENERATION UNAVAILABLE"):
@@ -631,9 +692,22 @@ async def generate_bill_explainer(
     if not expected.issubset(explainer.keys()):
         return None
 
+    # Reject vague/hedging explainers
+    hedge_phrases = [
+        "not clear from", "without the full text", "difficult to assess",
+        "based on its title", "provisions are not clear", "unclear what",
+    ]
+    all_text = " ".join(str(v) for v in explainer.values()).lower()
+    for phrase in hedge_phrases:
+        if phrase in all_text:
+            print(f"[explainer] REJECTED — hedge phrase found: '{phrase}'")
+            return None
+
     # Cache in metadata
     try:
+        from sqlalchemy.orm.attributes import flag_modified
         entity.metadata_ = {**meta, "bill_explainer": explainer}
+        flag_modified(entity, "metadata_")
         await session.commit()
     except Exception:
         pass

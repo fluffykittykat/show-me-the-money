@@ -14,6 +14,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.database import get_db, async_session
 from app.models import Entity, Relationship
@@ -782,12 +783,17 @@ async def refresh_entity(slug: str, db: AsyncSession = Depends(get_db)):
             except Exception:
                 pass
 
+        had_explainer = "bill_explainer" in meta
         meta.pop("fbi_briefing", None)
         meta.pop("fbi_briefing_fingerprint", None)
+        meta.pop("bill_explainer", None)
         meta["enriched_at"] = datetime.now(timezone.utc).isoformat()
         meta["last_refreshed"] = datetime.now(timezone.utc).isoformat()
         entity.metadata_ = _ascii_safe(meta)
+        flag_modified(entity, "metadata_")
         db.add(entity)
+        if had_explainer:
+            actions.append("cleared bill_explainer cache")
         actions.append("cleared briefing cache")
 
     elif entity_type == "person" and not meta.get("bioguide_id"):
