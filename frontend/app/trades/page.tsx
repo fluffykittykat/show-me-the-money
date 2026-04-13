@@ -105,12 +105,34 @@ function CrossReferenceAlert({ alert }: { alert: CrossReferenceTradeResponse }) 
   );
 }
 
+interface PersonSummary {
+  name: string;
+  slug: string;
+  tradeCount: number;
+  amounts: string[];
+  latestDate: string;
+}
+
 interface StockGroup {
   ticker: string;
   trades: TradeItem[];
-  buyers: { name: string; slug: string; amount: string; date: string }[];
-  sellers: { name: string; slug: string; amount: string; date: string }[];
+  buyers: PersonSummary[];
+  sellers: PersonSummary[];
   totalTrades: number;
+}
+
+function consolidateByPerson(trades: TradeItem[]): PersonSummary[] {
+  const byPerson: Record<string, PersonSummary> = {};
+  for (const t of trades) {
+    const key = t.official_slug;
+    if (!byPerson[key]) {
+      byPerson[key] = { name: t.official_name, slug: t.official_slug, tradeCount: 0, amounts: [], latestDate: t.filed_date };
+    }
+    byPerson[key].tradeCount++;
+    byPerson[key].amounts.push(t.amount_label);
+    if (t.filed_date > byPerson[key].latestDate) byPerson[key].latestDate = t.filed_date;
+  }
+  return Object.values(byPerson).sort((a, b) => b.tradeCount - a.tradeCount);
 }
 
 function groupTradesByStock(trades: TradeItem[]): StockGroup[] {
@@ -123,12 +145,8 @@ function groupTradesByStock(trades: TradeItem[]): StockGroup[] {
     .map(([ticker, items]) => ({
       ticker,
       trades: items,
-      buyers: items
-        .filter(t => t.transaction_type.toLowerCase() === 'purchase')
-        .map(t => ({ name: t.official_name, slug: t.official_slug, amount: t.amount_label, date: t.filed_date })),
-      sellers: items
-        .filter(t => t.transaction_type.toLowerCase() === 'sale')
-        .map(t => ({ name: t.official_name, slug: t.official_slug, amount: t.amount_label, date: t.filed_date })),
+      buyers: consolidateByPerson(items.filter(t => t.transaction_type.toLowerCase() === 'purchase')),
+      sellers: consolidateByPerson(items.filter(t => t.transaction_type.toLowerCase() === 'sale')),
       totalTrades: items.length,
     }))
     .sort((a, b) => b.totalTrades - a.totalTrades);
@@ -149,13 +167,13 @@ function StockGroupCard({ group }: { group: StockGroup }) {
             {group.buyers.length > 0 && (
               <span className="flex items-center gap-1 text-emerald-400">
                 <ArrowUpRight className="h-3.5 w-3.5" />
-                {group.buyers.length} buying
+                {group.buyers.length} {group.buyers.length === 1 ? 'buyer' : 'buyers'}
               </span>
             )}
             {group.sellers.length > 0 && (
               <span className="flex items-center gap-1 text-red-400">
                 <ArrowDownRight className="h-3.5 w-3.5" />
-                {group.sellers.length} selling
+                {group.sellers.length} {group.sellers.length === 1 ? 'seller' : 'sellers'}
               </span>
             )}
           </div>
@@ -176,14 +194,19 @@ function StockGroupCard({ group }: { group: StockGroup }) {
                 <ArrowUpRight className="h-3 w-3" /> Buying
               </h4>
               <div className="space-y-1.5">
-                {group.buyers.map((b, i) => (
-                  <div key={i} className="flex items-center justify-between rounded-md bg-zinc-950/50 px-3 py-2">
-                    <Link href={`/officials/${b.slug}`} className="text-sm font-medium text-zinc-300 hover:text-money-gold transition-colors">
-                      {b.name}
-                    </Link>
-                    <div className="flex items-center gap-3 text-xs text-zinc-500">
-                      <span className="text-emerald-400">{b.amount}</span>
-                      <span>{formatDate(b.date)}</span>
+                {group.buyers.map((b) => (
+                  <div key={b.slug} className="flex items-center justify-between rounded-md bg-zinc-950/50 px-3 py-2">
+                    <div className="min-w-0">
+                      <Link href={`/officials/${b.slug}`} className="text-sm font-medium text-zinc-300 hover:text-money-gold transition-colors">
+                        {b.name}
+                      </Link>
+                      {b.tradeCount > 1 && (
+                        <span className="ml-2 text-[10px] text-zinc-500">{b.tradeCount} trades</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-zinc-500 shrink-0">
+                      <span className="text-emerald-400">{b.amounts.length === 1 ? b.amounts[0] : b.amounts.join(', ')}</span>
+                      <span>{formatDate(b.latestDate)}</span>
                     </div>
                   </div>
                 ))}
@@ -196,14 +219,19 @@ function StockGroupCard({ group }: { group: StockGroup }) {
                 <ArrowDownRight className="h-3 w-3" /> Selling
               </h4>
               <div className="space-y-1.5">
-                {group.sellers.map((s, i) => (
-                  <div key={i} className="flex items-center justify-between rounded-md bg-zinc-950/50 px-3 py-2">
-                    <Link href={`/officials/${s.slug}`} className="text-sm font-medium text-zinc-300 hover:text-money-gold transition-colors">
-                      {s.name}
-                    </Link>
-                    <div className="flex items-center gap-3 text-xs text-zinc-500">
-                      <span className="text-red-400">{s.amount}</span>
-                      <span>{formatDate(s.date)}</span>
+                {group.sellers.map((s) => (
+                  <div key={s.slug} className="flex items-center justify-between rounded-md bg-zinc-950/50 px-3 py-2">
+                    <div className="min-w-0">
+                      <Link href={`/officials/${s.slug}`} className="text-sm font-medium text-zinc-300 hover:text-money-gold transition-colors">
+                        {s.name}
+                      </Link>
+                      {s.tradeCount > 1 && (
+                        <span className="ml-2 text-[10px] text-zinc-500">{s.tradeCount} trades</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-zinc-500 shrink-0">
+                      <span className="text-red-400">{s.amounts.length === 1 ? s.amounts[0] : s.amounts.join(', ')}</span>
+                      <span>{formatDate(s.latestDate)}</span>
                     </div>
                   </div>
                 ))}
