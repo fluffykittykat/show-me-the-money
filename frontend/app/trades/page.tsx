@@ -8,6 +8,10 @@ import {
   Users,
   ChevronDown,
   ChevronUp,
+  LayoutList,
+  BarChart3,
+  ArrowUpRight,
+  ArrowDownRight,
 } from 'lucide-react';
 import clsx from 'clsx';
 import {
@@ -101,12 +105,124 @@ function CrossReferenceAlert({ alert }: { alert: CrossReferenceTradeResponse }) 
   );
 }
 
+interface StockGroup {
+  ticker: string;
+  trades: TradeItem[];
+  buyers: { name: string; slug: string; amount: string; date: string }[];
+  sellers: { name: string; slug: string; amount: string; date: string }[];
+  totalTrades: number;
+}
+
+function groupTradesByStock(trades: TradeItem[]): StockGroup[] {
+  const grouped: Record<string, TradeItem[]> = {};
+  for (const t of trades) {
+    if (!t.ticker) continue;
+    (grouped[t.ticker] ??= []).push(t);
+  }
+  return Object.entries(grouped)
+    .map(([ticker, items]) => ({
+      ticker,
+      trades: items,
+      buyers: items
+        .filter(t => t.transaction_type.toLowerCase() === 'purchase')
+        .map(t => ({ name: t.official_name, slug: t.official_slug, amount: t.amount_label, date: t.filed_date })),
+      sellers: items
+        .filter(t => t.transaction_type.toLowerCase() === 'sale')
+        .map(t => ({ name: t.official_name, slug: t.official_slug, amount: t.amount_label, date: t.filed_date })),
+      totalTrades: items.length,
+    }))
+    .sort((a, b) => b.totalTrades - a.totalTrades);
+}
+
+function StockGroupCard({ group }: { group: StockGroup }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-3">
+            <span className="font-mono text-xl font-bold text-money-gold">{group.ticker}</span>
+            <span className="text-xs text-zinc-500">{group.totalTrades} trade{group.totalTrades !== 1 ? 's' : ''}</span>
+          </div>
+          <div className="mt-2 flex items-center gap-4 text-sm">
+            {group.buyers.length > 0 && (
+              <span className="flex items-center gap-1 text-emerald-400">
+                <ArrowUpRight className="h-3.5 w-3.5" />
+                {group.buyers.length} buying
+              </span>
+            )}
+            {group.sellers.length > 0 && (
+              <span className="flex items-center gap-1 text-red-400">
+                <ArrowDownRight className="h-3.5 w-3.5" />
+                {group.sellers.length} selling
+              </span>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="shrink-0 rounded-md p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 transition-colors"
+        >
+          {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="mt-4 space-y-3 border-t border-zinc-800 pt-3">
+          {group.buyers.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-emerald-400 mb-2 flex items-center gap-1">
+                <ArrowUpRight className="h-3 w-3" /> Buying
+              </h4>
+              <div className="space-y-1.5">
+                {group.buyers.map((b, i) => (
+                  <div key={i} className="flex items-center justify-between rounded-md bg-zinc-950/50 px-3 py-2">
+                    <Link href={`/officials/${b.slug}`} className="text-sm font-medium text-zinc-300 hover:text-money-gold transition-colors">
+                      {b.name}
+                    </Link>
+                    <div className="flex items-center gap-3 text-xs text-zinc-500">
+                      <span className="text-emerald-400">{b.amount}</span>
+                      <span>{formatDate(b.date)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {group.sellers.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-red-400 mb-2 flex items-center gap-1">
+                <ArrowDownRight className="h-3 w-3" /> Selling
+              </h4>
+              <div className="space-y-1.5">
+                {group.sellers.map((s, i) => (
+                  <div key={i} className="flex items-center justify-between rounded-md bg-zinc-950/50 px-3 py-2">
+                    <Link href={`/officials/${s.slug}`} className="text-sm font-medium text-zinc-300 hover:text-money-gold transition-colors">
+                      {s.name}
+                    </Link>
+                    <div className="flex items-center gap-3 text-xs text-zinc-500">
+                      <span className="text-red-400">{s.amount}</span>
+                      <span>{formatDate(s.date)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function TradesPage() {
   const [trades, setTrades] = useState<TradeItem[]>([]);
   const [totalTrades, setTotalTrades] = useState(0);
   const [crossRefs, setCrossRefs] = useState<CrossReferenceTradeResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [viewMode, setViewMode] = useState<'timeline' | 'grouped'>('timeline');
 
   useEffect(() => {
     async function fetchData() {
@@ -182,14 +298,42 @@ export default function TradesPage() {
             <div className="flex items-center gap-2">
               <TrendingUp className="h-5 w-5 text-money-gold" />
               <h2 className="font-mono text-lg font-bold uppercase tracking-wider text-money-gold">
-                New Movements
+                {viewMode === 'grouped' ? 'By Stock' : 'New Movements'}
               </h2>
             </div>
-            {totalTrades > 0 && (
-              <span className="text-xs text-zinc-500">
-                {totalTrades} total trade{totalTrades !== 1 ? 's' : ''}
-              </span>
-            )}
+            <div className="flex items-center gap-3">
+              {totalTrades > 0 && (
+                <span className="text-xs text-zinc-500">
+                  {totalTrades} total trade{totalTrades !== 1 ? 's' : ''}
+                </span>
+              )}
+              <div className="flex rounded-lg border border-zinc-700 bg-zinc-800/50 p-0.5">
+                <button
+                  onClick={() => setViewMode('timeline')}
+                  className={clsx(
+                    'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                    viewMode === 'timeline'
+                      ? 'bg-zinc-700 text-zinc-100'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  )}
+                >
+                  <LayoutList className="h-3.5 w-3.5" />
+                  Timeline
+                </button>
+                <button
+                  onClick={() => setViewMode('grouped')}
+                  className={clsx(
+                    'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                    viewMode === 'grouped'
+                      ? 'bg-zinc-700 text-zinc-100'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  )}
+                >
+                  <BarChart3 className="h-3.5 w-3.5" />
+                  By Stock
+                </button>
+              </div>
+            </div>
           </div>
 
           {trades.length === 0 ? (
@@ -199,10 +343,16 @@ export default function TradesPage() {
                 No recent trade disclosures found. Check back soon.
               </p>
             </div>
-          ) : (
+          ) : viewMode === 'timeline' ? (
             <div className="grid gap-4 sm:grid-cols-2">
               {trades.map((trade, i) => (
                 <TradeCard key={i} trade={trade} />
+              ))}
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {groupTradesByStock(trades).map((group) => (
+                <StockGroupCard key={group.ticker} group={group} />
               ))}
             </div>
           )}
