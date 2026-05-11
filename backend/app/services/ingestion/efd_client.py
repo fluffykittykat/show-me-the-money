@@ -119,14 +119,14 @@ class EFDClient:
                     length=length,
                 )
             except httpx.HTTPStatusError as e:
-                last_error = e
+                last_error = f"HTTP {e.response.status_code}"
                 status = e.response.status_code
                 # 4xx (except 429) are not retryable — bail immediately.
                 if 400 <= status < 500 and status != 429:
                     logger.warning(
                         "[EFDClient] non-retryable HTTP %s; aborting", status,
                     )
-                    raise EFDError(f"eFD returned HTTP {status}") from e
+                    raise EFDError(f"HTTP {status}") from e
                 wait = EFD_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
                 logger.warning(
                     "[EFDClient] HTTP %s (attempt %d/%d); retrying in %.1fs",
@@ -134,7 +134,7 @@ class EFDClient:
                 )
                 await asyncio.sleep(wait)
             except (httpx.ConnectError, httpx.ConnectTimeout, OSError) as e:
-                last_error = e
+                last_error = type(e).__name__
                 wait = EFD_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
                 logger.warning(
                     "[EFDClient] connection error (attempt %d/%d): %s; retrying in %.1fs",
@@ -142,9 +142,7 @@ class EFDClient:
                 )
                 await asyncio.sleep(wait)
 
-        raise EFDError(
-            f"Senate eFD unreachable after {EFD_MAX_RETRIES} attempts: {last_error}"
-        )
+        raise EFDError(str(last_error))
 
     async def _fetch_ptr_reports_once(
         self,

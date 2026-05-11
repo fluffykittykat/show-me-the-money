@@ -130,10 +130,23 @@ async def _fetch_new_trades():
                     session, job_id, "failed",
                     error_message=f"Senate eFD unreachable: {exc}",
                 )
-                from app.services.activity_feed import emit_job_event
-                await emit_job_event(
-                    session, job_id, "failed", error=str(exc),
+                from app.services.activity_feed import record_event
+                await record_event(
+                    session,
+                    event_type="system",
+                    headline="Senate eFD outage — trade ingestion paused",
+                    detail=(
+                        f"Senate.gov's eFD system returned {exc} after 3 retries. "
+                        "This is usually a Senate-side outage that resolves within "
+                        "a few hours. New trades will be backfilled automatically "
+                        "when the service recovers."
+                    ),
+                    metadata={
+                        "job_id": job_id, "status": "failed",
+                        "upstream_error": str(exc),
+                    },
                 )
+                await session.commit()
                 return
 
             is_backfill = last_run is None
@@ -624,16 +637,35 @@ async def _fetch_fec_updates():
                 "[Scheduler] %s %s: fetched=%d created=%d skipped_dedup=%d",
                 job_id, status, records_fetched, records_created, skipped_dedup,
             )
-            from app.services.activity_feed import emit_job_event
-            await emit_job_event(
-                session, job_id, status,
-                fetched=records_fetched, created=records_created,
-                error=error_msg,
-                detail_extra=(
-                    f"{records_fetched} fetched, {records_created} contributors, "
-                    f"{skipped_dedup} skipped (already fresh)"
-                ),
-            )
+            if aborted_rate_limit:
+                from app.services.activity_feed import record_event
+                await record_event(
+                    session,
+                    event_type="system",
+                    headline="FEC hourly quota reached — campaign finance refresh paused",
+                    detail=(
+                        f"Refreshed {records_fetched} candidates and {records_created} "
+                        f"contributors before hitting the 1000 req/hour FEC API limit. "
+                        f"Skipped {skipped_dedup} already-fresh candidates. The remainder "
+                        "will pick up on the next scheduled run."
+                    ),
+                    metadata={
+                        "job_id": job_id, "status": "failed",
+                        "fetched": records_fetched, "created": records_created,
+                        "skipped_dedup": skipped_dedup,
+                    },
+                )
+                await session.commit()
+            else:
+                from app.services.activity_feed import emit_job_event
+                await emit_job_event(
+                    session, job_id, status,
+                    fetched=records_fetched, created=records_created,
+                    detail_extra=(
+                        f"{records_fetched} fetched, {records_created} contributors, "
+                        f"{skipped_dedup} skipped (already fresh)"
+                    ),
+                )
 
         except Exception as exc:
             logger.error("[Scheduler] %s failed: %s", job_id, exc)

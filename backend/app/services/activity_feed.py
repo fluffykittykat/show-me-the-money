@@ -12,6 +12,7 @@ Event types:
 """
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -21,6 +22,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import ActivityEvent
 
 logger = logging.getLogger(__name__)
+
+# Activity events are user-facing — strip implementation noise so error
+# detail blurbs don't show raw URLs, MDN reference links, or 5-line
+# stack traces. Keep the human signal, drop the developer noise.
+_URL_RE = re.compile(r"https?://\S+")
+_MDN_RE = re.compile(
+    r"\s*For more information check:?\s*https?://\S+", re.IGNORECASE,
+)
+
+
+def _humanize_error(msg: str) -> str:
+    if not msg:
+        return ""
+    msg = _MDN_RE.sub("", msg)
+    msg = _URL_RE.sub("[link]", msg)
+    msg = re.sub(r"\s+", " ", msg).strip()
+    if len(msg) > 280:
+        msg = msg[:277] + "…"
+    return msg
 
 
 async def record_event(
@@ -92,11 +112,11 @@ async def emit_job_event(
         elif status == "failed":
             event_type = "system"
             headline = f"{label}: ingestion failed"
-            detail = error or "Job failed with no error message."
+            detail = _humanize_error(error) or "Job failed with no error message."
         elif status == "skipped":
             event_type = "system"
             headline = f"{label}: skipped"
-            detail = error or "Job skipped."
+            detail = _humanize_error(error) or "Job skipped."
         else:
             return None
 
