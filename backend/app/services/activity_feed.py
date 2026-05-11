@@ -46,6 +46,83 @@ async def record_event(
     return event
 
 
+# Human-readable label for each scheduler job. Keeps the activity feed
+# user-facing rather than logging job_id internals.
+_JOB_LABELS: dict[str, str] = {
+    "fetch_new_trades": "Stock trades",
+    "fetch_new_votes": "Congressional votes",
+    "fetch_new_bills": "Bills",
+    "fetch_fec_updates": "Campaign finance (FEC)",
+    "refresh_conflicts": "Conflict detection",
+    "weekly_lobbying": "Lobbying disclosures",
+    "weekly_top_refresh": "Top-officials refresh",
+    "precompute_verdicts": "Verdict computation",
+}
+
+
+async def emit_job_event(
+    session: AsyncSession,
+    job_id: str,
+    status: str,
+    fetched: int = 0,
+    created: int = 0,
+    detail_extra: str = "",
+    error: str = "",
+) -> ActivityEvent | None:
+    """Emit a single activity_event summarising a scheduler job run.
+
+    Called by the scheduler at the end of every job. Successful runs that
+    didn't create anything new still emit a `data_refresh` event so the
+    user-facing feed can show "system is alive, just no new data." Failures
+    emit a `system` event so the activity page surfaces broken pipelines.
+
+    Returns the created event, or None if emission failed (errors are
+    swallowed — never break the calling job).
+    """
+    try:
+        label = _JOB_LABELS.get(job_id, job_id)
+        if status == "completed":
+            if created > 0:
+                event_type = "new_trade" if job_id == "fetch_new_trades" else "data_refresh"
+                headline = f"{label}: {created} new"
+            else:
+                event_type = "data_refresh"
+                headline = f"{label}: refreshed ({fetched} checked, 0 new)"
+            detail = detail_extra or f"Fetched {fetched}, created {created}."
+        elif status == "failed":
+            event_type = "system"
+            headline = f"{label}: ingestion failed"
+            detail = error or "Job failed with no error message."
+        elif status == "skipped":
+            event_type = "system"
+            headline = f"{label}: skipped"
+            detail = error or "Job skipped."
+        else:
+            return None
+
+        event = await record_event(
+            session,
+            event_type=event_type,
+            headline=headline,
+            detail=detail,
+            metadata={
+                "job_id": job_id,
+                "status": status,
+                "fetched": fetched,
+                "created": created,
+            },
+        )
+        await session.commit()
+        return event
+    except Exception as exc:
+        logger.warning("[activity_feed] emit_job_event(%s) failed: %s", job_id, exc)
+        try:
+            await session.rollback()
+        except Exception:
+            pass
+        return None
+
+
 async def get_feed(
     session: AsyncSession,
     limit: int = 50,

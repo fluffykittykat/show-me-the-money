@@ -142,14 +142,28 @@ async def refresh_entity(slug: str, db: AsyncSession = Depends(get_db)):
                 except Exception as e:
                     actions.append(f"committee lookup failed: {e}")
 
-            # 2. Fetch ALL cycle totals
+            # 2. Fetch ALL cycle totals. Dedup-skip cycles fetched in the last
+            # 6 hours so manual refresh + weekly_top_refresh don't double-tap
+            # the same data through the FEC quota.
+            from app.services.ingestion.dedup import recently_fetched, record_fetch
+            from app.services.ingestion.fec_client import FECRateLimitError
+
             best_receipts = 0
             best_cycle = None
             all_cycles = []
             for cycle in [2026, 2024, 2022, 2020, 2018]:
-                await asyncio.sleep(DELAY)
+                dedup_key = f"{candidate_id}:{cycle}"
+                if await recently_fetched(
+                    db, "fec_candidate_totals_cycle", dedup_key, max_age_hours=6,
+                ):
+                    continue
                 try:
                     totals = await fec_client.fetch_candidate_totals(candidate_id, cycle=cycle)
+                    await record_fetch(
+                        db, entity.id,
+                        "fec_candidate_totals_cycle", dedup_key,
+                        totals or {},
+                    )
                     if totals and (totals.get("receipts", 0) or 0) > 0:
                         receipts = totals.get("receipts", 0) or 0
                         disbursements = totals.get("disbursements", 0) or 0
@@ -166,6 +180,9 @@ async def refresh_entity(slug: str, db: AsyncSession = Depends(get_db)):
                             meta["individual_contributions"] = totals.get("individual_contributions", 0)
                             meta["best_fec_cycle"] = best_cycle
                             meta["campaign_total"] = best_receipts
+                except FECRateLimitError:
+                    actions.append("FEC quota exhausted; remaining cycles skipped")
+                    break
                 except Exception:
                     continue
             if all_cycles:

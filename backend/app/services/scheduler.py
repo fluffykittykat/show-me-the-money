@@ -116,13 +116,25 @@ async def _fetch_new_trades():
 
         try:
             # Fetch PTRs via Senate eFD (efdsearch.senate.gov)
-            from app.services.ingestion.efd_client import EFDClient
+            from app.services.ingestion.efd_client import EFDClient, EFDError
 
             efd = EFDClient()
-            results = await efd.fetch_ptr_reports(
-                start_date=from_date.strftime("%m/%d/%Y"),
-                end_date=to_date.strftime("%m/%d/%Y"),
-            )
+            try:
+                results = await efd.fetch_ptr_reports(
+                    start_date=from_date.strftime("%m/%d/%Y"),
+                    end_date=to_date.strftime("%m/%d/%Y"),
+                )
+            except EFDError as exc:
+                logger.warning("[Scheduler] %s: eFD unreachable: %s", job_id, exc)
+                await _record_ingestion_job(
+                    session, job_id, "failed",
+                    error_message=f"Senate eFD unreachable: {exc}",
+                )
+                from app.services.activity_feed import emit_job_event
+                await emit_job_event(
+                    session, job_id, "failed", error=str(exc),
+                )
+                return
 
             is_backfill = last_run is None
             records_fetched = len(results)
@@ -159,20 +171,6 @@ async def _fetch_new_trades():
 
             logger.info("[Scheduler] %s alerts created: %d", job_id, alerts_created)
 
-            # Record activity event if new trades were found
-            if records_created > 0:
-                try:
-                    from app.services.activity_feed import record_event
-                    await record_event(
-                        session,
-                        event_type="new_trade",
-                        headline=f"{records_created} new stock trade{'s' if records_created != 1 else ''} detected",
-                        detail=f"Fetched {records_fetched} PTR filings, {records_created} new trades created, {alerts_created} alerts triggered.",
-                        metadata={"fetched": records_fetched, "created": records_created, "alerts": alerts_created},
-                    )
-                except Exception as exc:
-                    logger.warning("[Scheduler] Activity event failed: %s", exc)
-
             # Clear stale is_new flags
             from app.services.trade_alerts import clear_stale_new_flags
 
@@ -189,11 +187,23 @@ async def _fetch_new_trades():
                 job_id, records_fetched, records_created,
             )
 
+            from app.services.activity_feed import emit_job_event
+            await emit_job_event(
+                session, job_id, "completed",
+                fetched=records_fetched, created=records_created,
+                detail_extra=(
+                    f"Fetched {records_fetched} PTR filings, "
+                    f"{records_created} new trades, {alerts_created} alerts."
+                ),
+            )
+
         except Exception as exc:
             logger.error("[Scheduler] %s failed: %s", job_id, exc)
             await _record_ingestion_job(
                 session, job_id, "failed", error_message=str(exc)
             )
+            from app.services.activity_feed import emit_job_event
+            await emit_job_event(session, job_id, "failed", error=str(exc))
 
 
 async def _process_ptr_record(session, record: dict):
@@ -402,12 +412,19 @@ async def _fetch_new_votes():
                 "[Scheduler] %s complete: fetched=%d, created=%d",
                 job_id, records_fetched, records_created,
             )
+            from app.services.activity_feed import emit_job_event
+            await emit_job_event(
+                session, job_id, "completed",
+                fetched=records_fetched, created=records_created,
+            )
 
         except Exception as exc:
             logger.error("[Scheduler] %s failed: %s", job_id, exc)
             await _record_ingestion_job(
                 session, job_id, "failed", error_message=str(exc)
             )
+            from app.services.activity_feed import emit_job_event
+            await emit_job_event(session, job_id, "failed", error=str(exc))
 
 
 async def _fetch_new_bills():
@@ -473,22 +490,40 @@ async def _fetch_new_bills():
                 records_created=records_created,
             )
             logger.info("[Scheduler] %s complete: fetched=%d", job_id, records_fetched)
+            from app.services.activity_feed import emit_job_event
+            await emit_job_event(
+                session, job_id, "completed",
+                fetched=records_fetched, created=records_created,
+            )
 
         except Exception as exc:
             logger.error("[Scheduler] %s failed: %s", job_id, exc)
             await _record_ingestion_job(
                 session, job_id, "failed", error_message=str(exc)
             )
+            from app.services.activity_feed import emit_job_event
+            await emit_job_event(session, job_id, "failed", error=str(exc))
 
 
 async def _fetch_fec_updates():
-    """Check FEC for new filings."""
+    """Check FEC for new filings.
+
+    Uses SmartRateLimiter (token bucket) for global throttling and the
+    dedup helper to skip candidates fetched in the last 24h. On 429,
+    aborts the run cleanly — the next scheduled run picks up where we
+    left off (skipped candidates won't be re-attempted because they're
+    still inside the dedup window).
+    """
     job_id = "fetch_fec_updates"
     logger.info("[Scheduler] Running %s", job_id)
+
+    DEDUP_HOURS = 24
 
     async with async_session() as session:
         records_fetched = 0
         records_created = 0
+        skipped_dedup = 0
+        aborted_rate_limit = False
 
         try:
             from app.services.config_service import get_config_value
@@ -500,25 +535,29 @@ async def _fetch_fec_updates():
                     session, job_id, "skipped",
                     error_message="No FEC_API_KEY configured",
                 )
+                from app.services.activity_feed import emit_job_event
+                await emit_job_event(
+                    session, job_id, "skipped",
+                    error="No FEC_API_KEY configured",
+                )
                 return
 
-            import httpx
-            from app.services.ingestion.fec_client import FECClient
+            from app.services.ingestion.fec_client import (
+                FECClient,
+                FECError,
+                FECRateLimitError,
+            )
+            from app.services.ingestion.dedup import recently_fetched, record_fetch
             from sqlalchemy import select
 
             fec = FECClient(api_key)
 
-            # Get officials with FEC candidate IDs
             stmt = select(Entity).where(
                 Entity.entity_type == "person",
                 Entity.metadata_["fec_candidate_id"].astext.isnot(None),
             )
             result = await session.execute(stmt)
             officials = result.scalars().all()
-
-            import asyncio
-
-            DELAY_BETWEEN_OFFICIALS = 2  # seconds — FEC rate limit is ~1000 req/hr
 
             for idx, official in enumerate(officials, 1):
                 meta = official.metadata_ or {}
@@ -527,49 +566,82 @@ async def _fetch_fec_updates():
                 if not candidate_id:
                     continue
 
+                # Skip candidates we already refreshed inside the dedup window.
+                if await recently_fetched(
+                    session, "fec_candidate_totals", candidate_id, DEDUP_HOURS,
+                ):
+                    skipped_dedup += 1
+                    continue
+
                 try:
-                    await asyncio.sleep(DELAY_BETWEEN_OFFICIALS)
                     totals = await fec.fetch_candidate_totals(candidate_id)
                     if totals:
                         records_fetched += 1
-
-                    if committee_id:
-                        await asyncio.sleep(DELAY_BETWEEN_OFFICIALS)
-                        contributors = await fec.fetch_top_contributors(
-                            committee_id
+                        await record_fetch(
+                            session, official.id,
+                            "fec_candidate_totals", candidate_id, totals,
                         )
+
+                    if committee_id and not await recently_fetched(
+                        session, "fec_top_contributors", committee_id, DEDUP_HOURS,
+                    ):
+                        contributors = await fec.fetch_top_contributors(committee_id)
                         records_fetched += len(contributors)
                         records_created += len(contributors)
+                        await record_fetch(
+                            session, official.id,
+                            "fec_top_contributors", committee_id,
+                            {"count": len(contributors)},
+                        )
 
-                except httpx.HTTPStatusError as exc:
-                    if exc.response.status_code == 429:
-                        logger.warning(
-                            "[Scheduler] FEC rate limited at official %d/%d, backing off 60s",
-                            idx, len(officials),
-                        )
-                        await asyncio.sleep(60)
-                    else:
-                        logger.warning(
-                            "Failed to fetch FEC data for %s: %s", candidate_id, exc
-                        )
-                except Exception as exc:
+                    await session.commit()
+
+                except FECRateLimitError as exc:
                     logger.warning(
-                        "Failed to fetch FEC data for %s: %s", candidate_id, exc
+                        "[Scheduler] FEC rate-limited at %d/%d — aborting run, "
+                        "next scheduled run resumes from dedup state",
+                        idx, len(officials),
                     )
+                    aborted_rate_limit = True
+                    await session.rollback()
+                    break
+                except FECError as exc:
+                    logger.warning(
+                        "Failed to fetch FEC data for %s: %s", candidate_id, exc,
+                    )
+                    await session.rollback()
 
             await _set_last_run(session, job_id)
+            status = "completed" if not aborted_rate_limit else "failed"
+            error_msg = "FEC quota exhausted; aborted early" if aborted_rate_limit else ""
             await _record_ingestion_job(
-                session, job_id, "completed",
+                session, job_id, status,
                 records_fetched=records_fetched,
                 records_created=records_created,
+                error_message=error_msg,
             )
-            logger.info("[Scheduler] %s complete: fetched=%d", job_id, records_fetched)
+            logger.info(
+                "[Scheduler] %s %s: fetched=%d created=%d skipped_dedup=%d",
+                job_id, status, records_fetched, records_created, skipped_dedup,
+            )
+            from app.services.activity_feed import emit_job_event
+            await emit_job_event(
+                session, job_id, status,
+                fetched=records_fetched, created=records_created,
+                error=error_msg,
+                detail_extra=(
+                    f"{records_fetched} fetched, {records_created} contributors, "
+                    f"{skipped_dedup} skipped (already fresh)"
+                ),
+            )
 
         except Exception as exc:
             logger.error("[Scheduler] %s failed: %s", job_id, exc)
             await _record_ingestion_job(
                 session, job_id, "failed", error_message=str(exc)
             )
+            from app.services.activity_feed import emit_job_event
+            await emit_job_event(session, job_id, "failed", error=str(exc))
 
 
 async def _refresh_conflicts():
@@ -607,12 +679,19 @@ async def _refresh_conflicts():
                 "[Scheduler] %s complete: processed %d officials",
                 job_id, records_processed,
             )
+            from app.services.activity_feed import emit_job_event
+            await emit_job_event(
+                session, job_id, "completed",
+                fetched=records_processed, created=0,
+            )
 
         except Exception as exc:
             logger.error("[Scheduler] %s failed: %s", job_id, exc)
             await _record_ingestion_job(
                 session, job_id, "failed", error_message=str(exc)
             )
+            from app.services.activity_feed import emit_job_event
+            await emit_job_event(session, job_id, "failed", error=str(exc))
 
 
 async def _weekly_lobbying():
@@ -635,39 +714,63 @@ async def _weekly_lobbying():
             await _set_last_run(session, job_id)
             await _record_ingestion_job(session, job_id, "completed")
             logger.info("[Scheduler] %s complete", job_id)
+            from app.services.activity_feed import emit_job_event
+            await emit_job_event(session, job_id, "completed")
 
         except Exception as exc:
             logger.error("[Scheduler] %s failed: %s", job_id, exc)
             await _record_ingestion_job(
                 session, job_id, "failed", error_message=str(exc)
             )
+            from app.services.activity_feed import emit_job_event
+            await emit_job_event(session, job_id, "failed", error=str(exc))
 
 
 async def _run_precompute():
     """Re-compute verdicts + briefings for all officials."""
+    job_id = "precompute_verdicts"
     try:
         from app.services.precompute import run_precompute
         logger.info("[Scheduler] Starting precompute job")
         result = await run_precompute()
-        logger.info(f"[Scheduler] Precompute complete: {result}")
+        logger.info("[Scheduler] Precompute complete: %s", result.get("summary"))
 
-        # Record activity event for verdict changes
-        if isinstance(result, dict) and result.get("verdict_changes", 0) > 0:
-            try:
+        verdict_changes = result.get("verdict_changes", 0)
+        async with async_session() as session:
+            if verdict_changes > 0:
+                # Specific high-value event for verdict changes.
                 from app.services.activity_feed import record_event
-                async with async_session() as session:
-                    await record_event(
-                        session,
-                        event_type="verdict_change",
-                        headline=f"{result['verdict_changes']} official verdict{'s' if result['verdict_changes'] != 1 else ''} changed",
-                        detail=str(result),
-                        metadata=result,
-                    )
-                    await session.commit()
-            except Exception:
-                pass
+                await record_event(
+                    session,
+                    event_type="verdict_change",
+                    headline=(
+                        f"{verdict_changes} official verdict"
+                        f"{'s' if verdict_changes != 1 else ''} changed"
+                    ),
+                    detail=result.get("summary", ""),
+                    metadata=result,
+                )
+                await session.commit()
+
+            # Always emit a job-completion event so the activity feed shows
+            # the precompute heartbeat.
+            from app.services.activity_feed import emit_job_event
+            await emit_job_event(
+                session, job_id, "completed",
+                fetched=result.get("total", 0),
+                created=verdict_changes,
+                detail_extra=result.get("summary", ""),
+            )
     except Exception as exc:
-        logger.error(f"[Scheduler] precompute failed: {exc}")
+        logger.error("[Scheduler] precompute failed: %s", exc)
+        try:
+            async with async_session() as session:
+                from app.services.activity_feed import emit_job_event
+                await emit_job_event(
+                    session, job_id, "failed", error=str(exc),
+                )
+        except Exception:
+            pass
 
 
 async def _weekly_top_refresh():
@@ -747,12 +850,20 @@ async def _weekly_top_refresh():
                 "[Scheduler] %s complete: %d/%d refreshed, %d failed",
                 job_id, success, len(top_politicians), failed,
             )
+            from app.services.activity_feed import emit_job_event
+            await emit_job_event(
+                session, job_id, "completed",
+                fetched=len(top_politicians), created=success,
+                detail_extra=f"{success}/{len(top_politicians)} refreshed, {failed} failed",
+            )
 
         except Exception as exc:
             logger.error("[Scheduler] %s failed: %s", job_id, exc)
             await _record_ingestion_job(
                 session, job_id, "failed", error_message=str(exc),
             )
+            from app.services.activity_feed import emit_job_event
+            await emit_job_event(session, job_id, "failed", error=str(exc))
 
 
 # ---------------------------------------------------------------------------

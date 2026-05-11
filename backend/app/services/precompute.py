@@ -302,8 +302,12 @@ async def _build_story_feed(session: AsyncSession) -> list[dict]:
     return stories
 
 
-async def run_precompute(force: bool = False) -> str:
+async def run_precompute(force: bool = False) -> dict:
     """Pre-compute verdicts + briefings for all officials.
+
+    Returns a dict so callers (notably the scheduler) can emit activity
+    events based on what changed. Keys: processed, total, errors, verdict_changes,
+    summary.
 
     Steps:
     1. Load all officials with bioguide_id
@@ -346,6 +350,7 @@ async def run_precompute(force: bool = False) -> str:
 
         errors: list[dict] = []
         processed = 0
+        verdict_changes = 0
 
         for i, official in enumerate(officials, 1):
             try:
@@ -379,6 +384,9 @@ async def run_precompute(force: bool = False) -> str:
                 # ── Step 4: Compute overall verdict ──────────────────
                 overall_verdict, total_dots = compute_overall_verdict(trails)
                 meta = dict(official.metadata_ or {})
+                prior_verdict = meta.get("v2_verdict")
+                if prior_verdict and prior_verdict != overall_verdict:
+                    verdict_changes += 1
                 meta["v2_verdict"] = overall_verdict
                 meta["v2_dot_count"] = total_dots
                 meta["last_refreshed"] = datetime.now(timezone.utc).isoformat()
@@ -457,7 +465,13 @@ async def run_precompute(force: bool = False) -> str:
 
         summary = (
             f"Precompute complete: {processed}/{total} officials, "
-            f"{len(errors)} errors"
+            f"{len(errors)} errors, {verdict_changes} verdict changes"
         )
         logger.info(summary)
-        return summary
+        return {
+            "processed": processed,
+            "total": total,
+            "errors": len(errors),
+            "verdict_changes": verdict_changes,
+            "summary": summary,
+        }

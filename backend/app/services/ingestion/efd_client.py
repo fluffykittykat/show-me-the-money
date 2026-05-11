@@ -14,11 +14,14 @@ Report type codes:
   13 = Amendment
 """
 
+import asyncio
 import json
 import logging
 import re
 
 import httpx
+
+from app.services.rate_limiter import get_rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +30,17 @@ EFD_HOME = f"{EFD_BASE}/search/home/"
 EFD_SEARCH = f"{EFD_BASE}/search/"
 EFD_DATA = f"{EFD_BASE}/search/report/data/"
 
+# Senate eFD is fragile and intermittently returns 503 during maintenance.
+# We retry up-to 3 times with exponential backoff; if all attempts fail we
+# raise so the caller can record a failed ingestion job instead of silently
+# returning an empty list and pretending success.
+EFD_MAX_RETRIES = 3
+EFD_BACKOFF_BASE_SECONDS = 2.0
+
+
+class EFDError(Exception):
+    """Raised when Senate eFD is persistently unreachable after retries."""
+
 
 class EFDClient:
     """Fetches Senate Electronic Financial Disclosure data and voting records."""
@@ -34,6 +48,7 @@ class EFDClient:
     def __init__(self):
         self.congress_base_url = "https://api.congress.gov/v3"
         self.timeout = 30.0
+        self._limiter = get_rate_limiter()
 
     async def _get_efd_session(self, client: httpx.AsyncClient) -> str | None:
         """Establish an eFD session by accepting the prohibition agreement.
@@ -87,25 +102,68 @@ class EFDClient:
     ) -> list[dict]:
         """Fetch Periodic Transaction Reports from Senate eFD.
 
-        Args:
-            start_date: MM/DD/YYYY format
-            end_date: MM/DD/YYYY format
-            last_name: Senator last name filter
-            first_name: Senator first name filter
-            state: Two-letter state code filter
-            length: Number of results to fetch (max per request)
-
-        Returns:
-            List of PTR records with fields: first_name, last_name, report_type,
-            date_received, report_url
+        Retries up to EFD_MAX_RETRIES with exponential backoff on transient
+        failures (5xx, connection errors). Raises EFDError if all attempts fail
+        so the scheduler records the run as failed instead of silently treating
+        an empty result as success.
         """
-        try:
+        last_error: Exception | None = None
+        for attempt in range(1, EFD_MAX_RETRIES + 1):
+            try:
+                return await self._fetch_ptr_reports_once(
+                    start_date=start_date,
+                    end_date=end_date,
+                    last_name=last_name,
+                    first_name=first_name,
+                    state=state,
+                    length=length,
+                )
+            except httpx.HTTPStatusError as e:
+                last_error = e
+                status = e.response.status_code
+                # 4xx (except 429) are not retryable — bail immediately.
+                if 400 <= status < 500 and status != 429:
+                    logger.warning(
+                        "[EFDClient] non-retryable HTTP %s; aborting", status,
+                    )
+                    raise EFDError(f"eFD returned HTTP {status}") from e
+                wait = EFD_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
+                logger.warning(
+                    "[EFDClient] HTTP %s (attempt %d/%d); retrying in %.1fs",
+                    status, attempt, EFD_MAX_RETRIES, wait,
+                )
+                await asyncio.sleep(wait)
+            except (httpx.ConnectError, httpx.ConnectTimeout, OSError) as e:
+                last_error = e
+                wait = EFD_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
+                logger.warning(
+                    "[EFDClient] connection error (attempt %d/%d): %s; retrying in %.1fs",
+                    attempt, EFD_MAX_RETRIES, e, wait,
+                )
+                await asyncio.sleep(wait)
+
+        raise EFDError(
+            f"Senate eFD unreachable after {EFD_MAX_RETRIES} attempts: {last_error}"
+        )
+
+    async def _fetch_ptr_reports_once(
+        self,
+        start_date: str,
+        end_date: str,
+        last_name: str,
+        first_name: str,
+        state: str,
+        length: int,
+    ) -> list[dict]:
+        """Single attempt — caller (`fetch_ptr_reports`) handles retries."""
+        async with self._limiter.acquire("senate_efd"):
             async with httpx.AsyncClient(
                 timeout=self.timeout, follow_redirects=True
             ) as client:
                 csrf = await self._get_efd_session(client)
                 if not csrf:
-                    return []
+                    # Session establishment failed — treat as retryable.
+                    raise httpx.ConnectError("could not establish eFD session")
 
                 resp = await client.post(
                     EFD_DATA,
@@ -131,35 +189,23 @@ class EFDClient:
                 resp.raise_for_status()
                 data = resp.json()
 
-                records = []
-                for row in data.get("data", []):
-                    # DataTables returns rows as lists of HTML strings
-                    if isinstance(row, list) and len(row) >= 5:
-                        # Parse HTML fragments
-                        name_parts = re.sub(r"<[^>]+>", "", row[0]).strip().split(", ")
-                        records.append({
-                            "last_name": name_parts[0] if name_parts else "",
-                            "first_name": name_parts[1] if len(name_parts) > 1 else "",
-                            "office": re.sub(r"<[^>]+>", "", row[1]).strip(),
-                            "report_type": re.sub(r"<[^>]+>", "", row[2]).strip(),
-                            "date_received": re.sub(r"<[^>]+>", "", row[3]).strip(),
-                            "report_url": _extract_href(row[4]),
-                        })
-                    elif isinstance(row, dict):
-                        records.append(row)
+        records = []
+        for row in data.get("data", []):
+            if isinstance(row, list) and len(row) >= 5:
+                name_parts = re.sub(r"<[^>]+>", "", row[0]).strip().split(", ")
+                records.append({
+                    "last_name": name_parts[0] if name_parts else "",
+                    "first_name": name_parts[1] if len(name_parts) > 1 else "",
+                    "office": re.sub(r"<[^>]+>", "", row[1]).strip(),
+                    "report_type": re.sub(r"<[^>]+>", "", row[2]).strip(),
+                    "date_received": re.sub(r"<[^>]+>", "", row[3]).strip(),
+                    "report_url": _extract_href(row[4]),
+                })
+            elif isinstance(row, dict):
+                records.append(row)
 
-                logger.info("[EFDClient] Fetched %d PTR records", len(records))
-                return records
-
-        except httpx.HTTPStatusError as e:
-            logger.warning("[EFDClient] HTTP error fetching PTRs: %s", e.response.status_code)
-            return []
-        except (httpx.ConnectError, httpx.ConnectTimeout, OSError) as e:
-            logger.warning("[EFDClient] Connection error fetching PTRs: %s", e)
-            return []
-        except Exception as e:
-            logger.warning("[EFDClient] Unexpected error fetching PTRs: %s", e)
-            return []
+        logger.info("[EFDClient] Fetched %d PTR records", len(records))
+        return records
 
     async def fetch_financial_disclosures(self, senator_name: str = "Fetterman") -> dict:
         """Fetch financial disclosure filings from the Senate eFD system.

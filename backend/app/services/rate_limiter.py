@@ -16,10 +16,13 @@ class SmartRateLimiter:
             response = await client.get(url)
     """
 
+    # FEC: documented limit is 1000/hour with API key. Leave headroom for ad-hoc
+    # /refresh/{slug} calls that fire alongside the scheduler.
+    # senate_efd: site has no published limit but is fragile — keep low + small burst.
     LIMITS = {
         "congress_gov": {"calls_per_hour": 5000, "burst": 10},
-        "fec": {"calls_per_hour": 10000, "burst": 20},
-        "senate_efd": {"calls_per_hour": 1000, "burst": 5},
+        "fec": {"calls_per_hour": 900, "burst": 5},
+        "senate_efd": {"calls_per_hour": 300, "burst": 2},
         "lda": {"calls_per_hour": 500, "burst": 3},
     }
 
@@ -108,3 +111,14 @@ class SmartRateLimiter:
             self._last_refill[api_name] = time.monotonic()
             self._call_counts[api_name] = 0
             self._total_wait_time[api_name] = 0.0
+
+
+_shared: SmartRateLimiter | None = None
+
+
+def get_rate_limiter() -> SmartRateLimiter:
+    """Process-wide shared rate limiter. All ingestion clients should use this."""
+    global _shared
+    if _shared is None:
+        _shared = SmartRateLimiter()
+    return _shared
