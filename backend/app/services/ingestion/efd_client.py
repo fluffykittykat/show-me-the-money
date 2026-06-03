@@ -212,14 +212,23 @@ class EFDClient:
         records = []
         for row in data.get("data", []):
             if isinstance(row, list) and len(row) >= 5:
-                name_parts = re.sub(r"<[^>]+>", "", row[0]).strip().split(", ")
+                # eFD DataTables column layout (as of ~May 2026):
+                #   [0] first name          e.g. "Sheldon"
+                #   [1] last name           e.g. "Whitehouse"
+                #   [2] "Last, First (Office)" e.g. "Whitehouse, Sheldon (Senator)"
+                #   [3] <a href="/search/view/ptr/{uuid}/">Periodic Transaction
+                #        Report for {date}</a>
+                #   [4] date received       e.g. "06/02/2026"
+                first_name = _strip_tags(row[0])
+                last_name = _strip_tags(row[1])
+                office_match = re.search(r"\(([^)]+)\)", _strip_tags(row[2]))
                 records.append({
-                    "last_name": name_parts[0] if name_parts else "",
-                    "first_name": name_parts[1] if len(name_parts) > 1 else "",
-                    "office": re.sub(r"<[^>]+>", "", row[1]).strip(),
-                    "report_type": re.sub(r"<[^>]+>", "", row[2]).strip(),
-                    "date_received": re.sub(r"<[^>]+>", "", row[3]).strip(),
-                    "report_url": _extract_href(row[4]),
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "office": office_match.group(1) if office_match else "",
+                    "report_type": _strip_tags(row[3]),
+                    "date_received": _strip_tags(row[4]),
+                    "report_url": _extract_href(row[3]),
                 })
             elif isinstance(row, dict):
                 records.append(row)
@@ -333,6 +342,11 @@ class EFDClient:
         logger.info("[EFDClient] Data written to %s", output_path)
 
         return result
+
+
+def _strip_tags(html: str) -> str:
+    """Strip HTML tags and surrounding whitespace from a cell value."""
+    return re.sub(r"<[^>]+>", "", str(html)).strip()
 
 
 def _extract_href(html: str) -> str:
