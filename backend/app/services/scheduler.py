@@ -153,7 +153,18 @@ async def _fetch_new_trades():
             records_fetched = len(results)
             alerts_created = 0
             for record in results:
-                rel, pattern = await _process_ptr_record(session, record)
+                try:
+                    rel, pattern = await _process_ptr_record(session, record)
+                except Exception as exc:
+                    # One malformed record must not abort the whole batch.
+                    logger.warning(
+                        "[Scheduler] %s: skipping record (%s %s): %s",
+                        job_id,
+                        record.get("first_name", ""),
+                        record.get("last_name", ""),
+                        exc,
+                    )
+                    continue
                 if rel:
                     records_created += 1
                     # Create trade alert
@@ -260,7 +271,10 @@ async def _process_ptr_record(session, record: dict):
                 Entity.entity_type == "person",
             )
         )
-        official = result.scalar_one_or_none()
+        # A partial name match can legitimately return several people
+        # (e.g. two senators sharing a surname); take the first rather
+        # than crashing the whole batch on MultipleResultsFound.
+        official = result.scalars().first()
 
     if not official:
         logger.debug("No entity found for senator: %s", senator_name)
