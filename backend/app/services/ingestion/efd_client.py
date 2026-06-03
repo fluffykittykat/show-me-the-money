@@ -42,6 +42,24 @@ class EFDError(Exception):
     """Raised when Senate eFD is persistently unreachable after retries."""
 
 
+# As of ~May 2026 the eFD DataTables endpoint rejects bare `MM/DD/YYYY` date
+# filters with HTTP 503 — it now requires a `HH:MM:SS` time component. Bare
+# dates and empty strings both 503; only `MM/DD/YYYY HH:MM:SS` returns data.
+_DATE_ONLY_RE = re.compile(r"^\d{2}/\d{2}/\d{4}$")
+
+
+def _normalize_efd_date(value: str, *, end: bool) -> str:
+    """Append the time component eFD now requires to a `MM/DD/YYYY` date.
+
+    `end=True` uses end-of-day so the range is inclusive of the final date.
+    Values that already include a time, or that aren't bare dates, pass through
+    unchanged so callers retain full control when they need it.
+    """
+    if value and _DATE_ONLY_RE.match(value):
+        return f"{value} 23:59:59" if end else f"{value} 00:00:00"
+    return value
+
+
 class EFDClient:
     """Fetches Senate Electronic Financial Disclosure data and voting records."""
 
@@ -171,8 +189,12 @@ class EFDClient:
                         "length": str(length),
                         "report_types": "[11]",  # PTR
                         "filer_types": "[]",
-                        "submitted_start_date": start_date,
-                        "submitted_end_date": end_date,
+                        "submitted_start_date": _normalize_efd_date(
+                            start_date, end=False
+                        ),
+                        "submitted_end_date": _normalize_efd_date(
+                            end_date, end=True
+                        ),
                         "candidate_state": "",
                         "senator_state": state,
                         "first_name": first_name,
